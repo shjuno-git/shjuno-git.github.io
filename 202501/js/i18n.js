@@ -1,0 +1,121 @@
+// 多言語辞書。lang を切り替えると t() の返す文字列が変わる。
+const I18N = {
+	ja: {
+		pageTitle: "５円はスルー、ボールは打つ！",
+		titleLogoLine1: "５円はスルー",
+		titleLogoLine2: "　ボールは打つ",
+		intro: "時は元旦…\n野球部の練習中に初詣が始まった！\n\n５円玉は見逃して、ボールは打ち返そう！\n\n真芯で捉えて目指せホームラン！",
+		ruleHeading: "あそびかた",
+		tapHint: "画面をタップ／クリックしてバットを振ろう！",
+		ruleNgLabel: "５円玉は\n打っちゃダメ！",
+		ruleOkLabel: "ボールを\n打ち返そう！",
+		startBtn: "スタート",
+		langBtn: "English",
+		scoreLabel: "御利益:",
+		scoreSuffix: " pts",
+		goenComboFmt: (n) => `お賽銭ｺﾝﾎﾞ：${n}`,
+		goenComboMaxFmt: (n) => `MAXお賽銭ｺﾝﾎﾞ：${n}`,
+		homerunCountFmt: (n) => `ﾎｰﾑﾗﾝ：${n}`,
+		bonusAppear: "ボーナス出現",
+		hitFmt: (n) => `ヒット！ +${n}`,
+		homerunFmt: (n) => `ホームラン！ +${n}`,
+		osaisenFmt: (n) => `お賽銭 +${n}`,
+		bonusGetFmt: (n) => `ボーナス！ +${n}`,
+		penaltyFmt: (n) => `罰当たり… -${n}`,
+		rareGoenBonusFmt: (n) => `御利益スルー！ +${n}`,
+		missPanelHeading: "最後の打席",
+		retryBtn: "もう一度",
+		mameChishikiHeading: "＜まめちしき＞",
+		nextValueFmt: (n) => `あと${n}Pで運勢アップの予感…！`,
+		nextValueMax: "最強の運勢に幸あれ…！",
+		labels: { negai: "願事", ryoko: "旅行", yamai: "病気", study: "学問", usmno: "失物" },
+		negai: ['成就', '大成', '貫徹', '奏功'],
+		ryoko: ['快適', '楽々', '沖縄', 'ハワイ'],
+		yamai: ['治る', '消滅', '中二病', '反抗期'],
+		study: ['絶好調', '忍耐', '良好', '算数'],
+		usmno: ['出る', '出そう', '出た', 'メガネ'],
+		mamegoto: [
+			'ヒットゾーンとボールが中心で\n重なるとホームラン、高得点だ！',
+			'５円玉を５回連続スルーするごとに\nボーナス出現のチャンス！',
+			'ヒットゾーンの上段だと左側、\n下段だと右側へ打ち返す！',
+			'５円玉の連続スルーを継続すれば、\nもらえる御利益Ｐが増える！',
+			'色のついたボールは魔球、\n変化が大きく打ちづらい！',
+			'画面上のボーナスが少ないほど、\nボーナスは出現しやすい！'
+		],
+		unsei: [
+			{ max: 50, name: "豆吉", text: "運気が集まっている！" },
+			{ max: 500, name: "小吉", text: "小さい幸、見つけた！" },
+			{ max: 1000, name: "蛇吉", text: "のびつづけている！" },
+			{ max: 1500, name: "吉", text: "誰よりも吉と言える！" },
+			{ max: 2000, name: "猫吉", text: "今なら猫になれる！" },
+			{ max: 2500, name: "大吉", text: "君はビッグになれる！" },
+			{ max: 3000, name: "夢吉", text: "どんな夢でも叶う！" },
+			{ max: Infinity, name: "最強", text: "全てを手に入れた！" },
+		],
+	},
+	en: {
+		pageTitle: "Skip the Coin, Hit the Ball!",
+		titleLogoLine1: "Skip the Coin",
+		titleLogoLine2: "  Hit the Ball",
+		intro: "New Year's Day...\nShrine visitors crash batting practice!\n\nLet the coins pass, and hit the balls back!\n\nCatch it dead center for a home run!",
+		ruleHeading: "How to Play",
+		tapHint: "Tap / click the screen to swing the bat!",
+		ruleNgLabel: "Don't hit\nthe coin!",
+		ruleOkLabel: "DO hit\nthe ball!",
+		startBtn: "START",
+		langBtn: "日本語",
+		scoreLabel: "Blessing:",
+		scoreSuffix: " pts",
+		goenComboFmt: (n) => `Offering Combo: ${n}`,
+		goenComboMaxFmt: (n) => `MAX Combo: ${n}`,
+		homerunCountFmt: (n) => `Home Runs: ${n}`,
+		bonusAppear: "Bonus Appeared",
+		hitFmt: (n) => `HIT! +${n}`,
+		homerunFmt: (n) => `HOME RUN! +${n}`,
+		osaisenFmt: (n) => `Offering +${n}`,
+		bonusGetFmt: (n) => `BONUS! +${n}`,
+		penaltyFmt: (n) => `Sacrilege... -${n}`,
+		rareGoenBonusFmt: (n) => `Lucky Skip! +${n}`,
+		missPanelHeading: "Last ball replay cam",
+		retryBtn: "RETRY",
+		mameChishikiHeading: "<TIPS>",
+		nextValueFmt: (n) => `${n} pts to a better fortune!`,
+		nextValueMax: "Blessed with the best fortune!",
+		labels: { negai: "Wish", ryoko: "Travel", yamai: "Health", study: "Study", usmno: "Lost item" },
+		negai: ['Granted', 'Big win', 'Fulfilled', 'Success'],
+		ryoko: ['Comfy', 'Smooth', 'Tokyo', 'Hawaii'],
+		yamai: ['Healed', 'Gone', 'Growing pains', 'Rebellious phase'],
+		study: ['Great', 'Patience', 'Good', 'Pop quiz'],
+		usmno: ['Found', 'Almost found', 'Found it', 'In your pocket'],
+		mamegoto: [
+			'Hit the ball dead center in the\nhit zone for a HOME RUN!',
+			'Skip 5 coins in a row to add \na bonus item to appear.',
+			'For the hit zone,\nhit near the top to send left.\nHit near the bottom to send right.',
+			'Earn more Blessing Points by\ncontinuing your coin-skip streaks!',
+			'Watch out for glowing balls!\nThey move wild and \nare very hard to hit!',
+			'Bonus items appear more often\nwhen there is less on screen.'
+		],
+		unsei: [
+			{ max: 50, name: "Sprout Luck", text: "Your luck is just sprouting!" },
+			{ max: 500, name: "Petite Luck", text: "A little luck found its way!" },
+			{ max: 1000, name: "Serpent Luck", text: "Slippery, but climbing higher!" },
+			{ max: 1500, name: "Good Luck", text: "Solid luck, no complaints!" },
+			{ max: 2000, name: "Cat's Luck", text: "Nine lives of good fortune!" },
+			{ max: 2500, name: "Big Luck", text: "Big things are coming your way!" },
+			{ max: 3000, name: "Dream Luck", text: "Every dream you chase comes true!" },
+			{ max: Infinity, name: "Legendary", text: "Peak luck achieved. You win!" },
+		],
+	},
+};
+
+let lang = (navigator.language || "ja").toLowerCase().startsWith("ja") ? "ja" : "en";
+
+function t(key) {
+	return I18N[lang][key];
+}
+
+function setLang(l) {
+	lang = l;
+	document.title = t("pageTitle");
+	document.dispatchEvent(new CustomEvent("langchange"));
+}
