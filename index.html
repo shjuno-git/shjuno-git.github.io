@@ -38,6 +38,19 @@
 			margin-bottom: 12px;
 		}
 
+		.thumb-link {
+			display: block;
+			margin-bottom: 10px;
+			line-height: 0;
+		}
+
+		.thumb {
+			display: block;
+			width: 100%;
+			height: auto;
+			border-radius: 6px;
+		}
+
 		.title {
 			font-weight: bold;
 			margin-bottom: 4px;
@@ -46,17 +59,33 @@
 		.desc {
 			font-size: 0.85em;
 			opacity: 0.85;
-			margin-bottom: 8px;
+			margin-bottom: 10px;
 		}
 
-		.links a {
-			color: #9fd3ff;
+		.play-btn {
+			display: inline-block;
+			background: #4a90d9;
+			color: #fff;
 			text-decoration: none;
-			font-size: 0.85em;
-			margin-right: 12px;
+			font-weight: bold;
+			padding: 8px 20px;
+			border-radius: 20px;
 		}
 
-		.links a:hover {
+		.play-btn:hover {
+			background: #5aa0e9;
+		}
+
+		.original-link {
+			display: block;
+			margin-top: 8px;
+			color: #9fd3ff;
+			opacity: 0.7;
+			text-decoration: none;
+			font-size: 0.7em;
+		}
+
+		.original-link:hover {
 			text-decoration: underline;
 		}
 	</style>
@@ -66,12 +95,13 @@
 	<h1>シシノノ ミニゲーム集</h1>
 	<ul>
 		<li>
+			<a class="thumb-link" href="202501/">
+				<img class="thumb" src="images/thumbnail/linkcard_goen.png" alt="５円はスルー、ボールは打つ！">
+			</a>
 			<div class="title">５円はスルー、ボールは打つ（202501）</div>
 			<div class="desc">ボールを打ち返して５円玉を集めよう！</div>
-			<div class="links">
-				<a href="202501/">遊ぶ（リメイク版）</a>
-				<a href="202501/original/">初代版を見る（2025年1月公開）</a>
-			</div>
+			<a class="play-btn" href="202501/">遊ぶ</a>
+			<a class="original-link" href="202501/original/">初代版を見る（2025年1月公開）</a>
 		</li>
 	</ul>
 </body>
