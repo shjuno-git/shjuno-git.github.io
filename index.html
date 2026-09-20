@@ -4,7 +4,7 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width,initial-scale=1">
-	<title>シシノノ ミニゲーム集</title>
+	<title>shjuno ミニゲーム集</title>
 	<style>
 		* {
 			box-sizing: border-box;
@@ -21,7 +21,38 @@
 		h1 {
 			font-size: 1.3em;
 			text-align: center;
-			margin-bottom: 24px;
+			margin-bottom: 16px;
+		}
+
+		.filter-bar {
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: center;
+			gap: 8px;
+			max-width: 480px;
+			margin: 0 auto 24px;
+		}
+
+		.filter-btn {
+			background: rgba(255,255,255,0.08);
+			color: #cdd3e0;
+			border: 1px solid rgba(255,255,255,0.2);
+			font: inherit;
+			font-size: 0.8em;
+			padding: 5px 14px;
+			border-radius: 14px;
+			cursor: pointer;
+		}
+
+		.filter-btn:hover {
+			background: rgba(255,255,255,0.16);
+		}
+
+		.filter-btn.active {
+			background: #4a90d9;
+			border-color: #4a90d9;
+			color: #fff;
+			font-weight: bold;
 		}
 
 		ul {
@@ -69,7 +100,35 @@
 
 		.sub-links {
 			margin-top: 10px;
-			text-align: right;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 8px;
+		}
+
+		.tags {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+
+		.tag {
+			background: rgba(255,255,255,0.1);
+			color: #cdd3e0;
+			border: none;
+			font: inherit;
+			font-size: 0.7em;
+			padding: 3px 10px;
+			border-radius: 10px;
+			cursor: pointer;
+		}
+
+		.tag:hover {
+			background: rgba(255,255,255,0.2);
+		}
+
+		li.hidden {
+			display: none;
 		}
 
 		.original-link {
@@ -86,19 +145,68 @@
 </head>
 
 <body>
-	<h1>シシノノ ミニゲーム集</h1>
-	<ul>
-		<li>
+	<h1>shjuno ミニゲーム集</h1>
+	<div class="filter-bar" id="filterBar"></div>
+	<ul id="gameList">
+		<li data-genres="野球">
 			<a class="card-link" href="202501/">
 				<img class="thumb" src="images/thumbnail/linkcard_goen.png" alt="５円はスルー、ボールは打つ！">
 				<div class="title">５円はスルー、ボールは打つ（202501）</div>
 				<div class="desc">ボールを打ち返して５円玉を集めよう！</div>
 			</a>
 			<div class="sub-links">
-				<a class="original-link" href="202501/original/">初代版を見る（2025年1月公開）</a>
+				<div class="tags">
+					<button type="button" class="tag" data-genre="野球">野球</button>
+				</div>
+				<a class="original-link" href="202501/original/">旧版で遊ぶ</a>
 			</div>
 		</li>
 	</ul>
+	<script>
+		(function () {
+			const list = document.getElementById("gameList");
+			const items = Array.from(list.querySelectorAll("li"));
+			const filterBar = document.getElementById("filterBar");
+
+			const genres = [];
+			items.forEach((li) => {
+				(li.dataset.genres || "").split(",").filter(Boolean).forEach((g) => {
+					if (!genres.includes(g)) genres.push(g);
+				});
+			});
+
+			function applyFilter(genre) {
+				items.forEach((li) => {
+					const list = (li.dataset.genres || "").split(",").filter(Boolean);
+					li.classList.toggle("hidden", !(genre === "all" || list.includes(genre)));
+				});
+				filterBar.querySelectorAll(".filter-btn").forEach((btn) => {
+					btn.classList.toggle("active", btn.dataset.genre === genre);
+				});
+			}
+
+			function makeFilterBtn(genre, label) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "filter-btn";
+				btn.dataset.genre = genre;
+				btn.textContent = label;
+				btn.addEventListener("click", () => applyFilter(genre));
+				return btn;
+			}
+
+			filterBar.appendChild(makeFilterBtn("all", "すべて"));
+			genres.forEach((g) => filterBar.appendChild(makeFilterBtn(g, g)));
+			applyFilter("all");
+
+			list.querySelectorAll(".tag[data-genre]").forEach((tagEl) => {
+				tagEl.addEventListener("click", () => {
+					applyFilter(tagEl.dataset.genre);
+					filterBar.scrollIntoView({ behavior: "smooth", block: "start" });
+				});
+			});
+		})();
+	</script>
 </body>
 
 </html>
