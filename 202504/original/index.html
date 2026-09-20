@@ -1,0 +1,35 @@
+<html lang="ja">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1.0">
+	<meta name="description" content="足して５，または同じ数字を作って消すパズルゲーム。スマホでもワンタッチで遊べるフリーのブラウザゲーム。1分くらいで遊べるよ。">
+	<title>足して５！～または同じ数字で消すパズル～（旧版）</title>
+	<!-- canvasを中央揃えするための親要素設定 -->
+	<style>
+		/* 親要素にFlexboxを設定 */
+		#canvas-container {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			display: flex;
+			justify-content: center;
+			/* 横方向中央揃え */
+			align-items: flex-end;
+			/* 縦方向下揃え */
+		}
+	</style>
+</head>
+
+<body>
+	<!-- Pixi.jsのキャンバスを配置する親要素 -->
+	<div id="canvas-container"></div>
+	<!-- 読み込むjs -->
+	<script src="./pixi.min.js"></script>
+	<script src="./gsap.min.js"></script>
+	<script src="./script.js" type="module"></script>
+</body>
+
+</html>

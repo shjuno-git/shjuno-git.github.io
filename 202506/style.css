@@ -1,0 +1,49 @@
+* {
+	box-sizing: border-box;
+}
+
+html {
+	height: 100%;
+}
+
+html, body {
+	margin: 0;
+	padding: 0;
+	background: #f5f5f5;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	height: 100%;
+	min-height: 100vh;
+	overflow: hidden;
+	font-family: -apple-system, "Hiragino Sans", "Yu Gothic", Meiryo, Arial, sans-serif;
+	touch-action: manipulation;
+}
+
+#game-wrap {
+	position: relative;
+	/* 横幅・縦幅どちらの制約にも収まるよう、画面サイズに応じて倍率を自動調整する。
+	   dvh未対応ブラウザではこの行が無視されて上のvh版が生きる（フォールバック）。 */
+	width: min(360px, 100vw, calc(100vh * 360 / 548));
+	width: min(360px, 100vw, calc(100dvh * 360 / 548));
+	aspect-ratio: 360 / 548;
+	margin: auto;
+	background: #f5f5f5;
+	overflow: hidden;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+#game {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+	image-rendering: pixelated;
+	image-rendering: -moz-crisp-edges;
+	image-rendering: crisp-edges;
+	touch-action: none;
+}
+

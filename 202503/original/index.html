@@ -1,0 +1,34 @@
+<html lang="ja">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1.0">
+	<meta name="description" content="二分木の数字を当てるクイズゲーム。スマホでもワンタッチで遊べるフリーのブラウザゲーム。1分くらいで遊べるよ。">
+	<title>二分木クイズ（旧版）</title>
+	<!-- canvasを中央揃えするための親要素設定 -->
+	<style>
+		/* 親要素にFlexboxを設定 */
+		#canvas-container {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			display: flex;
+			justify-content: center;
+			/* 横方向中央揃え */
+			align-items: center;
+			/* 縦方向中央揃え */
+		}
+	</style>
+</head>
+
+<body>
+	<!-- Pixi.jsのキャンバスを配置する親要素 -->
+	<div id="canvas-container"></div>
+	<!-- 読み込むjs -->
+	<script src="./pixi.min.js"></script>
+	<script src="./script.js" type="module"></script>
+</body>
+
+</html>
