@@ -1,0 +1,2572 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <title>ポンプでポップにボールイン</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202606/old/" />
+  <meta property="og:title" content="ポンプでポップにボールイン" />
+  <meta property="og:description" content="3つのポンプでボールを操作、ゴールに向けてシュートだ！数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_water.png" />
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    canvas {
+      display: block;
+      background: #0b1b2b;
+      border-radius: 16px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="game" width="360" height="548"></canvas>
+  <script>
+    (() => {
+      const BASE_W = 360, BASE_H = 548;
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+
+      // 内部解像度は固定
+      canvas.width = BASE_W;
+      canvas.height = BASE_H;
+
+      // リサイズ
+      let scale = 1;
+
+      function resize() {
+        scale = Math.min(innerWidth / BASE_W, innerHeight / BASE_H);
+
+        // CSS transform で拡大縮小
+        canvas.style.width = BASE_W * scale + "px";
+        canvas.style.height = BASE_H * scale + "px";
+
+        // 描画座標系は 1:1 のまま
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      addEventListener("resize", resize);
+      resize();
+
+      const W = BASE_W;
+      const H = BASE_H;
+
+      // ゲーム画面（プレイエリア）
+      let playOffsetY = 14;   //プレイエリアの基準y
+
+      const playMarginX = 3;              // 左右の余白（Glass frame と一致）
+      const playHeight = H - 180;          // 元の高さ（60〜H-120）
+      const playWidth = W - playMarginX * 2;
+
+      // 実際のプレイエリア座標 ---
+      function getPlayArea() {
+        const top = 60 - playOffsetY;
+        const bottom = top + playHeight;
+        const left = playMarginX;
+        const right = W - playMarginX;
+        return { top, bottom, left, right, width: playWidth, height: playHeight };
+      }
+
+      // --- Constants ---
+      const GRAVITY = 0.06;
+      const AIR_FORCE = 0.5;
+      const MAX_BALLS_BASE = 8;
+      const GOAL_RADIUS = 40;
+      const GOAL_HIT_RADIUS = GOAL_RADIUS; // 外側の黄色い円そのまま
+      const GOAL_Y = 180;
+      const GOAL_X = W / 2;
+      const XP_PER_GOAL = 25;
+      const XP_PER_CELL = 15;
+      const CELL_RADIUS = 10;
+      const AIR_TANK_BASE = 120;
+      const AIR_REGEN = 12;
+      const AIR_CONSUME = 22;
+      const ATTRACT_BASE = 0.02;
+      let scoreTexts = [];  // 通常のスコア演出
+      let levelUpTexts = [];      // Level Up! 専用演出
+
+      // challenge
+      const challengeLevels = {
+        spin: [10, 50, 150, 500, 1000],
+        cell: [45, 150, 450, 750, 1500],
+        goal: [1000, 3000, 6000, 10000, 20000],
+        pass: [100, 500, 1000, 5000, 10000]
+        /** 
+        spin: [10],
+        cell: [45],
+        goal: [1000],
+        pass: [100]
+        */
+      };
+
+      let challengeProgress = {
+        spin: 0,
+        cell: 0,
+        goal: 0,
+        pass: 0
+      };
+
+      let challengeCompleted = {
+        spin: 0,
+        cell: 0,
+        goal: 0,
+        pass: 0
+      };
+
+      // --- State ---
+      let balls = [];
+      let bubbles = [];
+      let goals = [];
+      let xp = 0;
+      let totalXpEarned = 0;
+      let xpFromSpinner = 0;
+      let xpFromCells = 0;
+      let xpFromGoalCapture = 0;
+      let xpFromGoalPass = 0;
+
+      let totalTime = 0;
+
+      const BALL_COLORS = ["#ff9ad5", "#ffd966", "#a4ffb8"];
+      let nextBallColorIndex = 0;
+
+      let airTankMax = AIR_TANK_BASE;
+      let airTank = airTankMax;
+      let attractStrength = ATTRACT_BASE;
+      let goalCount = 1;
+
+      let showUpgrade = false;
+      let showChallenge = false;
+
+      let xpBursts = [];  // xpCells破裂エフェクト用
+      let powerUpAnimT = 0; // PowerUpテキストのジャンプアニメーション用
+      let activeCollisions = new Set(); // 衝突している球同士の組み合わせを保存して管理
+      let bigScores = []; // ゴール吸収時など特別なスコアテキスト演出用
+
+      // クリア判定用
+      let alreadyCelebratedPowerUps = false;
+      let alreadyCelebratedChallenges = false;
+      let alreadyMasteredEverything = false;
+      let celebrationBanner = null; // { text, t, style }
+
+      // エアタンク切れ用
+      let airPenalty = false;
+      let airPenaltyTimer = 0;
+      const AIR_PENALTY_DURATION = 1.0; // 1秒回復しない
+
+      // 操作ボタン
+      // 強化
+      const powerBtn = { x: 4, y: H - 120, w: W - 8, h: 30, scale: 1 };
+
+      // チャレンジ系
+      let challengeBounce = 0; // 新規達成時に跳ねる
+      let challengeCelebrations = [];
+
+      // ジェット
+      const buttonAreaY = powerBtn.y + powerBtn.h; // 430
+      const buttonAreaH = H - buttonAreaY - 2;         // 118
+      const buttonW = (W - 6) / 3;
+
+      const buttons = [
+        { id: 0, x: 1, y: buttonAreaY + 2, w: buttonW, h: buttonAreaH, pressed: false, scale: 1, label: "LEFT" },
+        { id: 1, x: buttonW + 2, y: buttonAreaY + 2, w: buttonW, h: buttonAreaH, pressed: false, scale: 1, label: "MID" },
+        { id: 2, x: buttonW * 2 + 4, y: buttonAreaY + 2, w: buttonW, h: buttonAreaH, pressed: false, scale: 1, label: "RIGHT" }
+      ];
+
+
+      const jets = [
+        { x: W * 0.15, y: H - 90 },
+        { x: W * 0.50, y: H - 90 },
+        { x: W * 0.85, y: H - 90 }
+      ];
+
+      // 風車
+      const spinners = [
+        { x: 30, y: 100, r: 18, angle: 0, spinVel: 0 },
+        { x: W * 0.5, y: H - 280, r: 18, angle: 0, spinVel: 0 },
+        { x: W * 1 / 3, y: H - 310, r: 18, angle: 0, spinVel: 0 },
+        { x: W * 2 / 3, y: H - 310, r: 18, angle: 0, spinVel: 0 },
+        { x: W - 30, y: 100, r: 18, angle: 0, spinVel: 0 }
+      ];
+
+      const xpCells = [];
+
+      // 強化ボタン押下時のダイアログ
+      const upgradeArea = {
+        x: 10,
+        y: 333,
+        w: W - 20,
+        h: 90
+      };
+
+      const upgrades = [
+        {
+          key: "addBall",
+          label: "球の追加",
+          baseCost: 1000,
+          level: 0,
+          maxLevel: MAX_BALLS_BASE - 3,
+          scale: 1,
+          scaleTimer: 0
+        },
+        {
+          key: "airTank",
+          label: "空気タンク増加",
+          baseCost: 100,
+          level: 0,
+          maxLevel: 10,
+          scale: 1,
+          scaleTimer: 0
+        },
+        {
+          key: "attract",
+          label: "ゴール引力強化",
+          baseCost: 200,
+          level: 0,
+          maxLevel: 10,
+          scale: 1,
+          scaleTimer: 0
+        },
+        {
+          key: "addGoal",
+          label: "ゴール追加",
+          baseCost: 5000,
+          level: 0,
+          maxLevel: 3,
+          scale: 1,
+          scaleTimer: 0
+        }
+        /**
+          {
+            key: "addBall",
+            label: "球の追加",
+            baseCost: 1,
+            level: 0,
+            maxLevel: MAX_BALLS_BASE - 3,
+            scale: 1,
+            scaleTimer: 0
+          },
+          {
+            key: "airTank",
+            label: "空気タンク増加",
+            baseCost: 1,
+            level: 0,
+            maxLevel: 10,
+            scale: 1,
+            scaleTimer: 0
+          },
+          {
+            key: "attract",
+            label: "ゴール引力強化",
+            baseCost: 1,
+            level: 0,
+            maxLevel: 10,
+            scale: 1,
+            scaleTimer: 0
+          },
+          {
+            key: "addGoal",
+            label: "ゴール追加",
+            baseCost: 1,
+            level: 0,
+            maxLevel: 3,
+            scale: 1,
+            scaleTimer: 0
+          }
+            */
+      ];
+
+      // --- Helpers ---
+      function rand(min, max) {
+        return Math.random() * (max - min) + min;
+      }
+
+      function initBalls() {
+        balls = [];
+
+        const colors = ["#ffd966", "#ff9ad5", "#a4ffb8"];
+
+        for (let i = 0; i < 3; i++) {
+          balls.push({
+            x: rand(60, W - 60),
+            y: rand(H - 160, H - 120),
+            vx: 0,
+            vy: 0,
+            r: 12,
+            color: colors[i]
+          });
+        }
+
+        // 追加時のローテーションを初期化
+        nextBallColorIndex = 0;
+      }
+
+      function initCells() {
+        xpCells.length = 0;
+        for (let i = 0; i < 10; i++) {
+          //const angle = rand(0, Math.PI * 2); // ランダム方向
+          const angle = rand(-Math.PI - Math.PI / 12, Math.PI / 12); // -90～90度の中でランダム方向
+          xpCells.push({
+            x: rand(40, W - 40),
+            y: rand(90, H - 190),
+            w: 26,   // 四角形の幅
+            h: 26,   // 四角形の高さ
+            angle,   // 矢印の向き
+            taken: false
+          });
+        }
+      }
+
+      function initGoals() {
+        const spacing = 80;
+        const startX = GOAL_X - (goalCount - 1) * spacing * 0.5;
+
+        // 既存ゴールの状態を保持しつつ再配置
+        const old = goals;
+
+        goals = [];
+        for (let i = 0; i < goalCount; i++) {
+          const prev = old[i];
+
+          goals.push({
+            x: startX + i * spacing,
+            y: GOAL_Y,
+            r: GOAL_RADIUS,
+
+            // 状態保持 or 初期化
+            mode: prev?.mode ?? "capture",
+            capturedColor: prev?.capturedColor ?? "#000",
+
+            // 新規追加：吸い込みアニメーション用
+            absorbT: prev?.absorbT ?? -1,        // 0→1 で吸い込む
+            flashT: prev?.flashT ?? 0,          // 光の輪エフェクト
+            rotateT: prev?.rotateT ?? 0,
+            resetTimer: prev?.resetTimer ?? 0,  // captureに戻るまでのタイマー
+            flashBackT: prev?.flashBackT ?? 0   // captureに戻る瞬間のフラッシュ演出用タイマー
+          });
+        }
+      }
+
+      function anyUpgradeAffordable() {
+        return upgrades.some(u => canAfford(u));
+      }
+
+      function upgradeCost(u) {
+        return Math.floor(u.baseCost * Math.pow(1.6, u.level));
+      }
+
+      function canAfford(u) {
+        return u.level < u.maxLevel && xp >= upgradeCost(u);
+      }
+
+      function applyUpgrade(u) {
+        if (!canAfford(u)) return;
+
+        u.scale = 0.9;  // ボタン縮む
+        u.scaleTimer = 0.12; // 0.12秒後に戻す
+
+        const cost = upgradeCost(u);
+        xp -= cost;
+        u.level++;
+
+        // LEVEL UP! テキスト
+        const idx = upgrades.indexOf(u);
+        if (idx !== -1) {
+          const colW = upgradeArea.w / upgrades.length;
+          const ux = upgradeArea.x + idx * colW;
+          const uy = upgradeArea.y + 40;
+
+          levelUpTexts.push({
+            x: ux + colW / 2,
+            y: uy,       // ボタンの上あたり
+            value: "LEVEL UP!",
+            t: 0,
+            color: "#ffd966" // 金色っぽい
+          });
+        }
+
+        switch (u.key) {
+          case "addBall":
+            const color = BALL_COLORS[nextBallColorIndex];
+            // 次の色へローテーション
+            nextBallColorIndex = (nextBallColorIndex + 1) % BALL_COLORS.length;
+            balls.push({
+              x: rand(60, W - 60),
+              y: rand(H - 160, H - 120),
+              vx: 0,
+              vy: 0,
+              r: 12,
+              color: color
+            });
+          case "airTank":
+            airTankMax += 40;
+            airTank = airTankMax;
+            break;
+          case "attract":
+            attractStrength += 0.03;
+            break;
+          case "addGoal":
+            goalCount = Math.min(goalCount + 1, 1 + u.maxLevel);
+            initGoals();
+            break;
+        }
+
+        // 全クリチェック
+        checkMilestones();
+
+      }
+
+      function checkChallenge(type, currentXP) {
+        let lv = challengeCompleted[type];
+        const targets = challengeLevels[type];
+
+        // すでに全クリア
+        if (lv >= targets.length) return;
+
+        // ループで「今のレベルだけ」チェックする
+        const target = targets[lv];
+
+        // 未達成なら何もしない
+        if (currentXP < target) return;
+
+        // ここに来たら「初めて達成した瞬間」
+        challengeCompleted[type] = lv + 1;
+
+        const bonus = Math.min(10 * Math.pow(3, lv + 1), 5000);
+        xp += bonus;
+        totalXpEarned += bonus;
+
+        challengeCelebrations.push({
+          type,
+          bonus,
+          t: 0,
+          fired: false
+        });
+
+        if (challengeBounce === 0) challengeBounce = 1;
+
+        // 全クリチェック
+        checkMilestones();
+      }
+
+      // --- Input handling ---
+      const activePointers = new Map();
+
+      function pointerDown(x, y, id) {
+        activePointers.set(id, { x, y });
+
+        // PowerUp button
+        if (x >= powerBtn.x && x <= powerBtn.x + powerBtn.w &&
+          y >= powerBtn.y && y <= powerBtn.y + powerBtn.h) {
+          showUpgrade = !showUpgrade;
+          return;
+        }
+
+        if (showUpgrade) {
+          // Upgrade tap
+          if (y >= upgradeArea.y && y <= upgradeArea.y + upgradeArea.h &&
+            x >= upgradeArea.x && x <= upgradeArea.x + upgradeArea.w) {
+            const colW = upgradeArea.w / upgrades.length;
+            const idx = Math.floor((x - upgradeArea.x) / colW);
+            if (idx >= 0 && idx < upgrades.length) {
+              applyUpgrade(upgrades[idx]);
+            }
+            return;
+          }
+        }
+
+        // Jet buttons
+        buttons.forEach(b => {
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            b.pressed = true;
+            if (showUpgrade) showUpgrade = !showUpgrade;
+          }
+        });
+      }
+
+      function pointerMove(x, y, id) {
+        if (!activePointers.has(id)) return;
+        activePointers.set(id, { x, y });
+      }
+
+      function pointerUp(id) {
+        activePointers.delete(id);
+        if (activePointers.size === 0) {
+          buttons.forEach(b => (b.pressed = false));
+        } else {
+          buttons.forEach(b => (b.pressed = false));
+          for (const p of activePointers.values()) {
+            buttons.forEach(b => {
+              if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+                b.pressed = true;
+              }
+            });
+          }
+        }
+      }
+
+      function toCanvasX(clientX, rect) {
+        return (clientX - rect.left) / scale;
+      }
+
+      function toCanvasY(clientY, rect) {
+        return (clientY - rect.top) / scale;
+      }
+
+      // pointerdown
+      canvas.addEventListener("pointerdown", e => {
+        const rect = canvas.getBoundingClientRect();
+
+        const x = toCanvasX(e.clientX, rect);
+        const y = toCanvasY(e.clientY, rect);
+
+        pointerDown(x, y, e.pointerId);
+        activePointers.add(e.pointerId);
+
+        // タッチ操作でブラウザのスクロールを防ぐ
+        canvas.setPointerCapture(e.pointerId);
+      });
+
+      // pointermove
+      canvas.addEventListener("pointermove", e => {
+        if (!activePointers.has(e.pointerId)) return;
+
+        const rect = canvas.getBoundingClientRect();
+
+        const x = toCanvasX(e.clientX, rect);
+        const y = toCanvasY(e.clientY, rect);
+
+        pointerMove(x, y, e.pointerId);
+      });
+
+      // pointerup / pointercancel
+      canvas.addEventListener("pointerup", e => {
+        if (activePointers.has(e.pointerId)) {
+          pointerUp(e.pointerId);
+          activePointers.delete(e.pointerId);
+        }
+        canvas.releasePointerCapture(e.pointerId);
+      });
+
+      canvas.addEventListener("pointercancel", e => {
+        if (activePointers.has(e.pointerId)) {
+          pointerUp(e.pointerId);
+          activePointers.delete(e.pointerId);
+        }
+        canvas.releasePointerCapture(e.pointerId);
+      });
+
+
+      // --- Update ---
+      let lastTime = performance.now();
+
+      function update(dt) {
+        totalTime += dt;
+        const anyPressed = buttons.some(b => b.pressed);
+
+        // -----------------------------
+        // 1. UI ボタンのアニメ
+        // -----------------------------
+        for (const btn of buttons) {
+          const target = btn.pressed ? 0.9 : 1.0;
+          btn.scale += (target - btn.scale) * 0.25;
+        }
+
+        const targetPower = showUpgrade ? 0.95 : 1.0;
+        powerBtn.scale += (targetPower - powerBtn.scale) * 0.25;
+
+        for (const u of upgrades) {
+          if (u.scaleTimer > 0) {
+            u.scaleTimer -= dt;
+            if (u.scaleTimer < 0) u.scaleTimer = 0;
+          }
+          const target = u.scaleTimer > 0 ? 0.9 : 1.0;
+          u.scale += (target - u.scale) * 0.25;
+        }
+
+        // -----------------------------
+        // 2. Air tank（空気タンク）
+        // -----------------------------
+        if (anyPressed && airTank > 0 && !airPenalty) {
+          airTank -= AIR_CONSUME * dt;
+          if (airTank <= 0) {
+            airTank = 0;
+            airPenalty = true;
+            airPenaltyTimer = AIR_PENALTY_DURATION;
+          }
+        } else {
+          if (airPenalty) {
+            airPenaltyTimer -= dt;
+            if (!anyPressed && airPenaltyTimer <= 0) {
+              airPenalty = false;
+            }
+          } else {
+            airTank += (AIR_REGEN + upgrades[1].level * 2) * dt;
+            if (airTank > airTankMax) airTank = airTankMax;
+          }
+        }
+
+        // -----------------------------
+        // 3. 泡（bubbles）更新
+        // -----------------------------
+        for (const b of bubbles) {
+          b.y += b.vy * 3;
+          b.life += 0.024;
+          b.x += Math.sin(b.life * 10) * 0.3;
+        }
+        bubbles = bubbles.filter(b => b.life < 1.2);
+
+        // -----------------------------
+        // 4. bigScores（1000点演出）
+        // -----------------------------
+        for (const s of bigScores) {
+          s.t += 0.012;
+        }
+        bigScores = bigScores.filter(s => s.t < 1);
+
+        // -----------------------------
+        // 5. xpBursts（破片）
+        // -----------------------------
+        for (const p of xpBursts) {
+          p.x += p.vx * 1.2;
+          p.y += p.vy * 1.2;
+          p.vx *= 0.98;
+          p.vy *= 0.98;
+          p.life += 0.03;
+        }
+        xpBursts = xpBursts.filter(p => p.life < 1);
+
+        // -----------------------------
+        // 6. goals のアニメ（吸収・光・回転）
+        // -----------------------------
+        for (const g of goals) {
+          // pass のときだけタイマー減少
+          if (g.mode === "pass") {
+            g.resetTimer -= dt;
+            if (g.resetTimer <= 0) {
+              // フラッシュ演出
+              g.flashBackT = 0.01;
+              // 初期状態に戻す
+              g.mode = "capture";
+              g.absorbT = -1;
+              g.flashT = 0;
+              g.rotateT = 0;
+              g.resetTimer = 0;
+            }
+          }
+          // フラッシュの進行
+          if (g.flashBackT > 0) {
+            g.flashBackT += 0.08;
+            if (g.flashBackT > 1) g.flashBackT = 0;
+          }
+          // その他
+          if (g.absorbT >= 0 && g.absorbT < 1) g.absorbT += 0.08;
+          if (g.flashT > 0) {
+            g.flashT += 0.08;
+            if (g.flashT > 1) g.flashT = 0;
+          }
+          if (g.mode === "pass") g.rotateT += 0.01;
+        }
+
+        // -----------------------------
+        // 7. spinners（風車）
+        // -----------------------------
+        for (const s of spinners) {
+          s.angle += s.spinVel;
+          s.spinVel *= 0.75;
+          if (Math.abs(s.spinVel) < 0.001) s.spinVel = 0;
+        }
+
+        // -----------------------------
+        // 8. balls がある場合だけ物理処理
+        // -----------------------------
+        if (balls.length > 0) {
+
+          // --- Ball-Ball collision ---
+          for (let i = 0; i < balls.length; i++) {
+            for (let j = i + 1; j < balls.length; j++) {
+              const a = balls[i];
+              const b = balls[j];
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              const minDist = a.r + b.r;
+              const rvx = b.vx - a.vx;
+              const rvy = b.vy - a.vy;
+              const impact = Math.sqrt(rvx * rvx + rvy * rvy);
+
+              const key = `${i}-${j}`;
+
+              if (dist < minDist) {
+                if (!activeCollisions.has(key)) {
+                  spawnImpactBubbles((a.x + b.x) / 2, (a.y + b.y) / 2, impact);
+                }
+                activeCollisions.add(key);
+
+                const overlap = minDist - dist;
+                const nx = dx / dist;
+                const ny = dy / dist;
+
+                a.x -= nx * overlap * 0.5;
+                a.y -= ny * overlap * 0.5;
+                b.x += nx * overlap * 0.5;
+                b.y += ny * overlap * 0.5;
+
+                const bounce = 0.4;
+                const dot = rvx * nx + rvy * ny;
+
+                if (dot < 0) {
+                  const impulse = -(1 + bounce) * dot;
+                  a.vx -= impulse * nx * 0.5;
+                  a.vy -= impulse * ny * 0.5;
+                  b.vx += impulse * nx * 0.5;
+                  b.vy += impulse * ny * 0.5;
+                }
+
+              } else {
+                activeCollisions.delete(key);
+              }
+            }
+          }
+
+          // --- Ball physics ---
+          for (const ball of balls) {
+
+            // Gravity
+            ball.vy += GRAVITY;
+
+            // Buoyancy
+            ball.vy -= 0.015;
+
+            // Air jets
+            if (airTank > 0 && anyPressed) {
+              buttons.forEach((b, i) => {
+                if (!b.pressed) return;
+                const jet = jets[i];
+                const dx = ball.x - jet.x;
+                const dy = ball.y - jet.y;
+                const dist = Math.sqrt((dx * dx * 3.5) + (dy * dy)) + 0.001;
+
+                const strength = AIR_FORCE * (1 / (dist * 0.05));
+
+                ball.vx += (dx / dist) * strength * 0.25;
+                ball.vy -= strength * 1.4;
+              });
+            }
+
+            // --- Bubbles spawn ---
+            buttons.forEach((b, i) => {
+              if (b.pressed && airTank > 0) {
+                if (Math.random() < 0.5) {
+                  bubbles.push({
+                    type: "small",
+                    x: jets[i].x + rand(-32, 32),
+                    y: jets[i].y + rand(0, 10) - 50,
+                    vy: -1.0 - Math.random() * 0.5,
+                    r: rand(1.5, 3),
+                    life: -1
+                  });
+                }
+                if (Math.random() < 0.15) {
+                  bubbles.push({
+                    type: "big",
+                    x: jets[i].x + rand(-17, 17),
+                    y: jets[i].y + rand(0, 10) - 50,
+                    vy: -0.6 - Math.random() * 0.4,
+                    r: rand(4, 7),
+                    life: -0.5
+                  });
+                }
+                if (Math.random() < 0.1) {
+                  for (let k = 0; k < 4; k++) {
+                    bubbles.push({
+                      type: "chain",
+                      x: jets[i].x + rand(-6, 6),
+                      y: jets[i].y + k * 6 - 50,
+                      vy: -1.2,
+                      r: 2.5,
+                      life: 0
+                    });
+                  }
+                }
+              }
+            });
+
+            // Goal attraction
+            for (const g of goals) {
+              const dx = g.x - ball.x;
+              const dy = g.y - ball.y;
+              const dist = Math.sqrt(dx * dx + dy * dy) + 0.001;
+              const pull = attractStrength * (1 / (dist * 0.2));
+              ball.vx += (dx / dist) * pull;
+              ball.vy += (dy / dist) * pull;
+            }
+
+            // Integrate
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // Damping
+            ball.vx *= 0.998;
+            ball.vy *= 0.998;
+
+            // Walls
+            const area = getPlayArea();
+            if (ball.x < area.left + ball.r) {
+              ball.x = area.left + ball.r;
+              const impact = Math.abs(ball.vx);
+              if (impact > 1.2) spawnImpactBubbles(ball.x, ball.y, impact);
+              ball.vx *= -0.4;
+            }
+            if (ball.x > area.right - ball.r) {
+              ball.x = area.right - ball.r;
+              const impact = Math.abs(ball.vx);
+              if (impact > 1.2) spawnImpactBubbles(ball.x, ball.y, impact);
+              ball.vx *= -0.4;
+            }
+            if (ball.y < area.top + ball.r) {
+              ball.y = area.top + ball.r;
+              const impact = Math.abs(ball.vy);
+              if (impact > 1.2) spawnImpactBubbles(ball.x, ball.y, impact);
+              ball.vy *= -0.3;
+            }
+            if (ball.y > area.bottom - ball.r) {
+              ball.y = area.bottom - ball.r;
+              const impact = Math.abs(ball.vy);
+              if (impact > 1.2) spawnImpactBubbles(ball.x, ball.y, impact);
+              ball.vy *= -0.4;
+            }
+
+            // Spinners
+            for (const s of spinners) {
+              const dx = ball.x - s.x;
+              const dy = ball.y - s.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              const rvx = ball.vx;
+              const rvy = ball.vy;
+              const impact = Math.sqrt(rvx * rvx + rvy * rvy);
+
+              if (dist < ball.r + s.r) {
+                spawnImpactBubbles(ball.x, ball.y, impact);
+                s.spinVel += 0.25;
+
+                xp += 1;
+                xpFromSpinner += 1;
+                totalXpEarned += 1;
+                scoreTexts.push({
+                  x: s.x + rand(-20, 20),
+                  y: s.y + rand(-20, 20),
+                  value: "+1",
+                  t: 0,
+                  color: scoreColor(1)
+                });
+                checkChallenge("spin", xpFromSpinner);
+
+                const nx = dx / dist;
+                const ny = dy / dist;
+                ball.vx += nx * 0.8;
+                ball.vy += ny * 0.8;
+              }
+            }
+
+            // Goals
+            for (const g of goals) {
+              const dx = ball.x - g.x;
+              const dy = ball.y - g.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              // Capture
+              if (g.mode === "capture" && dist < g.r * 0.7) {
+
+                g.capturedColor = ball.color;
+
+                // 吸い込みアニメーション開始
+                g.absorbT = 0;
+                g.flashT = 0.01;
+
+                // 元のボールの情報を保存
+                const old = ball;
+
+                // 元のボール削除
+                balls.splice(balls.indexOf(ball), 1);
+                // 速度を変えて再生成
+                balls.push({
+                  x: g.x,
+                  y: g.y,
+                  vx: rand(-0.2, 0.2),
+                  vy: -3,
+                  r: old.r,
+                  color: old.color
+                });
+
+                // スコア
+                xp += 1000;
+                xpFromGoalCapture += 1000;
+                totalXpEarned += 1000;
+                addBigScore(g.x, g.y, "+1000", g.capturedColor);
+                checkChallenge("goal", xpFromGoalCapture);
+
+                // モード変更
+                g.mode = "pass";
+                g.resetTimer = 20; // タイマー開始
+
+                continue;
+              }
+
+              // Pass
+              if (g.mode === "pass" && dist < GOAL_HIT_RADIUS) {
+                const rvx = ball.vx;
+                const rvy = ball.vy;
+                const impact = Math.sqrt(rvx * rvx + rvy * rvy);
+
+                spawnImpactBubbles(g.x, g.y, impact);
+
+                const t = 1 - (dist / GOAL_HIT_RADIUS);
+                const score = Math.floor(1 + t * 9);
+
+                xp += score;
+                xpFromGoalPass += score;
+                totalXpEarned += score;
+
+                scoreTexts.push({
+                  x: g.x + rand(-20, 20),
+                  y: g.y + rand(-20, 20),
+                  value: "+" + score,
+                  t: 0,
+                  color: scoreColor(score)
+                });
+                checkChallenge("pass", xpFromGoalPass);
+
+                spawnDiamondBurst(g.x, g.y);
+              }
+            }
+
+            // xpCells
+            for (const c of xpCells) {
+              if (c.taken) continue;
+
+              const dx = ball.x - c.x;
+              const dy = ball.y - c.y;
+              const rvx = ball.vx;
+              const rvy = ball.vy;
+              const impact = Math.sqrt(rvx * rvx + rvy * rvy);
+
+              if (Math.abs(dx) < c.w / 2 + ball.r && Math.abs(dy) < c.h / 2 + ball.r) {
+                spawnImpactBubbles(c.x, c.y, impact);
+
+                c.taken = true;
+
+                xp += XP_PER_CELL;
+                xpFromCells += XP_PER_CELL;
+                totalXpEarned += XP_PER_CELL;
+
+                scoreTexts.push({
+                  x: c.x + rand(-10, 10),
+                  y: c.y + rand(-10, 10),
+                  value: "+" + XP_PER_CELL,
+                  t: 0,
+                  color: scoreColor(XP_PER_CELL)
+                });
+                checkChallenge("cell", xpFromCells);
+
+                const dirX = Math.cos(c.angle);
+                const dirY = Math.sin(c.angle);
+
+                ball.vx *= 0.3;
+                ball.vy *= 0.3;
+
+                ball.vx += dirX * 2.5;
+                ball.vy += dirY * 3.5;
+
+                spawnXpBurst(c.x, c.y);
+              }
+            }
+          }
+        }
+
+        // -----------------------------
+        // 9. xpCells の respawn
+        // -----------------------------
+        if (totalTime % 5 < dt) {
+          xpCells.forEach(c => {
+            if (c.taken && Math.random() < 0.4) {
+              c.x = rand(40, W - 40);
+              c.y = rand(90, H - 190);
+              c.taken = false;
+            }
+          });
+        }
+
+        // お祝いエフェクトの掃除
+        for (let i = challengeCelebrations.length - 1; i >= 0; i--) {
+          if (challengeCelebrations[i].t > 1) challengeCelebrations.splice(i, 1);
+        }
+      } // updateの終わり
+
+      // 再度を上げる
+      function saturateColor(hex, satFactor = 1.3, lightFactor = 1.1) {
+        // hex → RGB
+        let r = parseInt(hex.slice(1, 3), 16) / 255;
+        let g = parseInt(hex.slice(3, 5), 16) / 255;
+        let b = parseInt(hex.slice(5, 7), 16) / 255;
+
+        // RGB → HSL
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        let h, s, l = (max + min) / 2;
+
+        if (max === min) {
+          h = s = 0;
+        } else {
+          const d = max - min;
+          s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+
+          switch (max) {
+            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+            case g: h = (b - r) / d + 2; break;
+            case b: h = (r - g) / d + 4; break;
+          }
+          h /= 6;
+        }
+
+        // ★ 彩度と明度を強化
+        s = Math.min(1, s * satFactor);
+        l = Math.min(1, l * lightFactor);
+
+        // HSL → RGB
+        function hue2rgb(p, q, t) {
+          if (t < 0) t += 1;
+          if (t > 1) t -= 1;
+          if (t < 1 / 6) return p + (q - p) * 6 * t;
+          if (t < 1 / 2) return q;
+          if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+          return p;
+        }
+
+        let r2, g2, b2;
+        if (s === 0) {
+          r2 = g2 = b2 = l;
+        } else {
+          const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+          const p = 2 * l - q;
+          r2 = hue2rgb(p, q, h + 1 / 3);
+          g2 = hue2rgb(p, q, h);
+          b2 = hue2rgb(p, q, h - 1 / 3);
+        }
+
+        // RGB → hex
+        return (
+          "#" +
+          Math.round(r2 * 255).toString(16).padStart(2, "0") +
+          Math.round(g2 * 255).toString(16).padStart(2, "0") +
+          Math.round(b2 * 255).toString(16).padStart(2, "0")
+        );
+      }
+
+      // 衝突時の泡生成
+      function spawnImpactBubbles(x, y, impact) {
+        // impact を 0〜1 に正規化
+        const k = Math.min(impact / 8, 1);
+
+        const count = 2 + Math.floor(k * 4); // 2〜6個
+        const baseR = 1.5 + k * 2.5;         // 泡の大きさ 1.5〜4
+
+        for (let i = 0; i < count; i++) {
+          const a = rand(0, Math.PI * 2);
+          bubbles.push({
+            type: "small",
+            x: x + Math.cos(a) * rand(0, 6),
+            y: y + Math.sin(a) * rand(0, 6),
+            vy: -0.8 - Math.random() * 0.4,
+            r: baseR * rand(0.7, 1.2),
+            life: 0
+          });
+        }
+      }
+
+      // --- Draw ---
+      function drawBackground() {
+        const area = getPlayArea();
+        // Water area
+        const g = ctx.createLinearGradient(0, area.top, 0, area.bottom);
+        g.addColorStop(0, "#163a5c");
+        g.addColorStop(1, "#071522");
+        ctx.fillStyle = g;
+        ctx.fillRect(area.left, area.top, area.width, area.height);
+
+        // Glass frame
+        ctx.strokeStyle = "#9fdfff";
+        ctx.lineWidth = 6;
+        ctx.strokeRect(area.left, area.top, area.width, area.height);
+
+        // Top panel
+        ctx.fillStyle = "#081019";
+        //ctx.fillRect(0, 0, W, 60);
+
+        // Bottom panel
+        ctx.fillStyle = "#081019";
+        ctx.fillRect(0, H - 100, W, 100);
+      }
+
+      function drawGoals() {
+        for (let i = 0; i < goals.length; i++) {
+          const g = goals[i];
+
+          // --- 光の輪エフェクト（通過型に変わる瞬間） ---
+          if (g.flashT > 0) {
+            const t = g.flashT;
+            const radius = g.r * (1 + t * 1.5);
+            const alpha = 1 - t;
+
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(255,255,200,${alpha})`;
+            ctx.lineWidth = 6 * (1 - t);
+            ctx.arc(g.x, g.y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // --- pass → capture に戻る瞬間のフラッシュ ---
+          if (g.flashBackT > 0) {
+            const t = g.flashBackT;
+            const radius = g.r * (1 + t * 1.2);
+            const alpha = 1 - t;
+
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+            ctx.lineWidth = 8 * (1 - t);
+            ctx.arc(g.x, g.y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // --- 外側リング（capture:点滅 / pass:暗め） ---
+          ctx.beginPath();
+          if (g.mode === "capture") {
+            const pulse = 0.6 + 0.4 * Math.sin(totalTime * 6);
+            ctx.strokeStyle = `rgba(255,226,138,${pulse})`;
+          } else {
+            ctx.strokeStyle = "#c8b06a";
+          }
+          ctx.lineWidth = 6;
+          ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // --- 水面反射の光の走り（外側リング上） ---
+          {
+            const shineT = (totalTime * 0.8 + i * 0.5) % 1;
+            const shineAngle = shineT * Math.PI * 2;
+
+            ctx.save();
+            ctx.translate(g.x, g.y);
+            ctx.rotate(shineAngle);
+
+            ctx.beginPath();
+            ctx.strokeStyle = "rgba(255,255,255,0.35)";
+            ctx.lineWidth = 3;
+            ctx.arc(0, 0, g.r, -0.15, 0.15); // 細いハイライト
+            ctx.stroke();
+
+            ctx.restore();
+          }
+
+          // --- 通過型になった後、外側リング内側を塗りつぶす ---
+          if (g.mode === "pass") {
+            ctx.beginPath();
+            ctx.fillStyle = "#c8b06a55";
+            ctx.arc(g.x, g.y, g.r * 0.95, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // --- 内側リング（パターンA：柔らかい発光リング） ---
+          const absorb = g.absorbT >= 0 ? g.absorbT : 0;
+          const ringR = g.r * 0.7 * (1 - absorb * 0.3); // 吸収アニメ対応
+          const ringW = ringR * 0.25; // リング幅
+
+          ctx.save();
+          ctx.translate(g.x, g.y);
+
+          // 回転（pass モードのみ）
+          if (g.mode === "pass") {
+            ctx.rotate(g.rotateT);
+          }
+
+          if (g.mode === "capture") {
+            // ★ 初期状態は黒い塗りつぶし
+            ctx.beginPath();
+            ctx.fillStyle = "#000";
+            ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            // ★ 吸収後は発光リング
+            const grad = ctx.createRadialGradient(
+              0, 0, ringR - ringW,
+              0, 0, ringR
+            );
+
+            grad.addColorStop(0, "rgba(0,0,0,0)");
+            grad.addColorStop(1, g.capturedColor);
+
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = ringW;
+            ctx.beginPath();
+            ctx.arc(0, 0, ringR - ringW / 2, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          ctx.restore();
+
+          // --- pass のときは広い黒い弧でタイマー表示 ---
+          if (g.mode === "pass") {
+            const ratio = 1 - (g.resetTimer / 20); // 0 → 1
+            const endAngle = ratio * Math.PI * 2;
+
+            ctx.save();
+            ctx.translate(g.x, g.y);
+
+            // ★ 外側リングと内側リングの間を塗る
+            ctx.beginPath();
+            ctx.fillStyle = "rgba(0,0,0,0.55)";
+
+            // 外側の円弧
+            ctx.arc(0, 0, g.r * 0.95, -Math.PI / 2, -Math.PI / 2 + endAngle, false);
+
+            // 内側の円弧（逆方向）
+            ctx.arc(0, 0, ringR, -Math.PI / 2 + endAngle, -Math.PI / 2, true);
+
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.restore();
+          }
+
+
+        }
+      }
+
+      function drawXpCells() {
+        for (const c of xpCells) {
+          if (c.taken) continue;
+
+          ctx.save();
+          ctx.translate(c.x, c.y);
+          ctx.rotate(c.angle);
+
+          // --- 四角形（元の色味 #7fffd4 を踏襲） ---
+          ctx.fillStyle = "rgba(127,255,212,0.9)";
+          ctx.beginPath();
+          ctx.roundRect(-c.w / 2, -c.h / 2, c.w, c.h, 6);
+          ctx.fill();
+
+          // --- 矢印の棒（➡ の線部分） ---
+          ctx.fillStyle = "rgba(255,255,255,0.95)";
+          ctx.beginPath();
+          // 中央に細い棒（右向き）
+          ctx.roundRect(-8, -3, 12, 6, 0);
+          ctx.fill();
+
+          // --- 矢尻（三角形） ※棒の右端に固定 ---
+          ctx.beginPath();
+          ctx.moveTo(9, 0);      // 棒の右端
+          ctx.lineTo(0, -9);    // 上
+          ctx.lineTo(0, 9);     // 下
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.restore();
+        }
+      }
+
+
+      function drawXpBursts() {
+        for (const p of xpBursts) {
+          const alpha = 1 - p.life;
+          ctx.fillStyle = p.color + Math.floor(alpha * 255).toString(16).padStart(2, "0");
+
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+
+      function drawBalls() {
+        for (const b of balls) {
+          ctx.beginPath();
+          ctx.fillStyle = b.color;
+          ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.fillStyle = "rgba(255,255,255,0.7)";
+          ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function drawSpinners() {
+        for (const s of spinners) {
+          ctx.save();
+          ctx.translate(s.x, s.y);
+          ctx.rotate(s.angle);
+
+          ctx.strokeStyle = "#7fffd4";
+          ctx.lineWidth = 3;
+
+          for (let i = 0; i < 4; i++) {
+            ctx.rotate(Math.PI / 2);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(s.r, 0);
+            ctx.stroke();
+          }
+
+          ctx.restore();
+        }
+      }
+
+      function drawButtons() {
+        buttons.forEach((b, i) => {
+          const pressed = b.pressed && airTank > 0;
+          const baseColor = ["#ff9ad5", "#ffd966", "#a4ffb8"][i];
+
+          const cx = b.x + b.w / 2;
+          const cy = b.y + b.h / 2;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.scale(b.scale, b.scale);
+          ctx.translate(-cx, -cy);
+
+          ctx.beginPath();
+          ctx.roundRect(b.x, b.y, b.w, b.h, 10);
+          ctx.fillStyle = pressed ? baseColor : "#1b2835";
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = pressed ? "#ffffff" : "#4b5a6a";
+          ctx.stroke();
+
+          ctx.fillStyle = pressed ? "#000" : "#fff";
+          ctx.font = "12px system-ui";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
+
+          ctx.restore();
+        });
+
+        // Jets visual
+        jets.forEach((j, i) => {
+          const b = buttons[i];
+          const pressed = b.pressed && airTank > 0;
+
+          // ボタンと同じ中心でスケール
+          const cx = b.x + b.w / 2;
+          const cy = b.y + b.h / 2;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.scale(b.scale, b.scale);
+          ctx.translate(-cx, -cy);
+
+          if (pressed) {
+            const pulse = 0.5 + 0.5 * Math.sin(totalTime * 8 + i);
+            const len = 50 + pulse * 12;
+            const grad = ctx.createLinearGradient(j.x, j.y, j.x, j.y - len);
+            grad.addColorStop(0, "rgba(180,230,255,0.9)");
+            grad.addColorStop(1, "rgba(180,230,255,0)");
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.moveTo(j.x, j.y);
+            ctx.lineTo(j.x, j.y - len);
+            ctx.stroke();
+
+          } else {
+            ctx.beginPath();
+            ctx.fillStyle = "#9fdfff";
+            ctx.arc(j.x, j.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+
+          ctx.restore();
+        });
+      }
+
+      function drawJets() {
+        jets.forEach((j, i) => {
+          const b = buttons[i];
+          const pressed = b.pressed && airTank > 0;
+
+          if (pressed) {
+            const pulse = 0.5 + 0.5 * Math.sin(totalTime * 8 + i);
+            const size = 22 + pulse * 6;
+
+            // グラデーション
+            const grad = ctx.createLinearGradient(j.x, j.y, j.x, j.y + size * 1.6);
+            grad.addColorStop(0, "rgba(180,220,255,0.9)");
+            grad.addColorStop(1, "rgba(150,200,255,0)");
+
+            ctx.fillStyle = grad;
+
+            ctx.beginPath();
+            ctx.moveTo(j.x, j.y);                     // 上の頂点
+            ctx.lineTo(j.x - size, j.y - size * 1.4); // 左下
+            ctx.lineTo(j.x + size, j.y - size * 1.4); // 右下
+            ctx.closePath();
+            ctx.fill();
+
+            // ボタンと同じ中心でスケール
+            const cx = b.x + b.w / 2;
+            const cy = b.y + b.h / 2;
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.scale(b.scale, b.scale);
+            ctx.translate(-cx, -cy);
+
+            ctx.beginPath();
+            ctx.fillStyle = "#9fdfff";
+            ctx.arc(j.x, j.y, 12, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+          }
+        });
+      }
+
+
+      function drawBubbles() {
+        for (const b of bubbles) {
+          const alpha = 1 - b.life;
+
+          if (b.type === "small") {
+            ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+            ctx.lineWidth = 1;
+          } else if (b.type === "big") {
+            ctx.strokeStyle = `rgba(200,230,255,${alpha})`;
+            ctx.lineWidth = 2;
+          } else if (b.type === "chain") {
+            ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.8})`;
+            ctx.lineWidth = 1;
+          }
+
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+
+      function drawTopUI() {
+        // Introduction
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "13px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        const line1 = "３つのポンプでボールを操作、ゴールに向けてシュートだ！";
+        let line2 = "XPを集めてパワーアップ、全チャレンジ達成を目指そう！";
+
+        if (alreadyCelebratedChallenges) line2 = "前人未到！全てのチャレンジを達成した！";
+        if (alreadyCelebratedPowerUps) line2 = "免許皆伝！全てのパワーアップを極めた！";
+        if (alreadyMasteredEverything) line2 = "完全無欠だ！全てのパワーアップとチャレンジを制覇した！";
+
+        ctx.fillText(line1, W / 2, 14);
+        ctx.fillText(line2, W / 2, 32);
+
+        // Air tank bar
+        const barX = 4;
+        const barY = powerBtn.y - 15;
+        const barW = W - 8;
+        const barH = 14;
+
+        // --- 背景バー（常に描画） ---
+        ctx.fillStyle = "#1b2835";
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, barW, barH, 7);
+        ctx.fill();
+
+        const ratio = airTank / airTankMax;
+
+        // --- 色と点滅の制御 ---
+        let barColor = "#00ff88"; // 緑
+        let blink = 1.0;
+        let offsetX = 0;
+
+        // ペナルティ状態（残量0 → 回復停止）
+        if (airPenalty) {
+          // 暗い赤で高速点滅
+          blink = 0.3 + 0.7 * Math.abs(Math.sin(totalTime * 12));
+          barColor = `rgba(180,40,40,${blink})`;
+
+          // 左右に振動
+          offsetX = Math.sin(totalTime * 40) * 4;
+
+          // ★ ペナルティバー（幅100%）を描画
+          ctx.fillStyle = barColor;
+          ctx.beginPath();
+          ctx.roundRect(
+            barX + 2 + offsetX,
+            barY + 2,
+            barW - 4,
+            barH - 4,
+            5
+          );
+          ctx.fill();
+
+        } else {
+          // --- 通常の色変化 ---
+          if (ratio >= 0.8) {
+            barColor = "#00ff88"; // 緑
+
+          } else if (ratio >= 0.3) {
+            blink = 0.5 + 0.5 * Math.abs(Math.sin(totalTime * 3));
+            barColor = `rgba(255,220,80,${blink})`; // 黄色
+
+          } else {
+            blink = 0.4 + 0.6 * Math.abs(Math.sin(totalTime * 8));
+            barColor = `rgba(180,40,40,${blink})`; // 赤色
+          }
+
+          // ★ 残量バー（ratio 分だけ）
+          ctx.fillStyle = barColor;
+          ctx.beginPath();
+          ctx.roundRect(
+            barX + 2,
+            barY + 2,
+            (barW - 4) * ratio,
+            barH - 4,
+            5
+          );
+          ctx.fill();
+        }
+
+        // ラベル
+        ctx.fillStyle = airPenalty ? "#ffffff" : "#333333";
+        ctx.font = "10px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const airBarText = airPenalty ? 'Out of Air!' : 'Air Tank';
+        ctx.fillText(airBarText, W / 2, barY + barH / 2);
+
+
+      }
+
+      function drawPowerButton() {
+        ctx.save();
+
+        const affordable = anyUpgradeAffordable();
+
+        let fill;
+        let stroke;
+
+        if (showUpgrade) {
+          fill = "#9fb4d0";
+          stroke = "#ffffff";
+        } else if (affordable) {
+          fill = "#2f5f3a";
+          stroke = "#7fffd4";
+        } else {
+          fill = "#1b2835";
+          stroke = "#444";
+        }
+
+        // 押し縮みスケールを適用
+        const cx = powerBtn.x + powerBtn.w / 2;
+        const cy = powerBtn.y + powerBtn.h / 2;
+
+        ctx.translate(cx, cy);
+        ctx.scale(powerBtn.scale, powerBtn.scale); // ← 追加
+        ctx.translate(-cx, -cy);
+
+        // ボタン本体
+        ctx.beginPath();
+        ctx.roundRect(powerBtn.x, powerBtn.y, powerBtn.w, powerBtn.h, 8);
+        ctx.fillStyle = fill;
+        ctx.fill();
+
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // --- アニメーション ---
+        ctx.save();
+        ctx.translate(powerBtn.x + powerBtn.w / 2, powerBtn.y + powerBtn.h / 2);
+
+        let offsetY = 0;
+        let scaleY = 1;
+
+        if (!showUpgrade && affordable) {
+          // アニメーション時間を進める
+          powerUpAnimT += 0.04;
+
+          const t = powerUpAnimT % 10.0; // 0〜1 のループ
+
+          if (t < 0.5) {
+            // しゃがむ（0 → 0.25）
+            const k = t / 0.5;
+            offsetY = k * 4;      // 0 → 4px
+            scaleY = 1 - k * 0.25; // 1 → 0.75
+
+          } else if (t < 0.75) {
+            // ジャンプ（0.25 → 0.55）
+            offsetY = 4;      // 4px
+            scaleY = 0.75; // 0.75
+
+          } else if (t < 1.25) {
+            // ジャンプ（0.25 → 0.55）
+            const k = (t - 0.75) / 0.5;
+            offsetY = -k * 4;      // 0 → -8px
+            scaleY = 0.75 + k * 0.40; // 0.75 → 1.15
+
+          } else if (t < 1.55) {
+            // 着地（0.55 → 0.85）
+            const k = (t - 1.25) / 0.30;
+            offsetY = -4 * (1 - k); // -8 → 0
+            scaleY = 1.15 - k * 0.15; // 1.15 → 1.0
+
+          } else {
+            // 休憩（0.85 → 1.0）
+            scaleY = 1;
+            offsetY = 0;
+          }
+        }
+
+        ctx.translate(0, offsetY);
+        ctx.scale(1, scaleY);
+
+        ctx.font = "14px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        if (showUpgrade) {
+          ctx.fillStyle = "#000000";
+          ctx.fillText("Close", 0, 0);
+        } else {
+          ctx.fillStyle = "#ffffff";
+          //ctx.fillText("PowerUp", 0, 0);
+          ctx.fillText(getPowerUpButtonLabel(), 0, 0);
+        }
+
+        ctx.restore();
+        ctx.restore();
+      }
+
+      // ボタン名
+      function getPowerUpButtonLabel() {
+        if (alreadyMasteredEverything) return "MASTERED"; // 最上位
+        if (isAllPowerUpsMaxed()) return "MAXED";         // 中間
+        return "POWER UP";
+      }
+
+      function drawResultDialog() {
+        if (!showUpgrade) return;
+
+        const x = playMarginX;
+        const y = 60 - playOffsetY;
+        const w = playWidth;
+        const h = playHeight;
+
+        ctx.save();
+
+        // --- 背景（黒透明） ---
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.fillRect(x, y, w, h);
+
+        // --- 水中の光の反射 ---
+        ctx.fillStyle = "rgba(255,255,255,0.1)";
+        ctx.beginPath();
+        ctx.ellipse(x + w / 2, y + 132, w * 0.6, h * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // --- タイトル ---
+        ctx.fillStyle = "white";
+        ctx.font = "bold 28px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(getResultTitle(), x + w / 2, y + 22);
+
+        // --- 下線 ---
+        ctx.strokeStyle = "rgba(255,255,255,0.3)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + 40, y + 45);
+        ctx.lineTo(x + w - 40, y + 45);
+        ctx.stroke();
+
+        // --- 実績一覧 ---
+        const baseY = y + 56;
+        const line = 43;
+
+        const labelX = x + 80;     // ラベルの開始位置
+        const iconX = x + 60;     // アイコン位置
+
+        const baseValueX = x + w - 120; // スコアの基準位置
+        const maxDigits = String(totalXpEarned).length;
+        const valueX = baseValueX + maxDigits * 12; // スコアの実位置（桁数に応じて右へずらす）
+
+        // Total
+        ctx.font = "26px sans-serif";
+        // ミニアイコン
+        drawMiniIcon(ctx, "total", iconX - 10, baseY - 6 + 16);
+        ctx.fillStyle = "white";
+        // ラベル
+        ctx.textAlign = "left";
+        ctx.fillText("Total XP", labelX - 10, baseY + 9);
+        // スコア
+        ctx.textAlign = "right";
+        ctx.fillText(totalXpEarned, valueX + 2, baseY + 9);
+
+        ctx.font = "22px sans-serif";
+        ctx.textAlign = "left";
+
+        const rows = [
+          { label: "Spin XP", now: xpFromSpinner, key: "spin" },
+          { label: "Cell XP", now: xpFromCells, key: "cell" },
+          { label: "Goal XP", now: xpFromGoalCapture, key: "goal" },
+          { label: "Pass XP", now: xpFromGoalPass, key: "pass" }
+        ];
+
+        challengeOffsetX = 20;
+
+        rows.forEach((r, i) => {
+          const yy = baseY + (i + 1) * line;
+
+          const lv = challengeCompleted[r.key];
+          const target = challengeLevels[r.key][lv] ?? null;
+
+          // 表示用レベル
+          const levelText = target ? `[Ch.${lv + 1}]` : `[Clear]`;
+
+          // --- ミニアイコン ---
+          drawMiniIcon(ctx, r.key, iconX + challengeOffsetX - 20, yy - 1);
+
+          // --- ラベル ---
+          ctx.fillStyle = "white";
+          ctx.font = "18px system-ui";
+          ctx.textAlign = "left";
+          ctx.fillText(r.label, challengeOffsetX + 60, yy);
+
+          // --- Bonus XPテキスト ---
+          const cel = challengeCelebrations.find(c => c.type === r.key);
+          if (cel) {
+            const alpha = 1 - cel.t;
+            ctx.fillStyle = `rgba(255,217,102,${alpha})`;
+            ctx.font = "bold 20px system-ui";
+            ctx.fillText("Bonus!", challengeOffsetX + 60 + 66, yy);
+
+            // BONUS! テキストは fired フラグで1回だけ出る
+            if (!cel.fired) {
+              cel.fired = true;
+
+              levelUpTexts.push({
+                x: x + w / 2,
+                y: yy - 10,
+                value: "BONUS!",
+                t: 0,
+                color: "#ffd966"
+              });
+
+              levelUpTexts.push({
+                x: x + w / 2,
+                y: yy + 5,
+                value: `+${cel.bonus} XP`,
+                t: 0,
+                color: "#ffffff"
+              });
+            }
+
+            cel.t += 0.01;
+          } else {
+            // --- レベル（あなた指定の位置） ---
+            ctx.fillStyle = "#ffd966";
+            ctx.font = "16px system-ui";
+            ctx.fillText(levelText, challengeOffsetX + 60 + 70, yy);
+          }
+
+          // --- 現在値 / 目標値 ---
+          ctx.textAlign = "right";
+          ctx.fillStyle = "white";
+          if (target) {
+            ctx.fillText(`${r.now} / ${target}`, challengeOffsetX + w - 60, yy);
+          } else {
+            ctx.fillText(`${r.now} / ✔`, challengeOffsetX + w - 60, yy);
+          }
+
+          // --- 進捗バー ---
+          const barX = x + +challengeOffsetX + 60;
+          const barY = yy + 12;
+          const barW = w - 120;
+          const barH = 8;
+
+          const ratio = target ? r.now / target : 1;
+          drawProgressBar(barX, barY, barW, barH, ratio);
+
+        });
+
+        ctx.restore();
+      }
+
+      function getResultTitle() {
+        const allC = isAllChallengesCleared();
+        const allP = isAllPowerUpsMaxed();
+
+        if (allC && allP) return "MASTER OF EVERYTHING!";
+        if (allC) return "CHALLENGE COMPLETE!";
+        if (allP) return "POWER UP MAX!";
+        return "RESULT";
+      }
+
+      function drawMiniIcon(ctx, type, x, y) {
+        ctx.save();
+        ctx.translate(x, y);
+
+        switch (type) {
+
+          // --- Total XP：金色の丸 ---
+          case "total":
+            ctx.beginPath();
+            ctx.fillStyle = "#ffd966";
+            ctx.arc(0, 0, 7, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+
+          // --- Spinner XP：簡易風車 ---
+          case "spin":
+            ctx.strokeStyle = "#7fffd4";
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 4; i++) {
+              ctx.beginPath();
+              ctx.moveTo(0, 0);
+              ctx.lineTo(10, 0);
+              ctx.stroke();
+              ctx.rotate(Math.PI / 2);
+            }
+            break;
+
+          // --- Cell XP：角丸四角 ---
+          case "cell":
+            // 本体
+            ctx.fillStyle = "rgba(127,255,212,0.9)";
+            ctx.beginPath();
+            ctx.roundRect(-10, -10, 20, 20, 4);
+            ctx.fill();
+
+            // 棒
+            ctx.fillStyle = "white";
+            ctx.beginPath();
+            ctx.roundRect(-6, -3, 11, 6, 1);
+            ctx.fill();
+
+            // 矢尻
+            ctx.beginPath();
+            ctx.moveTo(9, 0);
+            ctx.lineTo(0, -8);
+            ctx.lineTo(0, 8);
+            ctx.closePath();
+            ctx.fill();
+            break;
+
+          // --- Capture XP：吸い込みゴールの簡易版 ---
+          case "goal":
+            ctx.beginPath();
+            ctx.fillStyle = "#000";
+            ctx.arc(0, 0, 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.strokeStyle = "#ffd966";
+            ctx.lineWidth = 3;
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.stroke();
+            break;
+
+          // --- Pass XP：通過ゴールの簡易版 ---
+          case "pass":
+            ctx.beginPath();
+            ctx.strokeStyle = "#c8b06a";
+            ctx.lineWidth = 3;
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.strokeStyle = "#ffd966";
+            ctx.lineWidth = 2;
+            ctx.arc(0, 0, 6, 0, Math.PI * 2);
+            ctx.stroke();
+            break;
+        }
+
+        ctx.restore();
+      }
+
+      function drawUpgrades() {
+        if (!showUpgrade) return;
+        const { x, y, w, h } = upgradeArea;
+
+        ctx.save();
+        ctx.translate(x, y);
+
+        // Panel
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, "#0d1a28");
+        grad.addColorStop(1, "#13283c");
+        ctx.fillStyle = grad;
+
+        ctx.beginPath();
+        ctx.roundRect(0, -30, w, h + 30, 10);
+        ctx.fill();
+
+        // 外枠を少し明るく
+        ctx.strokeStyle = "rgba(127,255,212,0.35)";
+        ctx.lineWidth = 2;
+        ctx.roundRect(0, -30, w, h + 30, 10);
+        ctx.stroke();
+
+        // Power Up ロゴ
+        ctx.font = "bold 12px system-ui";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+
+        ctx.strokeStyle = "rgba(127,255,212,0.25)";
+        ctx.lineWidth = 3;
+        ctx.strokeText("Power Up", 10, 8 - 30);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("Power Up", 10, 8 - 30);
+
+        // 下線
+        ctx.strokeStyle = "rgba(255,255,255,0.3)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(8, 26 - 30);
+        ctx.lineTo(w - 8, 26 - 30);
+        ctx.stroke();
+
+        const colW = w / upgrades.length;
+        upgrades.forEach((u, i) => {
+          const ux = i * colW;
+          const cost = upgradeCost(u);
+          const affordable = canAfford(u);
+          const maxed = u.level >= u.maxLevel;
+          // 外側発光（常に少し光らせる）
+          if (affordable) {
+            ctx.shadowColor = "rgba(127,255,212,0.55)";
+            ctx.shadowBlur = 18;
+          } else {
+            ctx.shadowColor = "rgba(127,255,212,0.25)";
+            ctx.shadowBlur = 12;
+          }
+          if (i > 0) {
+            ctx.strokeStyle = "rgba(255,255,255,0.05)";
+            ctx.beginPath();
+            ctx.moveTo(ux, 6);
+            ctx.lineTo(ux, h - 6);
+            ctx.stroke();
+          }
+
+          // scale適用
+          const cx = ux + colW / 2;
+          const cy = h / 2;
+
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.scale(u.scale, u.scale);
+          ctx.translate(-cx, -cy);
+
+          const pad = 4;
+          const bx = ux + pad;
+          const by = 24;
+          const bw = colW - pad * 2;
+          const bh = h - by - 6;
+
+          ctx.beginPath();
+          ctx.roundRect(bx, by, bw, bh, 8);
+          if (maxed) ctx.fillStyle = "#333a44";
+          else if (affordable) ctx.fillStyle = "#2f5f3a";
+          else ctx.fillStyle = "#222a33";
+          ctx.fill();
+
+          ctx.strokeStyle = maxed ? "#555" : affordable ? "#7fffd4" : "#444";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // ラベル（光の縁取り）
+          ctx.font = "10px system-ui";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+
+          ctx.strokeStyle = "rgba(0,0,0,0.25)";
+          ctx.lineWidth = 3;
+          ctx.strokeText(u.label, ux + colW / 2, 0);
+
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(u.label, ux + colW / 2, 0);
+
+
+          ctx.fillStyle = "#9fb4d0";
+          ctx.font = "9px system-ui";
+          ctx.textBaseline = "top";
+          ctx.fillText("Lv." + u.level + "/" + u.maxLevel, ux + colW / 2, 13);
+
+          ctx.textBaseline = "middle";
+          if (maxed) {
+            ctx.fillStyle = "#ffd966";
+            ctx.fillText("MAX", ux + colW / 2, by + bh / 2);
+          } else {
+            ctx.fillStyle = affordable ? "#7fffd4" : "#9fb4d0";
+            ctx.fillText("Cost " + cost, ux + colW / 2, by + bh / 2);
+          }
+
+          ctx.restore(); // スケール解除
+        });
+
+        ctx.restore();
+      }
+
+      function drawProgressBar(x, y, w, h, ratio) {
+        ctx.save();
+
+        // 背景バー
+        ctx.fillStyle = "rgba(255,255,255,0.15)";
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 6);
+        ctx.fill();
+
+        // 進捗バー
+        const pw = w * Math.min(ratio, 1);
+        ctx.fillStyle = "#ffd966";
+        ctx.beginPath();
+        ctx.roundRect(x, y, pw, h, 6);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // 通常画面時のミニチャレンジ
+      function drawMiniChallenge() {
+        const w = (W - 6) / 3;
+        const h = 135;
+        const x = W - w - 4;
+        const y = H - h - 158; // 地面のボールに重ならないように少し上
+
+        ctx.save();
+
+        // 背景（半透明）
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 10);
+        ctx.fill();
+
+        // --- タイトル ---
+        ctx.fillStyle = "#ffd966";
+        ctx.font = "bold 14px system-ui";
+        ctx.textAlign = "left";
+        ctx.fillText("Challenge", x + 10, y + 13);
+
+        // 下線
+        const grad = ctx.createLinearGradient(x, y + 20, x + w, y + 20);
+        grad.addColorStop(0, "#ffe9a3");
+        grad.addColorStop(0.5, "#ffd966");
+        grad.addColorStop(1, "#ffe9a3");
+
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 10, y + 20);
+        ctx.lineTo(x + w - 10, y + 20);
+        ctx.stroke();
+
+        const rows = [
+          { label: "Spin", now: xpFromSpinner, key: "spin" },
+          { label: "Cell", now: xpFromCells, key: "cell" },
+          { label: "Goal", now: xpFromGoalCapture, key: "goal" },
+          { label: "Pass", now: xpFromGoalPass, key: "pass" }
+        ];
+
+        const line = 26;
+        const baseY = y + 35;
+
+        rows.forEach((r, i) => {
+          const yy = baseY + i * line;
+
+          const lv = challengeCompleted[r.key];
+          const target = challengeLevels[r.key][lv] ?? null;
+          const ratio = target ? r.now / target : 1;
+
+          // --- 達成時の光る背景 ---
+          const cel = challengeCelebrations.find(c => c.type === r.key);
+          if (cel) {
+            // 行を光らせる
+            const alpha = 0.4 * (1 - cel.t);
+            ctx.fillStyle = `rgba(255,217,102,${alpha})`;
+            ctx.beginPath();
+            ctx.roundRect(x + 4, yy - 14, w - 8, line, 6);
+            ctx.fill();
+
+            // まだBONUS!を出していないなら1回だけ出す
+            if (!cel.fired) {
+              cel.fired = true;
+
+              levelUpTexts.push({
+                x: x - 40,
+                y: yy,
+                value: "BONUS!",
+                t: 0,
+                color: "#ffd966"
+              });
+
+              levelUpTexts.push({
+                x: x - 40,
+                y: yy + 15,
+                value: `+${cel.bonus} XP`,
+                t: 0,
+                color: "#ffffff"
+              });
+            }
+
+            cel.t += 0.015;
+          }
+
+          // --- ラベル ---
+          ctx.fillStyle = "white";
+          ctx.font = "12px system-ui";
+          ctx.textAlign = "left";
+          ctx.fillText(r.label, x + 10, yy);
+
+          // --- 現在値 / ノルマ ---
+          ctx.textAlign = "right";
+          ctx.fillText(
+            target ? `${r.now}/${target}` : `${r.now}/✔`,
+            x + w - 10,
+            yy
+          );
+
+          // --- 進捗バー ---
+          const barX = x + 10;
+          const barY = yy + 6;
+          const barW = w - 20;
+          const barH = 6;
+
+          drawProgressBar(barX, barY, barW, barH, ratio);
+
+        });
+
+        ctx.restore();
+      }
+
+
+      function drawHint() {
+        ctx.save();
+        if (showUpgrade) {
+
+          ctx.font = "20px system-ui";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+
+          // 縁取り
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = "rgba(255,217,102,0.25)";
+          ctx.strokeText("XP:" + xp, W / 2, H - 220);
+
+          // 中文字
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText("XP:" + xp, W / 2, H - 220);
+
+        } else {
+
+          ctx.font = "18px system-ui";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+
+          // 縁取り
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = "rgba(0,0,0,0.6)";
+          ctx.strokeText("XP:" + xp, W / 2, H - 134);
+
+          // 中文字
+          ctx.fillStyle = "rgba(255,255,255,1.0)";
+          ctx.fillText("XP:" + xp, W / 2, H - 134);
+
+        }
+        ctx.restore();
+      }
+
+      function drawScoreTexts() {
+        for (const s of scoreTexts) {
+          const alpha = 1 - s.t;
+          ctx.fillStyle = s.color + Math.floor(alpha * 255).toString(16).padStart(2, "0");
+          ctx.font = "bold 14px system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(s.value, s.x, s.y - s.t * 20);
+          s.t += 0.02;
+        }
+
+        // 消す
+        for (let i = scoreTexts.length - 1; i >= 0; i--) {
+          if (scoreTexts[i].t > 1) scoreTexts.splice(i, 1);
+        }
+      }
+
+      function drawLevelUpTexts() {
+        for (const s of levelUpTexts) {
+          const alpha = Math.pow(1 - s.t, 5);
+
+          // 透明度つきカラー
+          const colorWithAlpha =
+            s.color + Math.floor(alpha * 255).toString(16).padStart(2, "0");
+
+          const y = s.y - s.t * 20;
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+
+          ctx.font = "bold 14px system-ui";
+          ctx.textAlign = "center";
+
+          // 黒い縁取り（アウトライン）
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = "black";
+          ctx.strokeText(s.value, s.x, y);
+
+          // 本体の文字
+          ctx.fillStyle = colorWithAlpha;
+          ctx.fillText(s.value, s.x, y);
+
+          ctx.restore();
+
+          s.t += 0.002;
+        }
+
+        // 消す
+        for (let i = levelUpTexts.length - 1; i >= 0; i--) {
+          if (levelUpTexts[i].t > 1) levelUpTexts.splice(i, 1);
+        }
+      }
+
+
+      function scoreColor(v) {
+        if (v >= 9) return "#ff66ff";
+        if (v >= 7) return "#ffcc66";
+        if (v >= 4) return "#aaffaa";
+        return "#ffffff";
+      }
+
+      // 高得点用特別
+      function addBigScore(x, y, text, color) {
+        bigScores.push({
+          x,
+          y,
+          t: 0,
+          color,
+          value: text
+        });
+      }
+
+      function drawBigScores() {
+        for (const s of bigScores) {
+          const t = s.t;
+
+          // --- ① 動きのカーブ ---
+          // 拡大 → 収束 → 浮上 の3段階
+          const pop = Math.sin(Math.min(t, 1) * Math.PI); // 0→1→0 の山型
+          const scale = 1 + pop * 1.2;                    // ドンッと膨らむ
+          const y = s.y - 20 - t * 40;                    // 浮上
+
+          // --- ② フェードアウト（後半で一気に消える） ---
+          const alpha = Math.pow(1 - t, 3);
+
+          ctx.save();
+          ctx.translate(s.x, y);
+          ctx.scale(scale, scale);
+          ctx.globalAlpha = alpha;
+
+          // --- ③ 光のリング（今のままでも良いが少し強化） ---
+          {
+            const ringR = 20 + t * 80;
+            ctx.beginPath();
+            ctx.strokeStyle = s.color + "66"; // 少し強め
+            ctx.lineWidth = Math.max(0, 5 * (1 - t));
+            ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // --- ④ テキストの残光（トレイル） ---
+          {
+            ctx.font = "bold 32px system-ui";
+            ctx.textAlign = "center";
+
+            ctx.fillStyle = s.color + "44";
+            ctx.fillText(s.value, 0, 6);
+            ctx.fillText(s.value, 0, 3);
+          }
+
+          // --- ⑤ 黒縁取り + 本体（視認性MAX） ---
+          {
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = "black";
+            ctx.strokeText(s.value, 0, 0);
+
+            ctx.fillStyle = "#ffd966";
+            ctx.fillText(s.value, 0, 0);
+          }
+
+          ctx.restore();
+        }
+      }
+
+      // 全クリお祝い用
+      function drawCelebrationBanner() {
+        if (!celebrationBanner) return;
+
+        const t = celebrationBanner.t;
+        const alpha = Math.min(1, t * 2); // フェードイン
+        const y = H / 2 - 40 + Math.sin(t * 6) * 4;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        // 背景
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        const bw = 320;
+        const bh = 60;
+        const bx = W / 2 - bw / 2;
+        const by = y - bh / 2;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, bw, bh, 12);
+        ctx.fill();
+
+        // 枠線（スタイル別）
+        if (celebrationBanner.style === "master") {
+          const rainbow = ["#ff4d4d", "#ffa64d", "#ffff4d", "#4dff4d", "#4dffff", "#4d4dff", "#ff4dff"];
+          ctx.strokeStyle = rainbow[Math.floor(t * 20) % rainbow.length];
+        } else if (celebrationBanner.style === "challenge") {
+          ctx.strokeStyle = "#ffd966";
+        } else if (celebrationBanner.style === "powerup") {
+          ctx.strokeStyle = "#66ccff";
+        } else {
+          ctx.strokeStyle = "#ffffff";
+        }
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // テキスト（黒縁取り）
+        ctx.font = "bold 24px system-ui";
+        ctx.textAlign = "center";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "black";
+        ctx.strokeText(celebrationBanner.text, W / 2, y + 8);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(celebrationBanner.text, W / 2, y + 8);
+
+        ctx.restore();
+
+        celebrationBanner.t += 0.02;
+        if (celebrationBanner.t > 2.0) celebrationBanner = null;
+      }
+
+
+      // 全クリチェック
+      function checkMilestones() {
+        const allC = isAllChallengesCleared();
+        const allP = isAllPowerUpsMaxed();
+
+        // ① 両方達成（最優先）
+        if (allC && allP && !alreadyMasteredEverything) {
+          alreadyMasteredEverything = true;
+          celebrationBanner = {
+            text: "MASTER OF EVERYTHING!",
+            t: 0,
+            style: "master"
+          };
+          return;
+        }
+
+        // ② Challenge 全クリア
+        if (allC && !alreadyCelebratedChallenges) {
+          alreadyCelebratedChallenges = true;
+          celebrationBanner = {
+            text: "CHALLENGE COMPLETE!",
+            t: 0,
+            style: "challenge"
+          };
+          return;
+        }
+
+        // ③ Power Up 全MAX
+        if (allP && !alreadyCelebratedPowerUps) {
+          alreadyCelebratedPowerUps = true;
+          celebrationBanner = {
+            text: "POWER UP MAX!",
+            t: 0,
+            style: "powerup"
+          };
+          return;
+        }
+      }
+
+      // 全てのチャレンジをクリアしたかのチェック
+      function isAllChallengesCleared() {
+        return Object.keys(challengeLevels).every(key => {
+          return challengeCompleted[key] >= challengeLevels[key].length;
+        });
+      }
+
+      // 全てのチャレンジをクリアしたときのお祝い
+      function celebrateAllChallenges() {
+        addBigScore(W / 2, H / 2, "CHALLENGE COMPLETE!", "#ffd966");
+      }
+
+      // 全てのPowerUpしたかのチェック
+      function isAllPowerUpsMaxed() {
+        return upgrades.every(p => p.level >= p.maxLevel);
+      }
+
+      // 全てのPowerUpしたときのお祝い
+      function celebrateAllPowerUps() {
+        addBigScore(W / 2, H / 2, "POWER UP MAX!", "#66ccff");
+      }
+
+      // xpCells破裂エフェクト
+      function spawnXpBurst(x, y) {
+        const count = 10; // 放射状なので均等割りが綺麗
+        const b = 1.4; // 放射状に広がる速度の基準値
+        for (let i = 0; i < count; i++) {
+
+          // 均等に角度を割る（放射状）
+          const a = (Math.PI * 2) * (i / count);
+
+          xpBursts.push({
+            x,
+            y,
+            // ゆっくり広がる速度
+            vx: Math.cos(a) * b,
+            vy: Math.sin(a) * b,
+
+            // ゆっくり消える
+            life: 0,
+
+            // 柔らかい色味
+            color: ["#7fffd4", "#ffffff"][Math.floor(Math.random() * 2)]
+          });
+        }
+      }
+
+
+      // 花火
+      const diamonds = [];
+      function spawnDiamondBurst(x, y) {
+        for (let i = 0; i < 6; i++) {
+          diamonds.push({
+            x,
+            y,
+            vx: rand(-2, 2),
+            vy: rand(-3, -1),
+            rot: rand(0, Math.PI * 2),
+            vr: rand(-0.2, 0.2),
+            life: 0,
+            color: randomColor()
+          });
+        }
+      }
+      function drawDiamonds() {
+        for (const d of diamonds) {
+          const alpha = 1 - d.life;
+          ctx.save();
+          ctx.translate(d.x, d.y);
+          ctx.rotate(d.rot);
+
+          ctx.fillStyle = d.color + Math.floor(alpha * 255).toString(16).padStart(2, "0");
+
+          ctx.beginPath();
+          ctx.moveTo(0, -6);
+          ctx.lineTo(6, 0);
+          ctx.lineTo(0, 6);
+          ctx.lineTo(-6, 0);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.restore();
+
+          d.x += d.vx;
+          d.y += d.vy;
+          d.vy += 0.05; // 重力
+          d.rot += d.vr;
+          d.life += 0.02;
+        }
+
+        for (let i = diamonds.length - 1; i >= 0; i--) {
+          if (diamonds[i].life > 1) diamonds.splice(i, 1);
+        }
+      }
+
+      function randomColor() {
+        const colors = ["#ff66ff", "#66ccff", "#ffcc66", "#aaffaa", "#ff8888"];
+        return colors[Math.floor(Math.random() * colors.length)];
+      }
+
+      // --- Main loop ---
+      function loop(now) {
+        const dt = Math.min((now - lastTime) / 1000, 0.033);
+        lastTime = now;
+
+        update(dt);
+
+        ctx.clearRect(0, 0, W, H);
+        drawBackground();
+        drawGoals();
+        drawXpCells();
+        drawSpinners();
+        drawPowerButton();
+        drawTopUI();
+        drawJets();
+        drawBubbles();
+        drawBalls();
+        drawXpBursts();
+        drawDiamonds();
+        drawScoreTexts();
+        drawMiniChallenge();
+        drawBigScores();
+        drawButtons();
+        drawResultDialog();
+        drawUpgrades();
+        drawLevelUpTexts();
+        drawCelebrationBanner();
+
+        drawHint();
+
+        requestAnimationFrame(loop);
+      }
+
+      // --- Start ---
+      initBalls();
+      initCells();
+      initGoals();
+      requestAnimationFrame(loop);
+    })();
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,2401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>バイバイクラゲ</title>
+<style>
+  :root{
+    --bg: #061826;
+    --arena: #0a2438;
+    --wall: #123449;
+    --accent: #ff6b4a;
+    --accent2: #4de3ff;
+    --ink: #eaf6ff;
+    --dim: #6f93a8;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0; padding:0; height:100%; background:var(--bg); color:var(--ink);
+    font-family: "Courier New", ui-monospace, monospace;
+    overflow:hidden; touch-action:none; user-select:none;
+  }
+  #app{
+    position:relative; width:100vw; height:100vh; height:100dvh; display:flex; flex-direction:column;
+  }
+  #canvasWrap{
+    position:relative; flex:1; display:flex; align-items:center; justify-content:center;
+    min-height:0;
+  }
+  canvas{ background:var(--arena); display:block; touch-action:none; }
+  #overlay{
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    flex-direction:column; gap:14px; background:rgba(11,14,20,0.88); z-index:10;
+    text-align:center; padding:20px;
+  }
+  #overlay.celebrate{ background:rgba(11,14,20,0.42); }
+  #celebrateCanvas{
+    display:none; margin:0 auto; border-radius:50%; border:3px solid rgba(255,255,255,0.4);
+    background:rgba(11,14,20,0.3); box-shadow:0 0 22px rgba(77,227,255,0.3);
+  }
+  #overlay.mascot #celebrateCanvas{ display:block; }
+  #overlay.show{ display:flex; }
+  #overlay h2{ margin:0; font-size:29px; letter-spacing:2px; line-height:1.4; }
+  #overlay p{ margin:0; color:var(--dim); font-size:16px; line-height:1.7; }
+  #overlay button{
+    margin-top:6px; padding:10px 22px; background:var(--accent); color:#12161f;
+    border:none; font-weight:bold; letter-spacing:1px; font-family:inherit; font-size:14px;
+    cursor:pointer;
+  }
+  #langToggle{
+    position:absolute; top:14px; right:14px; padding:4px 10px; font-size:11px;
+    background:none; border:1px solid var(--dim); color:var(--dim); font-family:inherit;
+    letter-spacing:1px; cursor:pointer; margin-top:0; opacity:0.72;
+  }
+  #overlay table{ font-family:inherit; }
+  #overlay th, #overlay td{ padding:2px 6px; text-align:right; }
+  #overlay th:first-child, #overlay td:first-child{ text-align:left; }
+  #joyBase{
+    position:absolute; width:110px; height:110px; border-radius:50%;
+    border:2px solid rgba(58,214,255,0.35); background:rgba(58,214,255,0.06);
+    display:none; z-index:6; pointer-events:none;
+  }
+  #joyKnob{
+    position:absolute; width:46px; height:46px; border-radius:50%;
+    background:rgba(58,214,255,0.55); left:32px; top:32px; pointer-events:none;
+  }
+  #topRightControls{
+    position:absolute; top:8px; right:10px; z-index:20; display:flex; gap:6px;
+  }
+  #overlay.show ~ #topRightControls{ display:none; } /* pause is meaningless while any overlay screen is up, and would overlap the language toggle */
+  #waveTransition{
+    position:absolute; inset:0; z-index:60; pointer-events:none; display:none; overflow:hidden;
+    background:linear-gradient(#0f3550, #061826); opacity:0;
+  }
+  #waveTransition.show{ display:block; pointer-events:auto; }
+  #loadingCanvas{ position:absolute; inset:0; width:100%; height:100%; }
+  #loadingText{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:#eaf6ff; font-weight:bold; font-size:19px; letter-spacing:3px; z-index:2;
+    animation: loadingBlink 0.9s steps(2, jump-none) infinite;
+    text-shadow: 0 0 12px rgba(77,227,255,0.6); font-family:inherit;
+  }
+  @keyframes loadingBlink{ 50%{ opacity:0.15; } }
+  #soundToggle{
+    position:absolute; top:8px; left:10px; z-index:20; padding:8px 14px; font-size:15px;
+    font-weight:bold; letter-spacing:1px; background:rgba(18,22,31,0.55); border:1px solid var(--wall);
+    color:var(--ink); cursor:pointer; opacity:0.72; font-family:inherit;
+    display:flex; align-items:center; gap:6px;
+  }
+  #soundToggle .icon{ font-size:15px; line-height:1; }
+  #pauseToggle{
+    background:rgba(18,22,31,0.55); border:1px solid var(--accent2);
+    color:var(--ink); font-size:15px; font-weight:bold; padding:8px 14px; cursor:pointer;
+    font-family:inherit; display:flex; align-items:center; gap:6px; letter-spacing:1px;
+    opacity:0.72;
+  }
+  #pauseToggle .icon{ font-size:19px; line-height:1; }
+  #howto{
+    text-align:center; font-size:14px; color:var(--dim); flex-shrink:0;
+    line-height:1.8; padding:10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-top:1px solid var(--wall);
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="canvasWrap">
+    <canvas id="game"></canvas>
+    <button id="soundToggle" aria-label="サウンド"><span class="icon">🔊</span><span id="soundToggleLabel">MUTE</span></button>
+    <div id="overlay">
+      <button id="langToggle">EN</button>
+      <h2 id="overlayTitle">READY?</h2>
+      <canvas id="celebrateCanvas" width="150" height="150"></canvas>
+      <p id="overlayText"></p>
+      <button id="overlayBtn">START</button>
+    </div>
+    <div id="topRightControls">
+      <button id="pauseToggle" aria-label="一時停止"><span class="icon">❚❚</span><span id="pauseToggleLabel">STOP</span></button>
+    </div>
+    <div id="waveTransition">
+      <canvas id="loadingCanvas"></canvas>
+      <div id="loadingText">TUNING UP</div>
+    </div>
+  </div>
+  <div id="howto"></div>
+  <div id="joyBase"><div id="joyKnob"></div></div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Localization data (Japanese/English text used throughout the game)
+// ---------------------------------------------------------------------------
+const I18N = {
+  ja: {
+    lang_button_label: 'EN', // shows the language you'll switch TO
+
+    controls_hint_html: '移動：スワイプ / ドラッグ / 十字キー<br>攻撃：移動後に手を離す',
+
+    ready_title: 'バイバイクラゲ',
+    start_btn: 'START',
+    howto_html: `
+      <div style="text-align:center; font-size:15px; line-height:1.6; max-width:300px; margin:0 auto;">
+        <p style="margin:0 0 14px; color:#d4dee2;">水鉄砲で倍々クラゲを退治しよう！</p>
+        <div style="text-align:left; font-size:14px; line-height:1.85;">
+          <b style="color:#4de3ff;">操作</b><br>
+          移動：スワイプ / ドラッグ / 十字キー<br>
+          攻撃：移動後に手を離す<br><br>
+          <b style="color:#4de3ff;">ルール</b><br>
+          ・画面内を漂う全てのクラゲを倒せばクリア<br>
+          ・倍々クラゲは水鉄砲に当たると大⇒中⇒小と分裂して小さくなる<br>
+          ・クラゲに触れると痺れてライフを失う<br>
+          ・1発で複数のクラゲを倒すと、一時的に攻撃力と移動速度がアップ
+        </div>
+      </div>`,
+
+    stat_time_label: 'クリアタイム',
+    stat_deaths_label: 'やられた数',
+    stat_bonus_label: 'ボーナス回数',
+
+    stage_clear_title: () => '縄張り奪還！',
+    stage_reclaimed_text: (n) => `${n}つ目の縄張りを取り返した。`,
+    stages_remaining_text: (remaining) => remaining === 1 ? '次が最後の縄張りだ！' : (remaining > 0 ? `残る縄張りはあと${remaining}つだ。` : ''),
+    next_stage_btn: 'NEXT STAGE',
+
+    milestone_title: () => '全ての縄張りを<br>奪還した！',
+    stats_table_headers: ['ステージ', 'クリアタイム', 'やられた数', 'ボーナス回数'],
+    back_to_title_btn: 'タイトルへ戻る',
+
+    result_title: 'RESULT',
+    result_message: (stageNum, clearedCount) => {
+      const territoryPart = clearedCount > 0 ? `${clearedCount}つの縄張りを取り返した。` : 'まだ縄張りを取り返せていない。';
+      return `ステージ${stageNum}のクラゲと戦った。<br>${territoryPart}`;
+    },
+    paused_title: 'PAUSED',
+    paused_hint: '右上のボタンで再開',
+
+    bonus_label: (secs) => `BONUS ${secs}s`,
+    bonus_popup: (n) => `BONUS! ×${n}`,
+  },
+
+  en: {
+    lang_button_label: '日本語',
+
+    controls_hint_html: 'Move: Swipe / drag / arrows<br>Attack: Release after moving',
+
+    ready_title: 'Squirtstrike',
+    start_btn: 'START',
+    howto_html: `
+      <div style="text-align:center; font-size:15px; line-height:1.6; max-width:300px; margin:0 auto;">
+        <p style="margin:0 0 14px; color:#d4dee2;">Squirt the jellyfish away!</p>
+        <div style="text-align:left; font-size:14px; line-height:1.85;">
+          <b style="color:#4de3ff;">Controls</b><br>
+          Move: Swipe / drag / arrows<br>
+          Attack: Release after moving<br><br>
+          <b style="color:#4de3ff;">Rules</b><br>
+          - Clear all jellyfish to win the stage<br>
+          - Jellyfish split smaller each hit<br>
+          - Touching one costs a life<br>
+          - Multi-hits grant a temporary power &amp; speed boost
+        </div>
+      </div>`,
+
+    stat_time_label: 'Time',
+    stat_deaths_label: 'Deaths',
+    stat_bonus_label: 'Bonus',
+
+    stage_clear_title: () => 'Territory Reclaimed!',
+    stage_reclaimed_text: (n) => `Territory #${n} reclaimed.`,
+    stages_remaining_text: (remaining) => remaining === 1 ? 'This is the final territory!' : (remaining > 0 ? `${remaining} territories left to go.` : ''),
+    next_stage_btn: 'NEXT STAGE',
+
+    milestone_title: () => 'All territories reclaimed!',
+    stats_table_headers: ['Stage', 'Time', 'Deaths', 'Bonus'],
+    back_to_title_btn: 'BACK TO TITLE',
+
+    result_title: 'RESULT',
+    result_message: (stageNum, clearedCount) => {
+      const territoryPart = clearedCount > 0 ? `Reclaimed ${clearedCount} ${clearedCount === 1 ? 'territory' : 'territories'}.` : 'No territories reclaimed yet.';
+      return `Fought the jellyfish at stage ${stageNum}.<br>${territoryPart}`;
+    },
+    paused_title: 'PAUSED',
+    paused_hint: 'Tap the button top-right to resume',
+
+    bonus_label: (secs) => `BONUS ${secs}s`,
+    bonus_popup: (n) => `BONUS! x${n}`,
+  },
+};
+
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const wrap = document.getElementById('canvasWrap');
+  const appEl = document.getElementById('app');
+  const howtoEl = document.getElementById('howto');
+  // ---------- Audio: everything below is synthesized with the Web Audio API - no sound
+  // files, so this stays a single self-contained HTML file and adds zero network weight.
+  let audioCtx = null;
+  let soundOn = true; // toggled by #soundToggle; checked inside ensureAudio() so every sfx respects it in one place
+  function ensureAudio() {
+    if (!soundOn) return null;
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      audioCtx = new AC();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  // pre-warm the AudioContext on the very first touch/pointer interaction anywhere on the
+  // page, rather than waiting specifically for the START button - creating an AudioContext
+  // has a one-time hardware "spin-up" delay (worst on mobile Safari), so getting a head start
+  // during the touch itself (which fires before the button's own click handler runs) means
+  // by the time STARTs's confirm+countdown sounds are scheduled, the context is already warm
+  // priming: schedule an actual (near-silent) tone as early as possible, not just resume() -
+  // resume()/currentTime advancing only proves the context's internal clock is ticking, not
+  // that audio has actually started flowing through the hardware output pipeline (the real
+  // source of the cold-start lag on mobile Safari); actually playing something forces that
+  // pipeline open well before the player's first *intended* sound (the confirm blip on START)
+  function primeAudio() {
+    const ac = ensureAudio();
+    if (!ac) return;
+    playTone(200, 'sine', 60, 0.008, 0);
+  }
+  window.addEventListener('pointerdown', primeAudio, { once: true, passive: true });
+  window.addEventListener('touchstart', primeAudio, { once: true, passive: true });
+
+  // ---------- First-start wave transition: masks the one-time AudioContext "cold start" cost
+  // (worst on mobile Safari) behind a themed wipe-transition instead of a raw loading spinner,
+  // so the very first play session - which may be someone's only session - opens cleanly.
+  // Runs exactly once per page load; every later return-to-title/restart skips straight to
+  // beginCountdown() since the AudioContext is already warm by then.
+  let firstStartHandled = false;
+  const waveEl = document.getElementById('waveTransition');
+  const loadingCanvas = document.getElementById('loadingCanvas');
+  const loadingCtx = loadingCanvas.getContext('2d');
+
+  function setupLoadingSwarm() {
+    const w = waveEl.clientWidth, h = waveEl.clientHeight;
+    loadingCanvas.width = w; loadingCanvas.height = h;
+    const baseR = Math.min(w, h) * 0.045;
+    const specs = [
+      { r: baseR * 2.2, gen: 0, count: 1 },
+      { r: baseR * 1.5, gen: 1, count: 1 },
+      { r: baseR * 1.0, gen: 2, count: 2 },
+    ];
+    const swarm = [];
+    specs.forEach(spec => {
+      for (let i = 0; i < spec.count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = (w + h) * 0.05 + Math.random() * (w + h) * 0.03;
+        swarm.push({
+          x: spec.r + Math.random() * (w - spec.r * 2),
+          y: spec.r + Math.random() * (h - spec.r * 2),
+          vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+          r: spec.r, gen: spec.gen, seed: Math.random() * 1000,
+        });
+      }
+    });
+    return { w, h, swarm };
+  }
+  // steps physics (movement, wall bounce, jellyfish-jellyfish elastic collision) and redraws -
+  // reuses the real drawJellyfish/drawElectricRing/drawSparks, just targeting loadingCtx instead
+  // of the main game canvas
+  function stepAndDrawLoadingSwarm(state, dt) {
+    const { w, h, swarm } = state;
+    loadingCtx.clearRect(0, 0, w, h);
+    swarm.forEach(j => {
+      j.x += j.vx * dt; j.y += j.vy * dt;
+      if (j.x < j.r) { j.x = j.r; j.vx *= -1; }
+      if (j.x > w - j.r) { j.x = w - j.r; j.vx *= -1; }
+      if (j.y < j.r) { j.y = j.r; j.vy *= -1; }
+      if (j.y > h - j.r) { j.y = h - j.r; j.vy *= -1; }
+    });
+    for (let i = 0; i < swarm.length; i++) {
+      for (let k = i + 1; k < swarm.length; k++) {
+        const a = swarm[i], b = swarm[k];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy);
+        const minDist = a.r + b.r;
+        if (dist > 0.0001 && dist < minDist) {
+          const nx = dx / dist, ny = dy / dist;
+          const aMass = a.r * a.r, bMass = b.r * b.r, totalMass = aMass + bMass;
+          const overlap = minDist - dist;
+          a.x -= nx * overlap * (bMass / totalMass); a.y -= ny * overlap * (bMass / totalMass);
+          b.x += nx * overlap * (aMass / totalMass); b.y += ny * overlap * (aMass / totalMass);
+          const avn = a.vx * nx + a.vy * ny, bvn = b.vx * nx + b.vy * ny;
+          const aTx = a.vx - avn * nx, aTy = a.vy - avn * ny;
+          const bTx = b.vx - bvn * nx, bTy = b.vy - bvn * ny;
+          const newAvn = (avn * (aMass - bMass) + 2 * bMass * bvn) / totalMass;
+          const newBvn = (bvn * (bMass - aMass) + 2 * aMass * avn) / totalMass;
+          a.vx = aTx + newAvn * nx; a.vy = aTy + newAvn * ny;
+          b.vx = bTx + newBvn * nx; b.vy = bTy + newBvn * ny;
+        }
+      }
+    }
+    swarm.forEach(j => {
+      const c = JELLY_COLORS[j.gen];
+      drawElectricRing(j.x, j.y, j.r, c.electric, 0.5, j.seed, loadingCtx);
+      drawJellyfish(j.x, j.y, j.r, j.gen, 1, loadingCtx);
+      drawSparks(j.x, j.y, j.r, c.electric, j.seed, loadingCtx);
+    });
+  }
+
+  function playFirstStartTransition() {
+    const COVER_MS = 200;   // fading in to fully visible
+    const MIN_HOLD_MS = 0;  // extra hold once covered, only as long as audio isn't confirmed ready yet
+    const MAX_HOLD_MS = 250;
+    const REVEAL_MS = 220;  // fading back out, revealing the game underneath
+
+    sfxConfirm();
+    ensureAudio();
+    const ac = audioCtx;
+    const baselineTime = ac ? ac.currentTime : 0;
+
+    waveEl.classList.add('show');
+    const swarmState = setupLoadingSwarm();
+    const t0 = performance.now();
+    let lastFrameT = t0;
+    let revealStarted = false;
+    let holdEndsAt = null; // decided once we know whether audio is ready by the time cover finishes
+
+    function frame(now) {
+      const dt = Math.max(0, Math.min(0.05, (now - lastFrameT) / 1000));
+      lastFrameT = now;
+      stepAndDrawLoadingSwarm(swarmState, dt);
+      const elapsed = now - t0;
+
+      if (!revealStarted) {
+        if (elapsed < COVER_MS) {
+          waveEl.style.opacity = elapsed / COVER_MS;
+          requestAnimationFrame(frame);
+          return;
+        }
+        // fully covered - decide how much longer (if any) to hold based on audio readiness
+        if (holdEndsAt === null) {
+          const audioLooksReady = ac && ac.state === 'running' && (ac.currentTime - baselineTime) > 0.03;
+          holdEndsAt = t0 + COVER_MS + (audioLooksReady ? MIN_HOLD_MS : MAX_HOLD_MS);
+        }
+        const audioReadyNow = ac && ac.state === 'running' && (ac.currentTime - baselineTime) > 0.03;
+        if (now < holdEndsAt && !audioReadyNow) {
+          waveEl.style.opacity = 1;
+          requestAnimationFrame(frame);
+          return;
+        }
+        // proceed to reveal: this is the moment the actual game/countdown begins, timed so any
+        // residual audio latency is hidden behind the still-opaque loading screen
+        revealStarted = true;
+        beginCountdown();
+        requestAnimationFrame(frame);
+        return;
+      }
+
+      const revealElapsed = elapsed - (holdEndsAt - t0);
+      if (revealElapsed < REVEAL_MS) {
+        waveEl.style.opacity = 1 - revealElapsed / REVEAL_MS;
+        requestAnimationFrame(frame);
+      } else {
+        waveEl.style.opacity = 0;
+        waveEl.classList.remove('show');
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // freq: Hz. type: 'sine'|'triangle'|'square'|'sawtooth'. duration: ms. volume: 0-1. delay: seconds from now.
+  function playTone(freq, type, duration, volume, delay) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const t0 = ac.currentTime + (delay || 0);
+    const dur = duration / 1000;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+  // like playTone but the pitch slides linearly from freq1 to freq2 over the duration
+  function playSlide(freq1, freq2, type, duration, volume, delay) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const t0 = ac.currentTime + (delay || 0);
+    const dur = duration / 1000;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq1, t0);
+    osc.frequency.linearRampToValueAtTime(freq2, t0 + dur);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+  // a short run of notes, e.g. for the bonus/clear fanfares. notes = [{freq, dur, delay}]
+  function playSequence(notes, type, volume) {
+    notes.forEach(n => playTone(n.freq, type, n.dur, n.vol !== undefined ? n.vol : volume, n.delay));
+  }
+  // filtered white-noise burst with the bandpass filter sweeping down - a "shu" spray texture,
+  // used as the base of the fire sound (much closer to a water squirt than a pure tone)
+  function playNoiseSweep(freqHigh, freqLow, duration, volume, delay, q) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const t0 = ac.currentTime + (delay || 0);
+    const dur = duration / 1000;
+    const bufferSize = Math.max(1, Math.floor(ac.sampleRate * dur));
+    const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ac.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ac.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = q || 6;
+    filter.frequency.setValueAtTime(freqHigh, t0);
+    filter.frequency.exponentialRampToValueAtTime(freqLow, t0 + dur);
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(ac.destination);
+    noise.start(t0);
+    noise.stop(t0 + dur + 0.02);
+  }
+  // a light, low, narrow-band noise "tok" - much softer/lower than playNoiseSweep, used for the
+  // countdown ticks instead of a bright/harsh click
+  function playSoftTick(volume, brightness, delay) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const t0 = ac.currentTime + (delay || 0);
+    const dur = 0.045;
+    const bufferSize = Math.max(1, Math.floor(ac.sampleRate * dur));
+    const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ac.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ac.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 3;
+    filter.frequency.value = 500 + brightness * 700; // stays low/soft, brightens only a little
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(ac.destination);
+    noise.start(t0);
+    noise.stop(t0 + dur + 0.02);
+  }
+  // 2-operator FM bell - used for the START! jingle
+  function playFMBell(freq, modRatio, modDepth, duration, volume, delay) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const t0 = ac.currentTime + (delay || 0);
+    const dur = duration / 1000;
+    const carrier = ac.createOscillator();
+    const modulator = ac.createOscillator();
+    const modGain = ac.createGain();
+    carrier.type = 'sine';
+    modulator.type = 'sine';
+    modulator.frequency.value = freq * modRatio;
+    modGain.gain.setValueAtTime(modDepth, t0);
+    modGain.gain.exponentialRampToValueAtTime(1, t0 + dur); // modulation decays -> bell-like
+    modulator.connect(modGain);
+    modGain.connect(carrier.frequency);
+    carrier.frequency.value = freq;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    carrier.connect(gain);
+    gain.connect(ac.destination);
+    carrier.start(t0); modulator.start(t0);
+    carrier.stop(t0 + dur + 0.02); modulator.stop(t0 + dur + 0.02);
+  }
+  // a mid-tone that gates rapidly on/off while sliding down in pitch - a "stuttering electric
+  // current" texture, used as the main/readable layer of the hurt sound
+  function playStutterSlide(freq1, freq2, type, duration, volume, gateRate) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const t0 = ac.currentTime;
+    const dur = duration / 1000;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq1, t0);
+    osc.frequency.linearRampToValueAtTime(freq2, t0 + dur);
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    const steps = Math.floor(dur * gateRate);
+    for (let i = 0; i < steps; i++) {
+      const st = t0 + i / gateRate;
+      const on = st + 0.005;
+      const off = st + (1 / gateRate) * 0.5;
+      gain.gain.setValueAtTime(0, st);
+      gain.gain.linearRampToValueAtTime(volume * (1 - i / steps * 0.6), on);
+      gain.gain.linearRampToValueAtTime(0, off);
+    }
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+  // a low tone with fast pitch vibrato, also sliding down - a quieter "numb/shock" layer that
+  // lingers under (and slightly past) the stutter layer above
+  function playVibratoSlide(freq1, freq2, type, duration, volume, vibRate, vibDepth, delay) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const t0 = ac.currentTime + (delay || 0);
+    const dur = duration / 1000;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq1, t0);
+    osc.frequency.linearRampToValueAtTime(freq2, t0 + dur);
+    const lfo = ac.createOscillator();
+    const lfoGain = ac.createGain();
+    lfo.frequency.value = vibRate;
+    lfoGain.gain.value = vibDepth;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.start(t0); lfo.start(t0);
+    osc.stop(t0 + dur + 0.02); lfo.stop(t0 + dur + 0.02);
+  }
+  // ---------- Sound effects (Cmaj pentatonic: C5=523 D5=587 E5=659 G5=784 A5=880 C6=1047;
+  // F5=698/B5=988 only ever used as brief passing tones, never as a note you land on) ----------
+  // C3: a tiny rising pre-chirp (the "flick" of pursing the mouth) immediately followed by a
+  // filtered noise burst sweeping downward (the actual water spray) - chosen for sounding like
+  // a squirt rather than a laser, while still having enough character to not feel flat on repeat
+  function sfxFire() {
+    playSlide(600, 1400, 'sine', 15, 0.16, 0);
+    playNoiseSweep(4000, 500, 90, 0.32, 0.014);
+  }
+  // B2: a short crack followed by two slightly detuned echoing blips - reads as "one thing
+  // breaking into pieces" rather than a plain hit confirmation
+  function sfxHit() {
+    playNoiseSweep(3500, 2000, 25, 0.24);
+    playTone(880, 'sine', 60, 0.14, 0.03);
+    playTone(784, 'sine', 60, 0.12, 0.06);
+  }
+  // C2: the smallest jellyfish's final hit - a short evaporating sizzle with a fading high
+  // shimmer layered on top, distinct from the regular mid-split hit sound
+  function sfxDissolve() {
+    playNoiseSweep(6000, 1500, 220, 0.18, 0, 3);
+    playSlide(2500, 4000, 'sine', 200, 0.08, 0);
+  }
+  // stuttering "electric current" mid-tone (readable hit) + a quieter low vibrato that lingers
+  // a bit longer underneath (the numb/shock texture) - both slide downward together
+  function sfxHurt() {
+    playStutterSlide(650, 280, 'square', 220, 0.2, 22);
+    playVibratoSlide(160, 70, 'sawtooth', 500, 0.08, 35, 20, 0);
+  }
+  function sfxConfirm() { playSlide(523, 784, 'sine', 100, 0.18); }
+  // B1: a short 3-note arpeggio for un-muting - a bit more celebratory than the plain confirm
+  // blip, since this is "sound is back" rather than just "button pressed"
+  function sfxUnmute() {
+    playSequence([{ freq: 523, dur: 80, delay: 0 }, { freq: 659, dur: 80, delay: 0.07 }, { freq: 784, dur: 160, delay: 0.14 }], 'triangle', 0.2);
+  }
+  function sfxCountdownStep(step) {
+    // Pattern ⑤: base note descends with the count (C5->B4->A4), each sliding up a fifth/fourth
+    // to echo the confirm sound's own "rising slide" shape and language; START! is an FM bell chime
+    if (step === 0) { playSoftTick(0.14, 0.15); playSlide(523.25, 783.99, 'sine', 90, 0.09, 0); }  // "3"
+    else if (step === 1) { playSoftTick(0.18, 0.45); playSlide(493.88, 659.25, 'sine', 80, 0.11, 0); } // "2"
+    else if (step === 2) { playSoftTick(0.22, 0.8); playSlide(440.00, 587.33, 'sine', 80, 0.14, 0); }  // "1"
+    else if (step === 3) playFMBell(1047, 2.0, 6, 500, 0.28, 0);
+  }
+  // ③-4: a quick trill (rapid alternation) landing on a sustained high note - reads as a
+  // flashy little flourish, fitting for "hit multiple jellyfish with one shot"
+  function sfxBonus() {
+    playSequence([
+      { freq: 659, dur: 55, delay: 0 },
+      { freq: 784, dur: 55, delay: 0.05 },
+      { freq: 659, dur: 55, delay: 0.1 },
+      { freq: 784, dur: 55, delay: 0.15 },
+      { freq: 1047, dur: 300, delay: 0.22 },
+    ], 'triangle', 0.24);
+  }
+  function sfxStageClear() {
+    playSequence([
+      { freq: 523, dur: 110, delay: 0 },
+      { freq: 659, dur: 110, delay: 0.1 },
+      { freq: 784, dur: 110, delay: 0.2 },
+      { freq: 698, dur: 90, delay: 0.3 },  // brief passing tone (F5), never landed on
+      { freq: 1047, dur: 300, delay: 0.38 },
+    ], 'triangle', 0.26);
+  }
+  // the 5-stage milestone fanfare: the same opening phrase as sfxStageClear, continuing on into
+  // a further climb and a longer, louder landing note - reads as "the clear jingle, but grander"
+  function sfxMilestone() {
+    playSequence([
+      { freq: 523, dur: 110, delay: 0 },
+      { freq: 659, dur: 110, delay: 0.1 },
+      { freq: 784, dur: 110, delay: 0.2 },
+      { freq: 698, dur: 90, delay: 0.3 },  // brief passing tone (F5), never landed on
+      { freq: 1047, dur: 110, delay: 0.38 },
+      { freq: 1319, dur: 110, delay: 0.5 },
+      { freq: 1568, dur: 110, delay: 0.62 },
+      { freq: 2093, dur: 550, delay: 0.74 },
+    ], 'triangle', 0.3);
+  }
+  // RESULT (game-over) confirm sound - a small melodic arc (down, then lifting slightly at the
+  // end) rather than a plain scale run, and a slower tempo than the clear jingles. Meant to read
+  // as "run complete" rather than a penalty - not sad, just a gentler, calmer landing
+  function sfxGameOver() {
+    playSequence([
+      { freq: 659, dur: 220, delay: 0 },
+      { freq: 587, dur: 220, delay: 0.2 },
+      { freq: 523, dur: 220, delay: 0.4 },
+      { freq: 440, dur: 220, delay: 0.6 },
+      { freq: 523, dur: 450, delay: 0.82 },
+    ], 'triangle', 0.2);
+  }
+  // wall bounce: a tiny water-droplet-like blip. Throttled so a screen full of jellyfish
+  // bouncing at once doesn't stack into a wall of noise - only one plays per ~45ms regardless
+  // of how many balls actually bounce in that window, with the pitch jittered a bit each time
+  // so repeats don't sound identical/robotic.
+  let lastWallBounceSoundAt = -9999;
+  function sfxWallBounce() {
+    if (frameNow - lastWallBounceSoundAt < 45) return;
+    lastWallBounceSoundAt = frameNow;
+    const jitter = (Math.random() - 0.5) * 200;
+    playSlide(500 + jitter, 900 + jitter, 'sine', 45, 0.1);
+    playVibratoSlide(140, 60, 'sawtooth', 90, 0.025, 45, 14, 0); // same "numb" low layer as the collision sound, tuned slightly differently so the two stay distinguishable
+  }
+  // jellyfish-jellyfish collision: a gelatinous dip-and-bounce (pitch sinks then springs back),
+  // with a very short, quiet echo of the player-hurt sound's low vibrato layer mixed in - just
+  // enough to feel "electric" without reading as a real hit. Throttled like the wall bounce.
+  let lastCollisionSoundAt = -9999;
+  function sfxCollision() {
+    if (frameNow - lastCollisionSoundAt < 45) return;
+    lastCollisionSoundAt = frameNow;
+    const jitter = (Math.random() - 0.5) * 80;
+    playSlide(500 + jitter, 300 + jitter * 0.5, 'sine', 40, 0.1);
+    playSlide(300 + jitter * 0.5, 480 + jitter, 'sine', 60, 0.09, 0.04);
+    playVibratoSlide(160, 70, 'sawtooth', 120, 0.035, 35, 20, 0);
+  }
+  // movement start: a light noise "shu" - only fires on the standstill->moving edge, not every
+  // frame while already moving, so it doesn't spam during a held drag
+  function sfxMoveStart() {
+    const jitter = (Math.random() - 0.5) * 300;
+    playNoiseSweep(2200 + jitter, 1200 + jitter, 50, 0.09);
+  }
+  // pause/resume: a 3-note stab (Q2b), same shape both ways but reversed direction, one octave
+  // down from the original menu-blip register to keep it from feeling sharp
+  function sfxPause() {
+    playSequence([{ freq: 523, dur: 70, delay: 0 }, { freq: 392, dur: 70, delay: 0.07 }, { freq: 523, dur: 200, delay: 0.14 }], 'triangle', 0.2);
+  }
+  function sfxResume() {
+    playSequence([{ freq: 392, dur: 70, delay: 0 }, { freq: 523, dur: 70, delay: 0.07 }, { freq: 659, dur: 200, delay: 0.14 }], 'triangle', 0.2);
+  }
+  // the stage's rhythmic downbeat - a low, slightly electric "numb" thump, like a kick drum
+  // marking the tempo. Fires on every beat regardless of what the player is doing.
+  function sfxBeat() {
+    playVibratoSlide(80, 50, 'triangle', 160, 0.09, 30, 16, 0);
+  }
+  // same tone as sfxBeat, used during the multi-hit bonus at double speed with alternating
+  // strong/weak volume (T3) for a groove rather than a flat double-time thump
+  function sfxBeatLight(strong) {
+    playVibratoSlide(80, 50, 'triangle', 160, strong ? 0.09 : 0.05, 30, 16, 0);
+  }
+  // hi-hat-like subdivision (triplets - 3x as frequent as the main beat), only while the player is
+  // actively moving - the same light "shu" texture as the movement-start sound, just quantized
+  // to the beat grid so it reads as a rhythmic groove rather than a one-off transient
+  function sfxMoveBeat() {
+    const jitter = (Math.random() - 0.5) * 200;
+    playNoiseSweep(2000 + jitter, 1300 + jitter, 35, 0.055);
+  }
+  // "open" hi-hat variant (longer, more ringing) - used as the first hit of the O-C-C pattern
+  // during the bonus, alternating with the regular "closed" sfxMoveBeat
+  function sfxMoveBeatOpen() {
+    const jitter = (Math.random() - 0.5) * 200;
+    playNoiseSweep(2200 + jitter, 1400 + jitter, 140, 0.05);
+  }
+  // a more unstable, wobbling version of the bass beat - used only in the last stretch of the
+  // bonus so the player can hear time running out without having to watch the bar
+  function sfxBeatWarning(strong) {
+    playVibratoSlide(80, 50, 'triangle', 160, strong ? 0.09 : 0.05, 60, 32, 0);
+  }
+  // a small descending stab the instant the bonus ends - gives the bonus a clear "close" rather
+  // than just quietly fading back to normal
+  function sfxBonusEnd() {
+    playSequence([{ freq: 784, dur: 55, delay: 0 }, { freq: 659, dur: 55, delay: 0.05 }, { freq: 523, dur: 130, delay: 0.1 }], 'square', 0.11);
+  }
+  // AA4: a short 2-note chord stab landing on the "and" between bass beats during the bonus -
+  // a skank-guitar-style offbeat accent (replaced the earlier melodic shimmer, which didn't land well)
+  function sfxBonusOffbeat() {
+    playTone(659, 'triangle', 45, 0.05, 0);
+    playTone(988, 'triangle', 45, 0.05, 0);
+  }
+  // (both the charge-up drone and the recovery chime were removed - firing repeatedly made
+  // them play constantly and it got noisy; the fire/hit sounds carry enough feedback on their own)
+
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayText = document.getElementById('overlayText');
+  const overlayBtn = document.getElementById('overlayBtn');
+  const langToggle = document.getElementById('langToggle');
+
+  // ---------- i18n (text lives in i18n.js / the I18N global) ----------
+  // default to Japanese only for Japanese-language browsers; everyone else sees English first
+  let currentLang = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+  function t(key, ...args) {
+    const dict = I18N[currentLang] || I18N.ja;
+    const entry = (key in dict) ? dict[key] : I18N.ja[key];
+    return (typeof entry === 'function') ? entry(...args) : entry;
+  }
+  function updateHudLabels() {
+    howtoEl.innerHTML = t('controls_hint_html');
+  }
+  // remembers what the currently-shown overlay screen needs, so switching language
+  // can rebuild it in place without re-triggering game-state transitions
+  let overlayContext = { kind: null };
+  function statsBlockHtml(rec) {
+    return `
+      <div style="display:flex; justify-content:center; gap:30px; margin:14px 0; font-size:15px; line-height:1.6;">
+        <div><div style="color:#8fa3ad;">${t('stat_time_label')}</div><div style="font-size:23px; font-weight:bold; color:#4de3ff;">${(rec.clearTimeMs / 1000).toFixed(1)}s</div></div>
+        <div><div style="color:#8fa3ad;">${t('stat_deaths_label')}</div><div style="font-size:23px; font-weight:bold; color:#ff6b4a;">${rec.deaths}</div></div>
+        <div><div style="color:#8fa3ad;">${t('stat_bonus_label')}</div><div style="font-size:23px; font-weight:bold; color:#ffe93a;">${rec.bonusCount}</div></div>
+      </div>`;
+  }
+  function statsTableHtml(stats) {
+    const headers = t('stats_table_headers');
+    const rows = stats.map(r => `
+      <tr>
+        <td style="padding:8px 12px;">${r.stage}</td>
+        <td style="padding:8px 12px; color:#4de3ff; font-weight:bold;">${r.clearTimeMs === null ? '-' : (r.clearTimeMs / 1000).toFixed(1) + 's'}</td>
+        <td style="padding:8px 12px; color:#ff6b4a; font-weight:bold;">${r.deaths}</td>
+        <td style="padding:8px 12px; color:#ffe93a; font-weight:bold;">${r.bonusCount}</td>
+      </tr>`).join('');
+    return `
+      <table style="width:100%; margin:12px auto; font-size:17px; line-height:1.5; border-collapse:collapse;">
+        <tr style="color:#8fa3ad; font-size:13px;"><th>${headers[0]}</th><th>${headers[1]}</th><th>${headers[2]}</th><th>${headers[3]}</th></tr>
+        ${rows}
+      </table>`;
+  }
+  function renderOverlayContext() {
+    const c = overlayContext;
+    if (!c || !c.kind) return;
+    overlay.classList.toggle('celebrate', c.kind === 'clear' || c.kind === 'milestone' || c.kind === 'over');
+    overlay.classList.toggle('mascot', c.kind === 'clear' || c.kind === 'milestone');
+    langToggle.style.display = (c.kind === 'ready') ? '' : 'none';
+    overlayBtn.style.minWidth = (c.kind === 'ready') ? '220px' : ''; // START gets extra width on the title screen for an easier tap target
+    if (c.kind === 'ready') {
+      overlayTitle.textContent = t('ready_title');
+      overlayText.innerHTML = t('howto_html');
+      overlayBtn.textContent = t('start_btn');
+    } else if (c.kind === 'clear') {
+      overlayTitle.textContent = t('stage_clear_title', c.stage);
+      const remaining = MILESTONE_STAGE - c.stage;
+      overlayText.innerHTML = `
+        <div style="font-size:17px; line-height:1.7;">${t('stage_reclaimed_text', c.stage)}<br>${t('stages_remaining_text', remaining)}</div>
+        ${statsBlockHtml(c.statRecord)}`;
+      overlayBtn.textContent = t('next_stage_btn');
+    } else if (c.kind === 'milestone') {
+      overlayTitle.innerHTML = t('milestone_title', c.stage);
+      overlayTitle.style.fontSize = '30px';
+      overlayText.innerHTML = statsTableHtml(c.stats);
+      overlayBtn.textContent = t('back_to_title_btn');
+    } else if (c.kind === 'over') {
+      overlayTitle.style.fontSize = '';
+      overlayTitle.textContent = t('result_title');
+      overlayText.innerHTML = `
+        <div style="font-size:17px; line-height:1.7; margin-bottom:8px;">${t('result_message', c.stage, c.clearedCount)}</div>
+        ${c.stats.length ? statsTableHtml(c.stats) : ''}`;
+      overlayBtn.textContent = t('back_to_title_btn');
+    }
+  }
+  function applyLanguage() {
+    langToggle.textContent = t('lang_button_label');
+    document.title = t('ready_title');
+    updateHudLabels();
+    if (overlay.classList.contains('show')) renderOverlayContext();
+  }
+  langToggle.addEventListener('click', () => {
+    sfxConfirm();
+    currentLang = currentLang === 'ja' ? 'en' : 'ja';
+    applyLanguage();
+  });
+  applyLanguage();
+  const joyBase = document.getElementById('joyBase');
+  const celebrateCanvas = document.getElementById('celebrateCanvas');
+  const celebrateCtx = celebrateCanvas.getContext('2d');
+  const joyKnob = document.getElementById('joyKnob');
+
+  // ---------- Tunable parameters (playtest-adjustable) ----------
+  const CFG = {
+    arenaW: 480,
+    arenaH: 640,
+    playerRadius: 30,
+    playerMoveSpeed: 3.2,
+    ballBaseRadius: 70,
+    gen0Speed: 1.1,
+    gen1SpeedMult: 1.9,
+    gen2SpeedMult: 3.2,
+    beamWidth: 60,
+    beamFreezeMs: 320,
+    beamActiveVisualMs: 100,
+    startBallCount: 1,
+    maxStageBallCount: 5,
+    multiHitBonusSpeedMult: 2.0,
+    multiHitBonusBeamMult: 2.0,
+    multiHitBonusDurationMs: 3000,
+    splitInvulnMs: 500,
+    beamHitMargin: 8,
+    stageClearDelayMs: 350,
+    playerDeathDelayMs: 650,
+    keyboardAimTurnSpeed: 16, // radians/sec the aim sweeps at for keyboard input (movement itself stays instant)
+  };
+  const instaKill = false; // spec is locked in as life-based (3 lives); no debug toggle anymore
+  // Distance from the ship's center to its snout tip - the single true "front" point that the
+  // jaw shape, mouth wedge, aim guide, and the actual fired beam all originate from.
+  function snoutTipDist() { return CFG.playerRadius * 1.35; }
+  // player size & beam width are derived from the smallest enemy (gen2) size
+  function syncDerivedSizes() {
+    const smallest = CFG.ballBaseRadius / 4;
+    CFG.playerRadius = smallest;      // visual size (body/fins/mouth are all built from this)
+    CFG.playerHitRadius = 13;         // the actual collision radius - deliberately a bit smaller
+                                       // than the visual size, since fins/jaw/tail are decorative
+                                       // and stick out past the true hitbox anyway
+    CFG.beamWidth = smallest;
+  }
+  syncDerivedSizes();
+
+  // ---------- Resize / scaling ----------
+  let scale = 1;
+  function resize() {
+    const availW = wrap.clientWidth;
+    const availH = wrap.clientHeight;
+    scale = Math.min(availW / CFG.arenaW, availH / CFG.arenaH) * 0.96;
+    canvas.width = CFG.arenaW * scale;
+    canvas.height = CFG.arenaH * scale;
+    canvas.style.width = canvas.width + 'px';
+    canvas.style.height = canvas.height + 'px';
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- Game state ----------
+  let player, balls, stage, kills, gameState; // gameState: 'ready' | 'countdown' | 'playing' | 'dying' | 'clear' | 'milestone' | 'over'
+  let beam = null; // {x1,y1,x2,y2,timer}
+  let effects = []; // transient visual effects: bonus burst rings, pop explosions, popup text
+  let stagePendingClear = false, stagePendingClearTimer = 0, pendingClearTimeMs = 0;
+  let dyingTimer = 0;
+  let flashTimer = 0;
+  let frameNow = 0; // updated each rAF tick, used to animate the electric hitbox ring
+  const flashMaxTimer = 220;
+  let paused = false;
+  const MILESTONE_STAGE = 5;
+  let runStats = []; // [{stage, clearTimeMs, deaths, bonusCount}, ...]
+  let stageDeathCount = 0, stageBonusCount = 0, stageElapsedMs = 0;
+  // rhythmic "heartbeat" bass pulse: fires on a fixed interval like a downbeat, getting faster
+  // each stage to build tension. The movement sound is quantized to land on the same beat,
+  // rather than firing independently, so the two lock into a groove instead of clashing.
+  const BEAT_INTERVALS = [1800, 1560, 1320, 1080, 840]; // ms, indexed by stage-1 (half-tempo)
+  let nextBeatAt = Infinity;
+  let nextMoveBeatAt = Infinity; // hi-hat-like subdivision, triplets against the main beat
+  let nextOffbeatAt = Infinity;  // lands on the midpoint between bass beats, bonus-only
+  let bonusBeatIndex = 0;   // alternates strong/weak on the bass beat while the bonus is active
+  let moveBeatIndex = 0;    // cycles the open-close-close hi-hat pattern while the bonus is active
+  let wasBonusActive = false; // edge-detects bonus start/end for the shimmer + closing sfx
+
+  function makePlayer() {
+    return {
+      x: CFG.arenaW / 2, y: CFG.arenaH - 60,
+      aimAngle: -Math.PI / 2,
+      frozen: false,
+      lives: instaKill ? 1 : 3,
+      bonusTimer: 0,
+      finPhase: Math.random() * 10,
+      blinkTimer: 2000 + Math.random() * 3000,
+      blinking: 0,
+    };
+  }
+
+  function spawnBall(x, y, gen, angle, invulnMs) {
+    const speed = gen === 0 ? CFG.gen0Speed : gen === 1 ? CFG.gen0Speed * CFG.gen1SpeedMult : CFG.gen0Speed * CFG.gen2SpeedMult;
+    const radius = CFG.ballBaseRadius / Math.pow(2, gen);
+    return {
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      radius, gen,
+      invulnTimer: invulnMs || 0,
+      ringSeed: Math.random() * 100, // desyncs each jellyfish's electric-ring animation so they don't pulse in lockstep
+    };
+  }
+
+  // announce=true shows the tap-to-start "ready" overlay; announce=false skips straight past it
+  // (used for the merged clear->next-stage flow and stage retries after death), and the caller
+  // is expected to call beginCountdown() itself right afterward.
+  function startStage(n, freshRun, announce) {
+    if (announce === undefined) announce = true;
+    const isSameStageRetry = (!freshRun && player && n === stage);
+    stage = freshRun ? 1 : n;
+    kills = 0;
+    if (freshRun) runStats = [];
+    if (!isSameStageRetry) { stageDeathCount = 0; stageBonusCount = 0; }
+    stageElapsedMs = 0;
+    const keepLives = (!freshRun && player) ? player.lives : (instaKill ? 1 : 3);
+    player = makePlayer();
+    player.lives = keepLives;
+    balls = [];
+    const count = freshRun ? CFG.startBallCount : Math.min(CFG.startBallCount + (stage - 1), CFG.maxStageBallCount);
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const x = 60 + Math.random() * (CFG.arenaW - 120);
+      const y = 60 + Math.random() * (CFG.arenaH * 0.5);
+      balls.push(spawnBall(x, y, 0, ang));
+    }
+    separateOverlappingBalls(); // avoid balls visibly stacked on top of each other during the countdown
+    beam = null;
+    effects = [];
+    stagePendingClear = false;
+    stagePendingClearTimer = 0;
+    dyingTimer = 0;
+    flashTimer = 0;
+    gameState = 'ready';
+    if (announce) {
+      overlayContext = { kind: 'ready' };
+      renderOverlayContext();
+      overlay.classList.add('show');
+    }
+    updateHud();
+  }
+
+  // ---------- Stage-start countdown (also used when respawning after a death) ----------
+  const COUNTDOWN_STEPS = ['3', '2', '1', 'START!'];
+  const COUNTDOWN_STEP_MS = 550;
+  let countdownStep = 0, countdownTimer = 0;
+  function beginCountdown() {
+    overlay.classList.remove('show');
+    gameState = 'countdown';
+    countdownStep = 0;
+    countdownTimer = COUNTDOWN_STEP_MS;
+    sfxCountdownStep(0);
+  }
+
+  function updateHud() {
+    // STAGE/LIFE are now drawn directly on the canvas each frame in render(); nothing to sync here.
+  }
+
+  // ---------- Input ----------
+  // fireQueued is set only by an actual "release" event (mouseup/touchend/keyup-that-clears-all-arrows),
+  // never inferred from the movement vector going idle for a frame - that inference was the cause of
+  // spurious beam fires while dragging the mouse in tight circles near the player (the chase-to-cursor
+  // movement could momentarily land inside the aim dead-zone, which used to look like a "release").
+  let fireQueued = false;
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
+    keys[e.key] = true;
+    if (e.key === 'Enter' && overlay.classList.contains('show')) {
+      e.preventDefault();
+      overlayBtn.click();
+    }
+  });
+  window.addEventListener('keyup', e => {
+    keys[e.key] = false;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (!keyboardVector().active && player && player.wasActive) fireQueued = true;
+    }
+  });
+
+  function keyboardVector() {
+    let dx = 0, dy = 0;
+    if (keys['ArrowLeft']) dx -= 1;
+    if (keys['ArrowRight']) dx += 1;
+    if (keys['ArrowUp']) dy -= 1;
+    if (keys['ArrowDown']) dy += 1;
+    const active = dx !== 0 || dy !== 0;
+    if (active) { const len = Math.hypot(dx, dy); dx /= len; dy /= len; } // normalize so diagonals aren't faster
+    return { dx, dy, active };
+  }
+
+  // Aim idea "5": instead of sweeping toward one of 8 snapped directions, accumulate held-key
+  // input into a virtual-stick-like vector (grows toward the pressed direction, springs back to
+  // center when released) - matching the touch/mouse drag model's continuous-angle feel. Holding
+  // two adjacent arrows for different lengths of time naturally lands the angle somewhere between
+  // the two 8-way directions, rather than always exactly at the 45-degree midpoint.
+  let kbAimVX = 0, kbAimVY = 0;
+  let keyboardAimAngle = -Math.PI / 2;
+  const KB_AIM_ACCEL = 6.0;
+  const KB_AIM_RETURN = 5.0;
+  const KB_AIM_MAX_MAG = 1.0;
+  const KB_AIM_DEADZONE = 0.06;
+  function updateKeyboardAimVector(dtSec) {
+    const kb = keyboardVector();
+    if (kb.active) {
+      kbAimVX += kb.dx * KB_AIM_ACCEL * dtSec;
+      kbAimVY += kb.dy * KB_AIM_ACCEL * dtSec;
+      const mag = Math.hypot(kbAimVX, kbAimVY);
+      if (mag > KB_AIM_MAX_MAG) { kbAimVX = kbAimVX / mag * KB_AIM_MAX_MAG; kbAimVY = kbAimVY / mag * KB_AIM_MAX_MAG; }
+    } else {
+      const mag = Math.hypot(kbAimVX, kbAimVY);
+      if (mag > 0.001) {
+        const shrink = Math.max(0, mag - KB_AIM_RETURN * dtSec) / mag;
+        kbAimVX *= shrink; kbAimVY *= shrink;
+      } else {
+        kbAimVX = 0; kbAimVY = 0;
+      }
+    }
+    const mag = Math.hypot(kbAimVX, kbAimVY);
+    if (mag > KB_AIM_DEADZONE) keyboardAimAngle = Math.atan2(kbAimVY, kbAimVX);
+  }
+
+  // rotate an angle toward a target by at most maxStep radians, taking the shorter way around
+  function stepAngleTowards(current, target, maxStep) {
+    let diff = target - current;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    if (Math.abs(diff) <= maxStep) return target;
+    return current + Math.sign(diff) * maxStep;
+  }
+
+  // Mouse (PC): same virtual-pad mechanic as touch - drag from the point you press down,
+  // direction/magnitude come from the offset to that fixed origin (not from where the cursor
+  // currently is relative to the player), so a fast-moving player can never "catch up" to the
+  // cursor and eat a dead-zone frame the way the old cursor-chase version could.
+  const JOY_MAX = 50;
+  let mouseDown = false, mouseOriginX = 0, mouseOriginY = 0, mouseDX = 0, mouseDY = 0, mouseEngaged = false;
+  let lastMouseClientX = 0, lastMouseClientY = 0; // used to re-anchor the pad without needing a fresh mousemove
+  canvas.addEventListener('mousedown', e => {
+    mouseDown = true;
+    mouseEngaged = false;
+    lastMouseClientX = e.clientX; lastMouseClientY = e.clientY;
+    const rect = appEl.getBoundingClientRect();
+    mouseOriginX = e.clientX - rect.left;
+    mouseOriginY = e.clientY - rect.top;
+    mouseDX = 0; mouseDY = 0;
+    joyBase.style.display = 'block';
+    joyBase.style.left = (mouseOriginX - 55) + 'px';
+    joyBase.style.top = (mouseOriginY - 55) + 'px';
+    joyKnob.style.left = '32px'; joyKnob.style.top = '32px';
+  });
+  window.addEventListener('mousemove', e => {
+    if (!mouseDown) return;
+    lastMouseClientX = e.clientX; lastMouseClientY = e.clientY;
+    const rect = appEl.getBoundingClientRect();
+    let dx = (e.clientX - rect.left) - mouseOriginX;
+    let dy = (e.clientY - rect.top) - mouseOriginY;
+    const dist = Math.hypot(dx, dy);
+    if (dist > JOY_MAX) { dx = dx / dist * JOY_MAX; dy = dy / dist * JOY_MAX; }
+    mouseDX = dx / JOY_MAX; mouseDY = dy / JOY_MAX;
+    joyKnob.style.left = (32 + dx) + 'px';
+    joyKnob.style.top = (32 + dy) + 'px';
+  });
+  window.addEventListener('mouseup', () => {
+    // use mouseEngaged (has the drag been outside the dead-zone at any point) rather than
+    // only the most recent frame, so a shot never gets silently eaten
+    if (mouseDown && player && mouseEngaged) fireQueued = true;
+    mouseDown = false;
+    joyBase.style.display = 'none';
+  });
+  function mouseVector() {
+    if (!mouseDown) return { dx: 0, dy: 0, active: false };
+    const dist = Math.hypot(mouseDX, mouseDY);
+    if (dist < 0.15) return { dx: 0, dy: 0, active: false };
+    mouseEngaged = true;
+    return { dx: mouseDX / dist, dy: mouseDY / dist, active: true };
+  }
+
+  // Touch virtual joystick
+  let touchId = null, touchOriginX = 0, touchOriginY = 0, touchDX = 0, touchDY = 0, touchActive = false;
+  let lastTouchClientX = 0, lastTouchClientY = 0; // used to re-anchor the pad without needing a fresh touchmove
+  // Bound to the whole app (not just the arena canvas) so the pad can be started
+  // from anywhere on screen, including the bottom nav/HUD strip - keeps thumbs
+  // off the play area itself.
+  appEl.addEventListener('touchstart', e => {
+    if (touchId !== null) return;
+    // Don't hijack taps on the overlay (Start/Retry/Next buttons) or the debug panel/toggle.
+    if (e.target.closest('#overlay, #topRightControls, #soundToggle')) return;
+    const t = e.changedTouches[0];
+    touchId = t.identifier;
+    const rect = appEl.getBoundingClientRect();
+    touchOriginX = t.clientX - rect.left;
+    touchOriginY = t.clientY - rect.top;
+    lastTouchClientX = t.clientX; lastTouchClientY = t.clientY;
+    touchDX = 0; touchDY = 0; touchActive = true;
+    joyBase.style.display = 'block';
+    joyBase.style.left = (touchOriginX - 55) + 'px';
+    joyBase.style.top = (touchOriginY - 55) + 'px';
+    joyKnob.style.left = '32px'; joyKnob.style.top = '32px';
+    e.preventDefault();
+  }, { passive: false });
+  appEl.addEventListener('touchmove', e => {
+    if (touchId === null) return; // no active joystick drag - don't block native scrolling elsewhere (e.g. debug panel)
+    for (const t of e.changedTouches) {
+      if (t.identifier !== touchId) continue;
+      lastTouchClientX = t.clientX; lastTouchClientY = t.clientY;
+      const rect = appEl.getBoundingClientRect();
+      let dx = (t.clientX - rect.left) - touchOriginX;
+      let dy = (t.clientY - rect.top) - touchOriginY;
+      const dist = Math.hypot(dx, dy);
+      if (dist > JOY_MAX) { dx = dx / dist * JOY_MAX; dy = dy / dist * JOY_MAX; }
+      touchDX = dx / JOY_MAX; touchDY = dy / JOY_MAX;
+      joyKnob.style.left = (32 + dx) + 'px';
+      joyKnob.style.top = (32 + dy) + 'px';
+      e.preventDefault();
+    }
+  }, { passive: false });
+  function touchEnd(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier !== touchId) continue;
+      if (touchActive && player && player.wasActive) fireQueued = true;
+      touchId = null; touchActive = false; touchDX = 0; touchDY = 0;
+      joyBase.style.display = 'none';
+    }
+  }
+  appEl.addEventListener('touchend', touchEnd);
+  appEl.addEventListener('touchcancel', touchEnd);
+  function touchVector() {
+    if (!touchActive) return { dx: 0, dy: 0, active: false };
+    const dist = Math.hypot(touchDX, touchDY);
+    if (dist < 0.15) return { dx: 0, dy: 0, active: false };
+    return { dx: touchDX / dist, dy: touchDY / dist, active: true };
+  }
+
+  // Called the instant gameplay actually (re)starts (countdown hits 0). Treats "right now" as the
+  // neutral/zero position for any drag already in progress (e.g. the player was still holding the
+  // screen/mouse from before a death), instead of carrying over stale direction or deflection from
+  // before the pause - this is what was causing an unwanted beam on release right after a restart.
+  function resetDragOrigins() {
+    fireQueued = false;
+    if (player) player.wasActive = false;
+    if (touchId !== null) {
+      const rect = appEl.getBoundingClientRect();
+      touchOriginX = lastTouchClientX - rect.left;
+      touchOriginY = lastTouchClientY - rect.top;
+      touchDX = 0; touchDY = 0;
+      joyBase.style.left = (touchOriginX - 55) + 'px';
+      joyBase.style.top = (touchOriginY - 55) + 'px';
+      joyKnob.style.left = '32px'; joyKnob.style.top = '32px';
+    }
+    if (mouseDown) {
+      const rect = appEl.getBoundingClientRect();
+      mouseOriginX = lastMouseClientX - rect.left;
+      mouseOriginY = lastMouseClientY - rect.top;
+      mouseDX = 0; mouseDY = 0;
+      joyBase.style.left = (mouseOriginX - 55) + 'px';
+      joyBase.style.top = (mouseOriginY - 55) + 'px';
+      joyKnob.style.left = '32px'; joyKnob.style.top = '32px';
+    }
+  }
+
+  function currentInput() {
+    const kb = keyboardVector();
+    if (kb.active) return { dx: kb.dx, dy: kb.dy, active: true, source: 'keyboard' };
+    const t = touchVector();
+    if (t.active) return { dx: t.dx, dy: t.dy, active: true, source: 'touch' };
+    const m = mouseVector();
+    if (m.active) return { dx: m.dx, dy: m.dy, active: true, source: 'mouse' };
+    return { dx: 0, dy: 0, active: false, source: null };
+  }
+
+  // ---------- Beam / fire ----------
+  function makeBeamBubbles(length, width) {
+    const spacing = Math.max(8, width * 0.7);
+    const count = Math.max(6, Math.floor(length / spacing));
+    const bubbles = [];
+    for (let i = 0; i < count; i++) {
+      bubbles.push({
+        t: (i + 0.5) / count + (Math.random() - 0.5) * (0.5 / count), // position along the line, 0..1
+        perp: (Math.random() - 0.5) * width * 0.7, // perpendicular offset from the line
+        sizeSeed: 0.4 + Math.random() * 0.6, // relative bubble size
+        popAt: 0.35 + Math.random() * 0.65, // fraction of the dissolve phase when this bubble fully pops
+      });
+    }
+    return bubbles;
+  }
+
+  function fireBeam() {
+    const angle = player.aimAngle;
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    const effBeamWidth = CFG.beamWidth * (player.bonusTimer > 0 ? CFG.multiHitBonusBeamMult : 1);
+    sfxFire();
+
+    // fire from the tip of the snout, not the body center - must exactly match snoutTipDist()
+    // used in render() for the jaw tip, mouth wedge, and aim guide, so all of these always
+    // line up with each other and with where the beam actually fires from
+    const mouthTipDist = snoutTipDist();
+    const originX = player.x + dx * mouthTipDist, originY = player.y + dy * mouthTipDist;
+
+    // beam always reaches the wall (piercing: does not stop at balls)
+    let dist = Math.max(CFG.arenaW, CFG.arenaH) * 2;
+    if (dx > 0) dist = Math.min(dist, (CFG.arenaW - originX) / dx);
+    if (dx < 0) dist = Math.min(dist, (0 - originX) / dx);
+    if (dy > 0) dist = Math.min(dist, (CFG.arenaH - originY) / dy);
+    if (dy < 0) dist = Math.min(dist, (0 - originY) / dy);
+
+    // collect every ball the beam line crosses (pierce through all of them)
+    // the hit-test corridor is intentionally a bit wider than the visible beam,
+    // so fast-moving enemies passing close to the line still get caught.
+    const hitHalfWidth = effBeamWidth / 2 + CFG.beamHitMargin;
+    const hits = [];
+    for (const b of balls) {
+      if (b.invulnTimer > 0) continue; // freshly split balls are briefly immune to the beam too
+      const relX = b.x - originX, relY = b.y - originY;
+      const proj = relX * dx + relY * dy;
+      if (proj < 0 || proj > dist) continue;
+      const closestX = originX + dx * proj, closestY = originY + dy * proj;
+      const d = Math.hypot(b.x - closestX, b.y - closestY);
+      if (d <= b.radius + hitHalfWidth) hits.push(b);
+    }
+
+    beam = {
+      x1: originX, y1: originY,
+      x2: originX + dx * dist, y2: originY + dy * dist,
+      timer: CFG.beamFreezeMs,
+      maxTimer: CFG.beamFreezeMs,
+      activeMs: Math.min(CFG.beamActiveVisualMs, CFG.beamFreezeMs),
+      width: effBeamWidth,
+      hitWidth: hitHalfWidth * 2,
+      bubbles: makeBeamBubbles(dist, effBeamWidth),
+    };
+    player.frozen = true;
+
+    if (hits.length > 0) sfxHit();
+
+    hits.forEach(b => splitBall(b));
+
+    if (hits.length >= 2) {
+      player.bonusTimer = CFG.multiHitBonusDurationMs;
+      player.bonusMaxTimer = CFG.multiHitBonusDurationMs;
+      stageBonusCount++;
+      sfxBonus();
+      effects.push({ type: 'burst', x: player.x, y: player.y, timer: 500, maxTimer: 500 });
+      effects.push({ type: 'popup', text: t('bonus_popup', hits.length), x: player.x, y: player.y - 40, timer: 900, maxTimer: 900 });
+    }
+  }
+
+  function hexToRgba(hex, alpha) {
+    const v = parseInt(hex.replace('#', ''), 16);
+    const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+    return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha))})`;
+  }
+
+  // A big, colorful confetti burst for stage-clear/milestone celebrations. intensity scales
+  // the particle count (1 for a normal stage clear, higher for the 5-territory milestone).
+  const SPARKLE_COLORS = ['#ffe93a', '#4de3ff', '#ff6b4a', '#a89bd6', '#8fd9ff', '#ffb3ec', '#ffffff'];
+  function spawnSparkle() {
+    const life = 700 + Math.random() * 900;
+    effects.push({
+      type: 'sparkle',
+      x: Math.random() * CFG.arenaW,
+      y: Math.random() * CFG.arenaH,
+      timer: life, maxTimer: life,
+      color: SPARKLE_COLORS[Math.floor(Math.random() * SPARKLE_COLORS.length)],
+      size: 3 + Math.random() * 4,
+    });
+  }
+  // A burst of little twinkling lights popping up all over the screen for stage-clear/milestone
+  // celebrations. intensity scales how many spawn immediately (continuous spawning while the
+  // celebration screen is up is handled separately, in the main loop).
+  function spawnCelebration(intensity) {
+    const count = Math.round(14 * intensity);
+    for (let i = 0; i < count; i++) spawnSparkle();
+  }
+
+  function spawnPopEffect(x, y, size, color, particleCount, duration) {
+    const dur = duration || 400;
+    effects.push({ type: 'ring', x, y, timer: dur, maxTimer: dur, color, maxRadius: size * 2.4 });
+    const count = particleCount || 8;
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const speed = 1.4 + Math.random() * 2.6;
+      const life = dur * (0.75 + Math.random() * 0.55);
+      effects.push({
+        type: 'particle', x, y,
+        vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+        timer: life, maxTimer: life,
+        color, radius: Math.max(2, size * 0.2 * (0.5 + Math.random())),
+      });
+    }
+  }
+
+  function splitBall(b) {
+    const idx = balls.indexOf(b);
+    if (idx === -1) return;
+    balls.splice(idx, 1);
+    kills++;
+    if (b.gen >= 2) {
+      // smallest gen destroyed completely
+      sfxDissolve();
+      const colors = ['#4de3ff', '#c58bff', '#ff5fd0'];
+      spawnPopEffect(b.x, b.y, b.radius, colors[b.gen] || '#ff5fd0', 10, 300);
+      updateHud();
+      checkStageClear();
+      return;
+    }
+    const ang1 = Math.atan2(b.vy, b.vx) + 0.6 + Math.random() * 0.3;
+    const ang2 = Math.atan2(b.vy, b.vx) - 0.6 - Math.random() * 0.3;
+    balls.push(spawnBall(b.x, b.y, b.gen + 1, ang1, CFG.splitInvulnMs));
+    balls.push(spawnBall(b.x, b.y, b.gen + 1, ang2, CFG.splitInvulnMs));
+    updateHud();
+  }
+
+  function checkStageClear() {
+    if (balls.length === 0 && gameState === 'playing' && !stagePendingClear) {
+      stagePendingClear = true;
+      stagePendingClearTimer = CFG.stageClearDelayMs;
+      pendingClearTimeMs = stageElapsedMs;
+    }
+  }
+
+  function showMilestoneScreen() {
+    gameState = 'milestone';
+    overlayContext = { kind: 'milestone', stage: MILESTONE_STAGE, stats: runStats.slice() };
+    spawnCelebration(3); // the grandest celebration in the game
+    sfxMilestone();
+    renderOverlayContext();
+    overlay.classList.add('show');
+  }
+
+  // ---------- Update / physics ----------
+  function updateBalls(dt) {
+    for (const b of balls) {
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      if (b.invulnTimer > 0) b.invulnTimer = Math.max(0, b.invulnTimer - 16.67 * dt);
+      if (b.x - b.radius < 0) { b.x = b.radius; b.vx *= -1; sfxWallBounce(); }
+      if (b.x + b.radius > CFG.arenaW) { b.x = CFG.arenaW - b.radius; b.vx *= -1; sfxWallBounce(); }
+      if (b.y - b.radius < 0) { b.y = b.radius; b.vy *= -1; sfxWallBounce(); }
+      if (b.y + b.radius > CFG.arenaH) { b.y = CFG.arenaH - b.radius; b.vy *= -1; sfxWallBounce(); }
+    }
+    resolveBallCollisions();
+  }
+
+  function separateOverlappingBalls() {
+    // position-only separation (no velocity change) used right after spawning, so nothing
+    // looks stacked before gameplay/collision response ever runs. Also keeps every ball at
+    // least minPlayerDist away from where the ship spawns - ball-ball separation alone can
+    // otherwise push a ball toward the bottom of the arena when several are crowded together.
+    const px = CFG.arenaW / 2, py = CFG.arenaH - 60;
+    const minPlayerDist = CFG.playerRadius + CFG.ballBaseRadius + 60;
+    for (let iter = 0; iter < 30; iter++) {
+      let anyOverlap = false;
+      for (const b of balls) {
+        let dx = b.x - px, dy = b.y - py;
+        let dist = Math.hypot(dx, dy);
+        if (dist < minPlayerDist) {
+          anyOverlap = true;
+          if (dist === 0) { dx = 0; dy = -1; dist = 1; }
+          const nx = dx / dist, ny = dy / dist;
+          const push = minPlayerDist - dist;
+          b.x += nx * push; b.y += ny * push;
+          b.x = Math.max(b.radius, Math.min(CFG.arenaW - b.radius, b.x));
+          b.y = Math.max(b.radius, Math.min(CFG.arenaH - b.radius, b.y));
+        }
+      }
+      for (let i = 0; i < balls.length; i++) {
+        for (let j = i + 1; j < balls.length; j++) {
+          const a = balls[i], b = balls[j];
+          let dx = b.x - a.x, dy = b.y - a.y;
+          let dist = Math.hypot(dx, dy);
+          const minDist = a.radius + b.radius;
+          if (dist === 0) { dx = 0.01; dy = 0.01; dist = 0.0141; }
+          if (dist < minDist) {
+            anyOverlap = true;
+            const nx = dx / dist, ny = dy / dist;
+            const overlap = (minDist - dist) / 2;
+            a.x -= nx * overlap; a.y -= ny * overlap;
+            b.x += nx * overlap; b.y += ny * overlap;
+            a.x = Math.max(a.radius, Math.min(CFG.arenaW - a.radius, a.x));
+            a.y = Math.max(a.radius, Math.min(CFG.arenaH - a.radius, a.y));
+            b.x = Math.max(b.radius, Math.min(CFG.arenaW - b.radius, b.x));
+            b.y = Math.max(b.radius, Math.min(CFG.arenaH - b.radius, b.y));
+          }
+        }
+      }
+      if (!anyOverlap) break;
+    }
+  }
+
+  function resolveBallCollisions() {
+    for (let i = 0; i < balls.length; i++) {
+      for (let j = i + 1; j < balls.length; j++) {
+        const a = balls[i], b = balls[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let dist = Math.hypot(dx, dy);
+        const minDist = a.radius + b.radius;
+        if (dist === 0) { dx = 0.01; dy = 0.01; dist = 0.0141; }
+        if (dist < minDist) {
+          // separate so they no longer overlap
+          const nx = dx / dist, ny = dy / dist;
+          const overlap = (minDist - dist);
+          const massA = a.radius * a.radius, massB = b.radius * b.radius;
+          const totalMass = massA + massB;
+          const pushA = overlap * (massB / totalMass);
+          const pushB = overlap * (massA / totalMass);
+          a.x -= nx * pushA; a.y -= ny * pushA;
+          b.x += nx * pushB; b.y += ny * pushB;
+
+          // elastic-style bounce along the collision normal (mass ~ radius^2)
+          const avn = a.vx * nx + a.vy * ny;
+          const bvn = b.vx * nx + b.vy * ny;
+          const newAvn = (avn * (massA - massB) + 2 * massB * bvn) / totalMass;
+          const newBvn = (bvn * (massB - massA) + 2 * massA * avn) / totalMass;
+          a.vx += (newAvn - avn) * nx; a.vy += (newAvn - avn) * ny;
+          b.vx += (newBvn - bvn) * nx; b.vy += (newBvn - bvn) * ny;
+          sfxCollision();
+        }
+      }
+    }
+  }
+
+  function checkPlayerHit() {
+    for (const b of balls) {
+      if (b.invulnTimer > 0) continue; // freshly split balls can't hit the player for a short grace window
+      const d = Math.hypot(b.x - player.x, b.y - player.y);
+      if (d < b.radius + player.playerRadius) return true;
+    }
+    return false;
+  }
+
+  function triggerPlayerDeath() {
+    gameState = 'dying';
+    dyingTimer = CFG.playerDeathDelayMs;
+    flashTimer = flashMaxTimer;
+    beam = null; // don't leave a beam visibly hanging around after the ship that fired it is gone
+    sfxHurt();
+    nextOffbeatAt = Infinity; // stop any pending offbeat accent if the player dies mid-bonus
+    wasBonusActive = false;
+    spawnPopEffect(player.x, player.y, CFG.playerRadius, '#4de3ff', 16);
+  }
+
+  function resolvePlayerDeath() {
+    player.lives--;
+    stageDeathCount++;
+    if (player.lives <= 0) {
+      gameState = 'over';
+      overlayContext = {
+        kind: 'over', stage, clearedCount: runStats.length,
+        stats: [...runStats, { stage, clearTimeMs: null, deaths: stageDeathCount, bonusCount: stageBonusCount }],
+      };
+      spawnCelebration(1);
+      sfxGameOver();
+      renderOverlayContext();
+      overlay.classList.add('show');
+    } else {
+      startStage(stage, false, false); // restart this stage from scratch, keeping remaining lives
+      beginCountdown(); // skip the tap-to-start screen so getting back in feels immediate
+    }
+  }
+
+  let lastTime = performance.now();
+  function loop(now) {
+    const dt = Math.min((now - lastTime) / 16.67, 2.5);
+    lastTime = now;
+    frameNow = now;
+
+    if (!paused) {
+    if (gameState === 'playing') {
+      stageElapsedMs += 16.67 * dt;
+      if (frameNow >= nextBeatAt) {
+        const inBonus = player && player.bonusTimer > 0;
+        if (inBonus) {
+          const strong = bonusBeatIndex % 2 === 0;
+          if (player.bonusTimer < 600) sfxBeatWarning(strong); else sfxBeatLight(strong); // last stretch of the bonus wobbles as a countdown cue
+          bonusBeatIndex++;
+        } else {
+          sfxBeat();
+          bonusBeatIndex = 0; // so the bonus always starts on a strong beat
+        }
+        const beatInterval = BEAT_INTERVALS[Math.min(stage, BEAT_INTERVALS.length) - 1] / (inBonus ? 2 : 1);
+        // stay locked to the grid for normal jitter, but snap forward after a big stall
+        // (e.g. the tab was backgrounded) instead of firing a burst of catch-up beats
+        nextBeatAt = (nextBeatAt + beatInterval < frameNow) ? frameNow + beatInterval : nextBeatAt + beatInterval;
+        // schedule the offbeat accent for the midpoint before the next bass beat, bonus-only
+        nextOffbeatAt = inBonus ? (nextBeatAt - beatInterval / 2) : Infinity;
+      }
+      if (frameNow >= nextOffbeatAt) {
+        sfxBonusOffbeat();
+        nextOffbeatAt = Infinity; // one-shot; rescheduled by the next main beat if still in bonus
+      }
+      if (frameNow >= nextMoveBeatAt) {
+        const inBonus = player && player.bonusTimer > 0;
+        if (player && player.wasActive) {
+          if (inBonus) {
+            const openCloseClose = [true, false, false];
+            (openCloseClose[moveBeatIndex % 3] ? sfxMoveBeatOpen : sfxMoveBeat)();
+          } else {
+            sfxMoveBeat();
+          }
+        }
+        if (inBonus) moveBeatIndex++; else moveBeatIndex = 0; // so the pattern always starts on "open"
+        // twice as fine a subdivision while the multi-hit bonus is active, for extra energy
+        const subdivisions = inBonus ? 6 : 3;
+        const moveBeatInterval = BEAT_INTERVALS[Math.min(stage, BEAT_INTERVALS.length) - 1] / subdivisions;
+        nextMoveBeatAt = (nextMoveBeatAt + moveBeatInterval < frameNow) ? frameNow + moveBeatInterval : nextMoveBeatAt + moveBeatInterval;
+      }
+      const inp = currentInput();
+      if (player.frozen) {
+        fireQueued = false; // can't queue a shot while the current one is still resolving
+        if (beam) {
+          beam.timer -= (16.67 * dt);
+          if (beam.timer <= 0) { beam = null; player.frozen = false; }
+        }
+      } else {
+        if (player.bonusTimer > 0) player.bonusTimer = Math.max(0, player.bonusTimer - 16.67 * dt);
+        const bonusActiveNow = player.bonusTimer > 0;
+        if (!bonusActiveNow && wasBonusActive) { nextOffbeatAt = Infinity; sfxBonusEnd(); }
+        wasBonusActive = bonusActiveNow;
+        if (player.blinking > 0) {
+          player.blinking -= 16.67 * dt;
+        } else {
+          player.blinkTimer -= 16.67 * dt;
+          if (player.blinkTimer <= 0) {
+            player.blinking = 150;
+            player.blinkTimer = 2000 + Math.random() * 3000;
+          }
+        }
+        updateKeyboardAimVector(16.67 * dt / 1000); // always ticks, so it springs back to center even when another input source is active
+        if (inp.active) {
+          const effSpeed = CFG.playerMoveSpeed * (player.bonusTimer > 0 ? CFG.multiHitBonusSpeedMult : 1);
+          if (inp.source === 'keyboard') {
+            player.aimAngle = keyboardAimAngle; // continuous angle from the accumulated virtual-stick vector
+          } else {
+            player.aimAngle = Math.atan2(inp.dy, inp.dx); // mouse/touch are already continuous, no smoothing needed
+          }
+          const nx = player.x + inp.dx * effSpeed * dt;
+          const ny = player.y + inp.dy * effSpeed * dt;
+          player.x = Math.max(CFG.playerRadius, Math.min(CFG.arenaW - CFG.playerRadius, nx));
+          player.y = Math.max(CFG.playerRadius, Math.min(CFG.arenaH - CFG.playerRadius, ny));
+          if (!player.wasActive) sfxMoveStart(); // rising edge: just started moving from a standstill
+          player.wasActive = true;
+        } else {
+          player.wasActive = false;
+        }
+        if (fireQueued) {
+          fireQueued = false;
+          fireBeam();
+        }
+      }
+      player.playerRadius = CFG.playerHitRadius; // collision radius - kept separate from the visual sprite size
+      updateBalls(dt);
+      if (checkPlayerHit()) triggerPlayerDeath();
+
+      if (stagePendingClear) {
+        stagePendingClearTimer -= 16.67 * dt;
+        if (stagePendingClearTimer <= 0) {
+          stagePendingClear = false;
+          nextOffbeatAt = Infinity; // stop any pending offbeat accent going into the clear/milestone screen
+          wasBonusActive = false;
+          runStats.push({ stage, clearTimeMs: pendingClearTimeMs, deaths: stageDeathCount, bonusCount: stageBonusCount });
+          if (stage === MILESTONE_STAGE) {
+            showMilestoneScreen();
+          } else {
+            gameState = 'clear';
+            overlayContext = { kind: 'clear', stage, statRecord: runStats[runStats.length - 1] };
+            spawnCelebration(1);
+            sfxStageClear();
+            renderOverlayContext();
+            overlay.classList.add('show');
+          }
+        }
+      }
+    } else if (gameState === 'dying') {
+      // freeze gameplay on the hit: no ball/beam updates, just let the flash & burst effects play out
+      dyingTimer -= 16.67 * dt;
+      if (dyingTimer <= 0) resolvePlayerDeath();
+    } else if (gameState === 'countdown') {
+      // enemies sit frozen in their stage-start positions while the countdown plays, for a clear "ready...go" beat
+      countdownTimer -= 16.67 * dt;
+      if (countdownTimer <= 0) {
+        countdownStep++;
+        if (countdownStep >= COUNTDOWN_STEPS.length) {
+          gameState = 'playing';
+          stageElapsedMs = 0;
+          nextBeatAt = frameNow + BEAT_INTERVALS[Math.min(stage, BEAT_INTERVALS.length) - 1];
+          nextMoveBeatAt = frameNow + BEAT_INTERVALS[Math.min(stage, BEAT_INTERVALS.length) - 1] / 3;
+          bonusBeatIndex = 0;
+          moveBeatIndex = 0;
+          resetDragOrigins(); // treat this exact instant as the neutral position for any in-progress drag
+        } else {
+          countdownTimer = COUNTDOWN_STEP_MS;
+          sfxCountdownStep(countdownStep);
+        }
+      }
+    }
+    if (flashTimer > 0) flashTimer = Math.max(0, flashTimer - 16.67 * dt);
+    // while a clear/milestone celebration screen is up, keep popping new sparkles at random
+    if ((gameState === 'clear' || gameState === 'milestone' || gameState === 'over') && Math.random() < 0.35) spawnSparkle();
+    for (let i = effects.length - 1; i >= 0; i--) {
+      const fx = effects[i];
+      fx.timer -= 16.67 * dt;
+      if (fx.type === 'particle') {
+        fx.x += fx.vx * dt; fx.y += fx.vy * dt;
+        fx.vx *= 0.94; fx.vy *= 0.94;
+      }
+      if (fx.timer <= 0) effects.splice(i, 1);
+    }
+    } // !paused
+
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  const JELLY_COLORS = [
+    { core: '#8fd9ff', edge: 'rgba(80,150,255,0.55)', glow: '#4de3ff', electric: '#eaffff' },  // gen0: large, deep blue
+    { core: '#d9b3ff', edge: 'rgba(180,110,255,0.55)', glow: '#c58bff', electric: '#f6e8ff' }, // gen1: medium, violet
+    { core: '#ffb3ec', edge: 'rgba(255,90,200,0.6)', glow: '#ff5fd0', electric: '#fff0fa' },   // gen2: small, hot electric pink
+  ];
+  function drawJellyfish(x, y, r, gen, alpha, targetCtx) {
+    const g = targetCtx || ctx;
+    const c = JELLY_COLORS[gen] || JELLY_COLORS[2];
+    g.save();
+    g.globalAlpha = alpha;
+    g.shadowColor = c.glow;
+    g.shadowBlur = r * 0.8;
+    const grad = g.createRadialGradient(x, y - r * 0.3, r * 0.1, x, y, r);
+    grad.addColorStop(0, c.core);
+    grad.addColorStop(1, c.edge);
+    g.beginPath();
+    g.arc(x, y, r, Math.PI, 0, false); // dome (top half)
+    g.quadraticCurveTo(x - r * 0.9, y + r * 0.35, x - r, y); // gently bulging bottom edge
+    g.closePath();
+    g.fillStyle = grad;
+    g.fill();
+    g.shadowBlur = 0;
+    g.strokeStyle = c.edge;
+    g.lineWidth = Math.max(1, r * 0.06);
+    g.lineCap = 'round';
+    const tentacleCount = 4;
+    for (let i = 0; i < tentacleCount; i++) {
+      const tx = x - r * 0.6 + (i / (tentacleCount - 1)) * r * 1.2;
+      const wig = Math.sin((x + tx) * 0.05 + i) * r * 0.18;
+      g.beginPath();
+      g.moveTo(tx, y + r * 0.05);
+      g.quadraticCurveTo(tx + wig, y + r * 0.7, tx, y + r * 1.1);
+      g.stroke();
+    }
+    g.restore();
+  }
+
+  // Draws a crackling ring exactly at the ball's true hitbox radius, so the danger zone
+  // reads clearly even where the tentacles trail off past the visible dome.
+  function drawHeart(cx, cy, size, filled) {
+    const top = size * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + top);
+    ctx.bezierCurveTo(cx, cy, cx - size / 2, cy, cx - size / 2, cy + top);
+    ctx.bezierCurveTo(cx - size / 2, cy + (size + top) / 2, cx, cy + (size + top) / 2, cx, cy + size);
+    ctx.bezierCurveTo(cx, cy + (size + top) / 2, cx + size / 2, cy + (size + top) / 2, cx + size / 2, cy + top);
+    ctx.bezierCurveTo(cx + size / 2, cy, cx, cy, cx, cy + top);
+    ctx.closePath();
+    if (filled) {
+      ctx.fillStyle = '#ff6b4a';
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  function drawElectricRing(x, y, r, color, alpha, seed, targetCtx) {
+    const g = targetCtx || ctx;
+    const segments = 22;
+    g.save();
+    g.globalAlpha = alpha;
+    g.shadowColor = color;
+    g.shadowBlur = r * 0.5;
+    g.strokeStyle = color;
+    g.lineWidth = Math.max(1, r * 0.045);
+    g.beginPath();
+    for (let i = 0; i <= segments; i++) {
+      const ang = (i / segments) * Math.PI * 2;
+      const wave = Math.sin(frameNow * 0.012 + ang * 5 + seed) * r * 0.045;
+      const jitter = (Math.sin(frameNow * 0.05 + ang * 13 + seed * 3) > 0.85) ? r * 0.05 : 0;
+      const rr = r + wave + jitter;
+      const px = x + Math.cos(ang) * rr, py = y + Math.sin(ang) * rr;
+      if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+    }
+    g.stroke();
+    g.shadowBlur = 0;
+    g.restore();
+  }
+
+  function pseudoRandom(seed) {
+    const x = Math.sin(seed) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  // Small jagged sparks that flick outward from random points on the ring. Uses a time-bucketed
+  // hash instead of true per-frame randomness so each spark holds still for ~130ms (reads as a
+  // spark, not a flicker) before a new one is rolled.
+  function drawSparks(x, y, r, color, ringSeed, targetCtx) {
+    const g = targetCtx || ctx;
+    const bucket = Math.floor(frameNow / 130);
+    for (let slot = 0; slot < 2; slot++) {
+      const seed = ringSeed * 977 + bucket * 131 + slot * 37;
+      if (pseudoRandom(seed) > 0.55) continue; // ~45% chance this slot has a spark this bucket
+      const ang = pseudoRandom(seed * 1.7) * Math.PI * 2;
+      const len = r * (0.18 + pseudoRandom(seed * 2.3) * 0.22);
+      const sx = x + Math.cos(ang) * r, sy = y + Math.sin(ang) * r;
+      const ex = x + Math.cos(ang) * (r + len), ey = y + Math.sin(ang) * (r + len);
+      const jag = (pseudoRandom(seed * 3.1) - 0.5) * len * 0.7;
+      const midx = (sx + ex) / 2 - Math.sin(ang) * jag;
+      const midy = (sy + ey) / 2 + Math.cos(ang) * jag;
+      g.save();
+      g.strokeStyle = color;
+      g.lineWidth = Math.max(1, r * 0.035);
+      g.shadowColor = color;
+      g.shadowBlur = r * 0.4;
+      g.globalAlpha = 0.55;
+      g.beginPath();
+      g.moveTo(sx, sy);
+      g.lineTo(midx, midy);
+      g.lineTo(ex, ey);
+      g.stroke();
+      g.restore();
+    }
+  }
+
+  function render() {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.clearRect(0, 0, CFG.arenaW, CFG.arenaH);
+
+    // arena bg: underwater gradient + faint grid
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, CFG.arenaH);
+    bgGrad.addColorStop(0, '#0f3550');
+    bgGrad.addColorStop(1, '#061826');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, CFG.arenaW, CFG.arenaH);
+    ctx.strokeStyle = 'rgba(77,227,255,0.06)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < CFG.arenaW; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CFG.arenaH); ctx.stroke(); }
+    for (let y = 0; y < CFG.arenaH; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(CFG.arenaW,y); ctx.stroke(); }
+    ctx.strokeStyle = '#123449';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, CFG.arenaW - 4, CFG.arenaH - 4);
+
+    // jellyfish (enemies): electric ring + sparks drawn first (underneath), body on top,
+    // so the crackle reads as something the jellyfish is wrapped in rather than a separate shape.
+    // Hidden entirely while invulnerable, since there's genuinely no hitbox to warn about then.
+    for (const b of balls) {
+      const invuln = b.invulnTimer > 0;
+      const alpha = invuln ? (0.25 + 0.25 * (0.5 + 0.5 * Math.sin(b.invulnTimer / 60))) : 0.9;
+      const jc = JELLY_COLORS[b.gen] || JELLY_COLORS[2];
+      const seed = b.ringSeed || 0;
+      if (!invuln) {
+        const ringPulse = 0.5 * (0.7 + 0.3 * Math.sin(frameNow * 0.006 + seed));
+        drawElectricRing(b.x, b.y, b.radius, jc.electric, ringPulse, seed);
+        drawSparks(b.x, b.y, b.radius, jc.electric, seed);
+      }
+      drawJellyfish(b.x, b.y, b.radius, b.gen, alpha);
+      if (invuln) {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius, Math.PI, 0, false);
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    // beam
+    if (beam) {
+      const elapsed = beam.maxTimer - beam.timer;
+      const dx = beam.x2 - beam.x1, dy = beam.y2 - beam.y1;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len; // perpendicular unit vector
+
+      if (elapsed < beam.activeMs) {
+        // hit-judgment window: solid beam, exactly where the collision check happened
+        const alpha = 1 - (elapsed / beam.activeMs) * 0.15;
+        ctx.strokeStyle = `rgba(58,214,255,${alpha})`;
+        ctx.lineWidth = beam.width;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(beam.x1, beam.y1);
+        ctx.lineTo(beam.x2, beam.y2);
+        ctx.stroke();
+      } else {
+        // no more hitbox here: dissolve into fading bubbles so it reads as "safe to pass"
+        const dissolve = (elapsed - beam.activeMs) / Math.max(1, beam.maxTimer - beam.activeMs);
+        for (const bub of beam.bubbles) {
+          if (dissolve >= bub.popAt) continue;
+          const p = dissolve / bub.popAt; // 0..1 life of this bubble
+          const r = (beam.width / 2) * bub.sizeSeed * (1 - p * 0.3);
+          const drift = 1 + p * 2.2; // push outward from the beam centerline as it dissolves, for a diffusing feel
+          const cxDrift = beam.x1 + dx * bub.t + nx * (bub.perp * drift);
+          const cyDrift = beam.y1 + dy * bub.t + ny * (bub.perp * drift);
+          ctx.beginPath();
+          ctx.arc(cxDrift, cyDrift, Math.max(0.5, r), 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(58,214,255,${(1 - p) * 0.55})`;
+          ctx.fill();
+        }
+      }
+    }
+
+    // player: circular body + a turret barrel so facing direction is always readable
+    // Draws the fish sprite (body, fins, mouth, eye, water ring) at an arbitrary position/angle.
+    // Used both for the real player during gameplay and for the celebration mascot shown on
+    // the stage-clear/milestone screens, so the mascot is guaranteed to look identical to the
+    // in-game fish rather than a separately-drawn approximation.
+    function drawFish(x, y, aimAngle, opts) {
+      opts = opts || {};
+      const g = opts.ctx || ctx;
+      const radius = opts.radius || CFG.playerRadius;
+      const frozen = !!opts.frozen;
+      const bonusActive = !!opts.bonusActive;
+      const happyEyes = !!opts.happyEyes;
+      const finPhase = opts.finPhase || 0;
+      const wasActive = !!opts.wasActive;
+      const alpha = (opts.alpha === undefined) ? 1 : opts.alpha;
+      const recoveryP = (opts.recoveryP === undefined) ? 1 : opts.recoveryP;
+      const blinking = opts.blinking || 0;
+      const showMouth = (opts.showMouth === undefined) ? true : opts.showMouth;
+      const hitRadius = (opts.hitRadius === undefined) ? radius : opts.hitRadius; // for the water ring, which represents the true collision boundary
+
+      const bodyLen = radius * 2.4;   // nose-to-tail-base length (fins/mouth are allowed to poke past the hitbox circle - it's just decoration)
+      const bodyWid = radius * 1.4;   // body thickness
+      const frontX = bodyLen * 0.5, backX = -bodyLen * 0.5;
+      const bodyColor = frozen ? '#a89bd6' : (bonusActive ? '#ffe93a' : '#d4dee2');
+      const mouthOpen = frozen ? recoveryP : 1; // 0 = pursed tight to spit, 1 = relaxed open
+      const mouthDist = radius * 1.35; // matches snoutTipDist()'s formula, parameterized by radius
+      const finFreq = wasActive ? 0.013 : 0.0025;
+      const tailFreq = wasActive ? 0.017 : 0.0035;
+      const finWag = Math.sin(frameNow * finFreq + finPhase) * bodyLen * 0.03;
+      const tailWag = Math.sin(frameNow * tailFreq + finPhase + 1.6) * bodyWid * 0.18;
+
+      g.save();
+      g.globalAlpha = alpha;
+
+      // water ring: a calm (non-electric) glow traced exactly at the true hitbox radius
+      g.save();
+      g.globalAlpha = alpha * (0.4 + 0.15 * Math.sin(frameNow * 0.004));
+      g.strokeStyle = '#4de3ff';
+      g.shadowColor = '#4de3ff';
+      g.shadowBlur = hitRadius * 0.4;
+      g.lineWidth = Math.max(1, hitRadius * 0.06);
+      g.beginPath();
+      g.arc(x, y, hitRadius, 0, Math.PI * 2);
+      g.stroke();
+      g.restore();
+
+      // everything below is drawn in the fish's own local space (nose at +x, tail at -x,
+      // "top"/dorsal side at -y) so it all moves together as one rigid side-view sprite.
+      // Rather than rotating a full 360 (which would flip the sprite upside-down when facing
+      // left), we mirror horizontally for the left-facing hemisphere instead, so the dorsal
+      // fin/eye stay on the visual "top" no matter which way the fish is aiming.
+      let ang = Math.atan2(Math.sin(aimAngle), Math.cos(aimAngle)); // normalize to (-pi, pi]
+      const mirror = Math.cos(ang) < 0;
+      g.save();
+      g.translate(x, y);
+      if (mirror) {
+        g.rotate(ang - Math.PI);
+        g.scale(-1, 1);
+      } else {
+        g.rotate(ang);
+      }
+
+      // dorsal fin (top) - a long jagged "baran"-style ridge running from the middle of the
+      // back to just before the tail, instead of a single triangular fin
+      {
+        const dStartX = bodyLen * -0.03, dEndX = bodyLen * -0.44;
+        const teeth = 8;
+        // the true top-boundary height (as a fraction of bodyWid) at each of the 9 sample
+        // points along the fin's span, measured directly off the actual body silhouette
+        // (the body's outline is two bezier curves, not a simple parabola, so a formula
+        // approximation was drifting away from the real edge - these are the real values)
+        const trueEdgeFrac = [-0.465, -0.465, -0.465, -0.424, -0.376, -0.310, -0.245, -0.180, -0.114];
+        const pts = [];
+        for (let i = 0; i <= teeth; i++) {
+          const tf = i / teeth;
+          const px = dStartX + (dEndX - dStartX) * tf;
+          const tt = Math.max(0, 1 - (px / (bodyLen * 0.5)) * (px / (bodyLen * 0.5)));
+          pts.push({ x: px, baseH: bodyWid * 0.6 * Math.sqrt(tt), edgeY: bodyWid * trueEdgeFrac[i] });
+        }
+        g.beginPath();
+        g.moveTo(pts[0].x, pts[0].edgeY);
+        pts.forEach((p, i) => {
+          const jag = (i % 2 === 0) ? 1.55 : 1.1;
+          g.lineTo(p.x + finWag * 0.4, -p.baseH * jag);
+        });
+        for (let i = pts.length - 1; i >= 0; i--) {
+          g.lineTo(pts[i].x, pts[i].edgeY);
+        }
+        g.closePath();
+        g.fillStyle = bodyColor;
+        g.fill();
+      }
+
+      // pectoral fin (side, near the belly) - moved back toward the tail to match the dorsal fin
+      g.beginPath();
+      g.moveTo(bodyLen * -0.14, bodyWid * 0.32);
+      g.lineTo(bodyLen * -0.25 - finWag, bodyWid * 0.8);
+      g.lineTo(bodyLen * -0.38, bodyWid * 0.34);
+      g.closePath();
+      g.fillStyle = bodyColor;
+      g.fill();
+
+      // forked tail fin at the back - both lobes sway together like a swimming motion.
+      // The upper lobe carries an old notch (a scar inherited along with the territory)
+      // instead of a clean point, giving the silhouette a distinguishing, battle-worn edge.
+      g.beginPath();
+      g.moveTo(backX + bodyLen * 0.05, 0);
+      g.lineTo(backX - bodyLen * 0.14, -bodyWid * 0.28 + tailWag * 0.5);
+      g.lineTo(backX - bodyLen * 0.10, -bodyWid * 0.18 + tailWag * 0.5);
+      g.lineTo(backX - bodyLen * 0.22, -bodyWid * 0.55 + tailWag);
+      g.lineTo(backX - bodyLen * 0.09, 0);
+      g.lineTo(backX - bodyLen * 0.22, bodyWid * 0.55 + tailWag);
+      g.closePath();
+      g.fillStyle = bodyColor;
+      g.fill();
+
+      // body: classic teardrop fish silhouette. The top (forehead) profile is kept fairly
+      // flat while the bottom (jaw) bulges out and tapers back up to meet the snout tip
+      // exactly on the centerline - that on-axis point is the fish's true "front", and it's
+      // what the mouth wedge/beam/aim-guide all originate from.
+      const jawTipX = mouthDist, jawTipY = 0;
+      g.beginPath();
+      g.moveTo(frontX, -bodyWid * 0.05);
+      g.quadraticCurveTo(bodyLen * 0.18, -bodyWid * 0.5, bodyLen * -0.15, -bodyWid * 0.46);
+      g.quadraticCurveTo(backX * 0.9, -bodyWid * 0.12, backX, 0);
+      g.quadraticCurveTo(backX * 0.9, bodyWid * 0.12, bodyLen * -0.15, bodyWid * 0.58);
+      g.quadraticCurveTo(bodyLen * 0.2, bodyWid * 0.72, frontX * 0.85, bodyWid * 0.38);
+      g.quadraticCurveTo(jawTipX * 0.85, bodyWid * 0.15, jawTipX, jawTipY);
+      g.quadraticCurveTo(frontX * 1.05, -bodyWid * 0.08, frontX, -bodyWid * 0.05);
+      g.closePath();
+      g.fillStyle = bodyColor;
+      g.fill();
+
+      // a small crown on the forehead - the visual mark of having inherited the territory
+      // from a predecessor, and just enough "main character" flair to read as a hero, not
+      // just a generic fish
+      {
+        const crownW = radius * 0.85, crownH = radius * 0.55;
+        // sit right on the head's top edge, tilted to follow the forehead's slope (the head
+        // curves down toward the nose, so without a tilt a flat-based crown floats off the
+        // surface on one side) - positioned toward the front of the head, near the eye
+        const crownX = bodyLen * 0.22;
+        const ttC = Math.max(0, 1 - (crownX / (bodyLen * 0.5)) * (crownX / (bodyLen * 0.5)));
+        const baseH = bodyWid * 0.6 * Math.sqrt(ttC);
+        const ccx = crownX, ccy = -baseH * 0.62;
+        const tilt = 0.4; // radians: dips the nose-facing side down to hug the sloped forehead
+        g.save();
+        g.translate(ccx, ccy);
+        g.rotate(tilt);
+        g.beginPath();
+        g.moveTo(-crownW / 2, 0);
+        g.lineTo(-crownW / 2, -crownH * 0.35);
+        g.lineTo(-crownW / 3, -crownH * 0.75);
+        g.lineTo(-crownW / 6, -crownH * 0.4);
+        g.lineTo(0, -crownH);
+        g.lineTo(crownW / 6, -crownH * 0.4);
+        g.lineTo(crownW / 3, -crownH * 0.75);
+        g.lineTo(crownW / 2, -crownH * 0.35);
+        g.lineTo(crownW / 2, 0);
+        g.closePath();
+        g.fillStyle = '#ffd23a';
+        g.fill();
+        g.strokeStyle = 'rgba(0,0,0,0.3)';
+        g.lineWidth = Math.max(1, radius * 0.04);
+        g.stroke();
+        // little jewels on each of the three peaks
+        g.fillStyle = '#ff6b4a';
+        [-crownW / 3, 0, crownW / 3].forEach(dx => {
+          const peakY = dx === 0 ? -crownH : -crownH * 0.75;
+          g.beginPath();
+          g.arc(dx, peakY, Math.max(1, radius * 0.07), 0, Math.PI * 2);
+          g.fill();
+        });
+        g.restore();
+      }
+
+      // cheek puff: bulges out right as the mouth fires, then deflates through the recovery
+      // window - reads as the fish releasing the water it had puffed up to spit
+      const cheekPuff = Math.max(0, Math.min(1, 1 - mouthOpen));
+      if (cheekPuff > 0.01) {
+        g.beginPath();
+        g.arc(bodyLen * 0.19, bodyWid * 0.06, bodyWid * 0.4 * cheekPuff, 0, Math.PI * 2);
+        g.fillStyle = bodyColor;
+        g.fill();
+        g.lineWidth = Math.max(1, radius * 0.045);
+        g.strokeStyle = 'rgba(0,0,0,0.25)';
+        g.stroke();
+        // a small highlight so the bulge reads as round/puffed rather than a flat patch
+        g.beginPath();
+        g.arc(bodyLen * 0.19 - bodyWid * 0.1 * cheekPuff, bodyWid * 0.06 - bodyWid * 0.1 * cheekPuff, bodyWid * 0.12 * cheekPuff, 0, Math.PI * 2);
+        g.fillStyle = 'rgba(255,255,255,0.35)';
+        g.fill();
+      }
+
+      // gill line
+      g.strokeStyle = 'rgba(0,0,0,0.2)';
+      g.lineWidth = Math.max(1, radius * 0.07);
+      g.beginPath();
+      g.moveTo(bodyLen * 0.07, -bodyWid * 0.4);
+      g.quadraticCurveTo(bodyLen * 0.01, 0, bodyLen * 0.07, bodyWid * 0.4);
+      g.stroke();
+
+      // back spots: a row of dark ovals along the upper back, tilted diagonally and
+      // positioned so they visibly extend from the body's outer edge in toward the center
+      // (matching the reference sketch), rather than sitting as plain upright dots.
+      g.fillStyle = 'rgba(8,18,28,0.5)';
+      [
+        { xf: 0.14, rx: 0.055, ry: 0.045, lift: 2 },
+        { xf: -0.06, rx: 0.07, ry: 0.055, lift: 4 },
+        { xf: -0.22, rx: 0.07, ry: 0.055, lift: 0 },
+        { xf: -0.38, rx: 0.07, ry: 0.055, lift: -4 },
+      ].forEach(s => {
+        const px = s.xf * bodyLen;
+        const tt = Math.max(0, 1 - (px / (bodyLen * 0.5)) * (px / (bodyLen * 0.5)));
+        const halfH = bodyWid * 0.62 * Math.sqrt(tt);
+        const rxAbs = bodyLen * s.rx, ryAbs = bodyWid * s.ry;
+        const cx = px;
+        const cy = -halfH * 0.45 - (s.lift || 0);
+        g.save();
+        g.translate(cx, cy);
+        g.rotate(0.6);
+        g.beginPath();
+        g.ellipse(0, 0, rxAbs, ryAbs, 0, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
+      });
+
+      // single eye, near the top of the head close to the mouth (classic side-view fish icon).
+      // Squints shut the instant the mouth purses to spit (reads as effort/strain), blinks
+      // occasionally while idle, and switches to a cheerful curved-happy look when happyEyes
+      // is set (used by the stage-clear/milestone celebration mascot).
+      const eyeX = bodyLen * 0.21, eyeY = -bodyWid * 0.14;
+      let blinkFactor = 1;
+      if (blinking > 0) {
+        const bp = Math.min(1, 1 - blinking / 150);
+        blinkFactor = 1 - Math.sin(bp * Math.PI);
+      }
+      const eyeOpen = happyEyes ? 1 : mouthOpen * blinkFactor;
+      if (happyEyes) {
+        g.save();
+        g.globalAlpha = alpha;
+        g.strokeStyle = '#12161f';
+        g.lineWidth = Math.max(1.5, radius * 0.1);
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(eyeX - radius * 0.17, eyeY + radius * 0.09);
+        g.quadraticCurveTo(eyeX, eyeY - radius * 0.16, eyeX + radius * 0.17, eyeY + radius * 0.09);
+        g.stroke();
+        g.restore();
+      } else {
+        g.save();
+        g.globalAlpha = alpha * (1 - eyeOpen);
+        g.strokeStyle = '#12161f';
+        g.lineWidth = Math.max(1.5, radius * 0.09);
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(eyeX - radius * 0.16, eyeY);
+        g.quadraticCurveTo(eyeX, eyeY + radius * 0.14, eyeX + radius * 0.16, eyeY);
+        g.stroke();
+        g.restore();
+        g.save();
+        g.globalAlpha = alpha * eyeOpen;
+        g.beginPath();
+        g.arc(eyeX, eyeY, Math.max(2, radius * 0.19), 0, Math.PI * 2);
+        g.fillStyle = '#ffffff';
+        g.fill();
+        g.beginPath();
+        g.arc(eyeX + radius * 0.08, eyeY, Math.max(1, radius * 0.11), 0, Math.PI * 2);
+        g.fillStyle = '#12161f';
+        g.fill();
+        g.restore();
+      }
+
+      g.restore(); // end rotated/mirrored local-space group
+
+      // mouth: treated like the aim guide (an aiming/targeting indicator), not a permanent
+      // part of the fish's design - so it's the caller's choice whether to show it (hidden
+      // during the countdown and on the celebration mascot, which isn't aiming at anything)
+      if (showMouth) {
+        const mouthRadius = bodyWid * (0.45 + mouthOpen * 0.65);
+        const halfAngle = 0.05 + mouthOpen * 0.55;
+        const mcx = x + Math.cos(aimAngle) * mouthDist;
+        const mcy = y + Math.sin(aimAngle) * mouthDist;
+        g.save();
+        g.globalAlpha = alpha;
+        g.beginPath();
+        g.moveTo(mcx, mcy);
+        g.arc(mcx, mcy, mouthRadius, aimAngle - halfAngle, aimAngle + halfAngle);
+        g.closePath();
+        g.fillStyle = '#0d1420';
+        g.fill();
+        g.lineWidth = Math.max(1, radius * 0.05);
+        g.strokeStyle = 'rgba(255,255,255,0.55)';
+        g.stroke();
+        g.restore();
+      }
+
+      g.restore(); // end alpha wrapper
+    }
+
+    if (player && gameState !== 'over' && gameState !== 'clear' && gameState !== 'milestone') {
+      // recoveryP: 0 right when the mouth purses shut to spit (fully "locked") -> 1 the
+      // instant it can move/fire again (fully relaxed open)
+      const recoveryP = (player.frozen && beam) ? Math.min(1, Math.max(0, 1 - beam.timer / beam.maxTimer)) : 1;
+      const mouthDist = snoutTipDist(); // used by the aim guide below
+
+      // death sequence: shake violently for the first ~25% of the death delay, then taper the
+      // shake while fading to transparent for the next ~25% - keeps the existing flash/burst
+      // pacing but makes it clear the fish itself is stunned before it's gone
+      let shakeOffsetX = 0, playerAlpha = 1;
+      if (gameState === 'dying') {
+        const totalMs = CFG.playerDeathDelayMs;
+        const elapsed = totalMs - dyingTimer;
+        const shakePhaseMs = totalMs * 0.25;
+        const fadePhaseMs = totalMs * 0.25;
+        if (elapsed < shakePhaseMs) {
+          shakeOffsetX = Math.sin(frameNow * 0.09) * (CFG.playerRadius * 0.35);
+          playerAlpha = 1;
+        } else if (elapsed < shakePhaseMs + fadePhaseMs) {
+          const p = (elapsed - shakePhaseMs) / fadePhaseMs;
+          shakeOffsetX = Math.sin(frameNow * 0.09) * (CFG.playerRadius * 0.35 * (1 - p));
+          playerAlpha = 1 - p;
+        } else {
+          shakeOffsetX = 0;
+          playerAlpha = 0; // fully gone well before the death-delay timer actually runs out
+        }
+      }
+
+      ctx.save();
+      ctx.translate(shakeOffsetX, 0);
+      drawFish(player.x, player.y, player.aimAngle, {
+        radius: CFG.playerRadius,
+        hitRadius: CFG.playerHitRadius,
+        frozen: player.frozen,
+        bonusActive: player.bonusTimer > 0,
+        finPhase: player.finPhase,
+        wasActive: player.wasActive,
+        alpha: playerAlpha,
+        recoveryP: recoveryP,
+        blinking: player.blinking,
+        showMouth: gameState !== 'countdown', // mouth is an aiming indicator, not shown while waiting for "GO"
+      });
+      ctx.restore();
+
+      // aim guide: dotted line from the mouth showing where a water jet would fly right now
+      // (not drawn while the beam is actually active/frozen, since the real beam is shown then)
+      if (!player.frozen && gameState === 'playing') {
+        const guideLen = CFG.playerRadius * 4; // ~2 player-diameters ahead
+        const tipDist = mouthDist;
+        const gx1 = player.x + Math.cos(player.aimAngle) * tipDist;
+        const gy1 = player.y + Math.sin(player.aimAngle) * tipDist;
+        const gx2 = player.x + Math.cos(player.aimAngle) * (tipDist + guideLen);
+        const gy2 = player.y + Math.sin(player.aimAngle) * (tipDist + guideLen);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(58,214,255,0.75)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.moveTo(gx1, gy1);
+        ctx.lineTo(gx2, gy2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // bonus countdown above player
+      if (gameState === 'playing' && player.bonusTimer > 0) {
+        const secs = (player.bonusTimer / 1000).toFixed(1);
+        ctx.font = 'bold 13px monospace';
+        ctx.fillStyle = '#ffe93a';
+        ctx.textAlign = 'center';
+        ctx.fillText(t('bonus_label', secs), player.x, player.y - CFG.playerRadius - 16);
+        // countdown ring
+        const ratio = player.bonusTimer / (player.bonusMaxTimer || CFG.multiHitBonusDurationMs);
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, CFG.playerRadius + 8, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2);
+        ctx.strokeStyle = '#ffe93a';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+    }
+
+    // celebration mascot: the same fish design, drawn on its own small canvas that sits on top
+    // of the overlay's dark background (so it reads at the same visual layer as the text,
+    // instead of being dimmed the way the real gameplay fish used to be) - shown swimming
+    // left-right with a happy expression and no mouth wedge (it isn't aiming at anything)
+    if (gameState === 'clear' || gameState === 'milestone') {
+      // fish stays centered inside its little round window; the window itself slides left-right
+      // (via a CSS transform on the canvas element) so it reads as tracking the fish through a
+      // porthole/telescope, rather than the fish swimming inside a static box
+      const cw = celebrateCanvas.width, ch = celebrateCanvas.height;
+      celebrateCtx.clearRect(0, 0, cw, ch);
+      const mascotFreq = 0.0018;
+      const mascotRadius = 28;
+      const slideAmp = 55;
+      celebrateCanvas.style.transform = `translateX(${Math.sin(frameNow * mascotFreq) * slideAmp}px)`;
+      const mascotAngle = Math.cos(frameNow * mascotFreq) >= 0 ? 0 : Math.PI;
+      drawFish(cw / 2, ch / 2, mascotAngle, {
+        ctx: celebrateCtx,
+        radius: mascotRadius,
+        wasActive: true,
+        happyEyes: true,
+        showMouth: false,
+      });
+    }
+
+    // transient effects: bonus burst rings, enemy/player pop explosions, popup text
+    for (const fx of effects) {
+      const p = fx.timer / fx.maxTimer;
+      if (fx.type === 'burst') {
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, (1 - p) * 90, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,233,58,${p})`;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      } else if (fx.type === 'ring') {
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, (1 - p) * fx.maxRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = hexToRgba(fx.color, p);
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      } else if (fx.type === 'particle') {
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, Math.max(0.5, fx.radius * p), 0, Math.PI * 2);
+        ctx.fillStyle = hexToRgba(fx.color, p);
+        ctx.fill();
+      } else if (fx.type === 'sparkle') {
+        // a small twinkling 4-point star that fades in then out over its lifetime
+        const twinkle = Math.sin((1 - p) * Math.PI);
+        ctx.save();
+        ctx.globalAlpha = twinkle;
+        ctx.fillStyle = fx.color;
+        ctx.shadowColor = fx.color;
+        ctx.shadowBlur = fx.size * 2.2;
+        ctx.beginPath();
+        ctx.moveTo(fx.x, fx.y - fx.size);
+        ctx.lineTo(fx.x + fx.size * 0.3, fx.y - fx.size * 0.3);
+        ctx.lineTo(fx.x + fx.size, fx.y);
+        ctx.lineTo(fx.x + fx.size * 0.3, fx.y + fx.size * 0.3);
+        ctx.lineTo(fx.x, fx.y + fx.size);
+        ctx.lineTo(fx.x - fx.size * 0.3, fx.y + fx.size * 0.3);
+        ctx.lineTo(fx.x - fx.size, fx.y);
+        ctx.lineTo(fx.x - fx.size * 0.3, fx.y - fx.size * 0.3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      } else if (fx.type === 'popup') {
+        ctx.font = 'bold 16px monospace';
+        ctx.fillStyle = `rgba(255,233,58,${p})`;
+        ctx.textAlign = 'center';
+        ctx.fillText(fx.text, fx.x, fx.y - (1 - p) * 20);
+      }
+    }
+
+    // hit-stop flash (drawn on top of everything, in arena space)
+    // in-game HUD: life as hearts (the important number) drawn large, stage kept smaller -
+    // both semi-transparent so they sit inside the play field without fighting for attention
+    if (player && (gameState === 'playing' || gameState === 'dying' || gameState === 'countdown' || gameState === 'clear' || gameState === 'milestone')) {
+      ctx.save();
+      ctx.globalAlpha = 0.82;
+      const heartSize = 22, startY = 14;
+      const heartsTotalW = heartSize * 3 + 8 * 2; // 3 hearts, 2 gaps between them
+      const centerX = CFG.arenaW / 2;
+      const firstHeartCenterX = centerX - heartsTotalW / 2 + heartSize / 2;
+      for (let i = 0; i < 3; i++) {
+        drawHeart(firstHeartCenterX + i * (heartSize + 8), startY, heartSize, i < player.lives);
+      }
+      ctx.font = 'bold 13px monospace';
+      ctx.fillStyle = 'rgba(212,222,226,0.75)';
+      ctx.textAlign = 'center';
+      ctx.fillText(`STAGE ${stage}`, centerX, startY + heartSize + 20);
+      ctx.restore();
+    }
+
+    if (flashTimer > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${(flashTimer / flashMaxTimer) * 0.85})`;
+      ctx.fillRect(0, 0, CFG.arenaW, CFG.arenaH);
+    }
+
+    // stage-start countdown, drawn big and centered over the (frozen) arena
+    if (gameState === 'countdown') {
+      ctx.fillStyle = 'rgba(11,14,20,0.35)';
+      ctx.fillRect(0, 0, CFG.arenaW, CFG.arenaH);
+      const label = COUNTDOWN_STEPS[countdownStep] || '';
+      const isGo = label === 'START!';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = isGo ? 'bold 54px monospace' : 'bold 96px monospace';
+      ctx.fillStyle = isGo ? '#ffe93a' : '#4de3ff';
+      ctx.fillText(label, CFG.arenaW / 2, CFG.arenaH / 2);
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    // pause overlay, drawn on top of everything (even the countdown/overlay screens)
+    if (paused) {
+      ctx.fillStyle = 'rgba(11,14,20,0.7)';
+      ctx.fillRect(0, 0, CFG.arenaW, CFG.arenaH);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 40px monospace';
+      ctx.fillStyle = '#e8ecf4';
+      ctx.fillText(t('paused_title'), CFG.arenaW / 2, CFG.arenaH / 2);
+      ctx.font = '13px monospace';
+      ctx.fillStyle = '#6b7386';
+      ctx.fillText(t('paused_hint'), CFG.arenaW / 2, CFG.arenaH / 2 + 36);
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    ctx.restore();
+  }
+
+  overlayBtn.addEventListener('click', () => {
+    if (gameState === 'ready' && !firstStartHandled) {
+      firstStartHandled = true;
+      playFirstStartTransition();
+      return;
+    }
+    sfxConfirm();
+    if (gameState === 'ready') {
+      beginCountdown();
+    } else if (gameState === 'clear') {
+      startStage(stage + 1, false, false); // merged clear->next screen: regenerate + go straight into the countdown
+      beginCountdown();
+    } else if (gameState === 'milestone') {
+      startStage(1, true); // the run ends at 5 stages now - back to title, full reset
+    } else if (gameState === 'over') {
+      startStage(1, true); // fresh run: lives reset to 3, shows the how-to-play overlay for stage 1
+    }
+  });
+
+  const soundToggle = document.getElementById('soundToggle');
+  const soundToggleIcon = soundToggle.querySelector('.icon');
+  const soundToggleLabel = document.getElementById('soundToggleLabel');
+  soundToggle.addEventListener('click', () => {
+    soundOn = !soundOn;
+    soundToggleIcon.textContent = soundOn ? '🔊' : '🔇';
+    soundToggleLabel.textContent = soundOn ? 'MUTE' : 'UNMUTE';
+    if (soundOn) { ensureAudio(); sfxUnmute(); } // re-unlock/resume the audio context, then confirm audibly that sound is back on
+  });
+
+  const pauseToggle = document.getElementById('pauseToggle');
+  const pauseToggleIcon = pauseToggle.querySelector('.icon');
+  const pauseToggleLabel = document.getElementById('pauseToggleLabel');
+  pauseToggle.addEventListener('click', () => {
+    paused = !paused;
+    pauseToggleIcon.textContent = paused ? '▶' : '❚❚';
+    pauseToggleLabel.textContent = paused ? 'START' : 'STOP';
+    if (paused) sfxPause(); else sfxResume();
+  });
+
+  resize();
+  startStage(1, true);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

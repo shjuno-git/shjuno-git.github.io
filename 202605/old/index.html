@@ -1,0 +1,1696 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ずらして ちぎって 大収穫！</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202605/old/" />
+  <meta property="og:title" content="ずらして ちぎって 大収穫！" />
+  <meta property="og:description" content="果物を左右にずらして、端でちぎって、大収穫しよう！数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_fruits.png" />
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            background: #ffeefc;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+            margin: 0 auto;
+            background: #fffafc;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="game" width="360" height="548"></canvas>
+    <script>
+        (() => {
+            const BASE_W = 360, BASE_H = 548;
+            const canvas = document.getElementById('game');
+            const ctx = canvas.getContext('2d');
+
+            // 内部解像度は固定
+            canvas.width = BASE_W;
+            canvas.height = BASE_H;
+
+            // リサイズ
+            let scale = 1;
+
+            function resize() {
+                scale = Math.min(innerWidth / BASE_W, innerHeight / BASE_H);
+
+                // CSS transform で拡大縮小
+                canvas.style.width = BASE_W * scale + "px";
+                canvas.style.height = BASE_H * scale + "px";
+
+                // 描画座標系は 1:1 のまま
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+            }
+            addEventListener("resize", resize);
+            resize();
+            const W = BASE_W;
+            const H = BASE_H;
+
+
+            const COLS = 7, ROWS = 8;
+
+            const topMargin = 90;
+            const previewHeight = 40;
+            const boardHeight = 320;
+            const cellSize = boardHeight / ROWS;
+            const boardTop = topMargin + previewHeight + 10;
+            const boardLeft = (W - COLS * cellSize) / 2;
+            const bottomTextTop = boardTop + boardHeight + 20;
+
+            const FRUIT_SMALL = 1;
+            const FRUIT_MED = 2;
+            const FRUIT_LARGE = 3;
+
+            const TARGET_FRUITS = 100;
+
+            const chainColors = [
+                '#ff4fa0', // 1連鎖（通常）
+                '#ff8f4f', // 2連鎖（オレンジ）
+                '#ffd24f', // 3連鎖（レモン）
+                '#8fff4f', // 4連鎖（ミント）
+                '#4fffd2', // 5連鎖（アクア）
+                '#4fa0ff', // 6連鎖（ブルー）
+                '#b44fff', // 7連鎖（パープル）
+            ];
+            const bonusColor = '#ffd700'; // ゴールド
+
+            let fruits = [];
+            let previewFruits = [];
+            let clearedFruits = 0;
+
+            let draggingFruit = null;
+            let dragStartX = 0;
+            let fruitStartCol = 0;
+            let isPointerDown = false;
+
+            let particles = [];
+
+            let gameOver = false;
+            let gameClear = false;
+            let clearFlg = false;
+            let allClearCount = 0;
+
+            // gameState: idle / falling / flashing / spawning
+            let gameState = 'idle';
+            // phase: idle / afterMove / afterSpawn
+            let phase = 'idle';
+
+            let flashRows = [];
+            let flashTimer = 0;
+            const fallSpeed = 6;
+
+            let nextFruitId = 1;
+
+            // 分割プレビュー用
+            let splitPreview = null;
+            // 例: { left: { col, size }, right: { col, size } }
+
+            // 連鎖用
+            let maxChainCount = 1;
+            let chainCount = 0;
+            let chainTextTimer = 0;
+            let chainText = "";
+            let chainTextColor = '#ff4fa0';
+            let chainAnim = 0;
+
+            // 描画専用のcol
+            let dragVisualCol = null;
+
+            // タップ時の最後の位置を記憶
+            let lastPointerX = 0;
+
+            // クリア判定用
+            let nextClearTarget = 100;
+            // クリア時間計測用
+            let startTime = Date.now();
+            let clearTime = 0;
+
+            // 消したときの獲得スコアポップ用
+            let scorePops = [];
+            // { x, y, text, alpha, vy, scale, chain, isBonus}
+
+            // ドラムロール式スコア用
+            let displayScore = 0; // 画面に表示するスコア
+
+            function createFruit(row, col, size) {
+                return {
+                    id: nextFruitId++,
+                    row,
+                    col,
+                    size,
+                    y: row * cellSize,
+                    targetY: row * cellSize
+                };
+            }
+
+            function isCellOccupied(row, col, ignoreId = null) {
+                for (const f of fruits) {
+                    if (ignoreId && f.id === ignoreId) continue;
+                    if (f.row === row && col >= f.col && col < f.col + f.size) return true;
+                }
+                return false;
+            }
+
+            function isRowFull(row) {
+                const occ = new Array(COLS).fill(false);
+                for (const f of fruits) {
+                    if (f.row !== row) continue;
+                    for (let c = f.col; c < f.col + f.size; c++) occ[c] = true;
+                }
+                return occ.every(v => v);
+            }
+
+            function applyGravityLogical() {
+                let moved = false;
+                while (true) {
+                    let any = false;
+                    // 下から順に
+                    for (let r = ROWS - 2; r >= 0; r--) {
+                        for (const f of fruits) {
+                            if (f.row !== r) continue;
+                            while (true) {
+                                const nextRow = f.row + 1;
+                                if (nextRow >= ROWS) break;
+
+                                let blocked = false;
+                                for (let c = f.col; c < f.col + f.size; c++) {
+                                    if (isCellOccupied(nextRow, c, f.id)) {
+                                        blocked = true;
+                                        break;
+                                    }
+                                }
+                                if (blocked) break;
+
+                                f.row++;
+                                any = true;
+                            }
+
+                        }
+                    }
+                    if (!any) break;
+                    moved = true;
+                }
+                for (const f of fruits) {
+                    f.targetY = f.row * cellSize;
+                }
+                return moved;
+            }
+
+            function clearFullRowsAndSpawnParticles() {
+                const full = [];
+                for (let r = 0; r < ROWS; r++) {
+                    if (isRowFull(r)) full.push(r);
+                }
+                if (!full.length) return false;
+
+                // 行ごとのスコアポップ
+                for (const r of full) {
+                    const centerX = boardLeft + (COLS * cellSize) / 2;
+                    const centerY = getRowCenterY(r);
+
+                    // 基本スコア（例：7点）
+                    const baseScore = 7;
+
+                    // 連鎖ボーナス（1連鎖→×1、2連鎖→×2…）
+                    const gainedScore = baseScore * chainCount;
+
+                    clearedFruits += gainedScore;
+
+                    // +7 や +14 などのポップ
+                    addScorePop(centerX, centerY, `${gainedScore}`, false);
+
+                    // 連鎖ボーナス表示（2連鎖以上）
+                    if (chainCount >= 2) {
+                        addScorePop(centerX, boardTop + 180, `BONUS ×${chainCount}!`, true);
+                    }
+                }
+
+                const toRemove = new Set();
+                for (const f of fruits) {
+                    if (full.includes(f.row)) toRemove.add(f.id);
+                }
+
+                for (const f of fruits) {
+                    if (!toRemove.has(f.id)) continue;
+                    const baseX = boardLeft + (f.col + f.size / 2) * cellSize;
+                    const baseY = boardTop + f.y + cellSize / 2;
+                    const multiplier = 1 + (chainCount - 1) * 0.5; // 2連鎖なら1.5倍、3連鎖なら2倍…
+                    const count = Math.floor((6 * f.size) * multiplier);
+
+                    for (let i = 0; i < count; i++) {
+                        const ang = Math.random() * Math.PI - Math.PI / 2;
+                        const spd = 2 + Math.random() * 3;
+                        particles.push({
+                            x: baseX,
+                            y: baseY,
+                            vx: Math.cos(ang) * spd,
+                            vy: Math.sin(ang) * spd - 2,
+                            life: 40 + Math.random() * 20,
+                            color: randomFruitColor()
+                        });
+                    }
+                }
+
+                let removedCount = 0;
+                fruits = fruits.filter(f => {
+                    if (toRemove.has(f.id)) {
+                        removedCount += f.size;
+                        return false;
+                    }
+                    return true;
+                });
+                //clearedFruits += removedCount;
+
+                // 上の段を詰める
+                for (const f of fruits) {
+                    let drop = 0;
+                    for (const r of full) {
+                        if (f.row < r) drop++;
+                    }
+                    f.row += drop;
+                    f.targetY = f.row * cellSize;
+                }
+
+                //if (clearedFruits >= nextClearTarget) {
+                //    gameClear = true;
+                //}
+
+
+                return true;
+            }
+
+            // 行の中央座標
+            function getRowCenterY(row) {
+                return boardTop + row * cellSize + cellSize / 2;
+            }
+
+            function randomFruitColor() {
+                const colors = ['#ff5c93', '#ffcf33', '#8be25b', '#6fd3ff', '#b28bff'];
+                return colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            // スコアテキスト
+            function addScorePop(x, y, amount, bonus) {
+                if (bonus) {
+                    scorePops.push({
+                        x,
+                        y,
+                        text: `BONUS ×${chainCount}!`,
+                        alpha: 1,
+                        vy: -1.5,
+                        scale: 0.8,
+                        chain: chainCount,
+                        isBonus: true
+                    });
+                } else {
+                    scorePops.push({
+                        x,
+                        y,
+                        text: `+${amount}`,
+                        alpha: 1,
+                        vy: -1.2,
+                        scale: 0.5,      // 拡大アニメ用
+                        chain: chainCount, // 色分け用
+                        isBonus: false     // BONUS用
+                    });
+                }
+
+            }
+
+            function startGravityFromCurrentRows() {
+                applyGravityLogical();
+                gameState = 'falling';
+            }
+
+            function updateFalling() {
+                let allStopped = true;
+                for (const f of fruits) {
+                    if (f.y < f.targetY) {
+                        f.y += fallSpeed;
+                        if (f.y > f.targetY) f.y = f.targetY;
+                        allStopped = false;
+                    }
+                }
+                if (allStopped) {
+                    gameState = 'idle';
+                    handleAfterFall();
+                }
+            }
+
+            function handleAfterFall() {
+                if (gameOver) return;
+
+                const full = [];
+                for (let r = 0; r < ROWS; r++) {
+                    if (isRowFull(r)) full.push(r);
+                }
+
+                if (full.length) {
+                    flashRows = full;
+                    flashTimer = 20;
+                    gameState = 'flashing';
+                    return;
+                }
+
+                // 全消しチェック
+                if (isBoardEmpty()) {
+                    allClearCount++;
+                    handleAllClear();
+                    return;
+                }
+
+                if (clearedFruits >= nextClearTarget && !clearFlg) {
+                    gameClear = true;
+                    displayScore = clearedFruits;
+                    clearTime = Math.floor((Date.now() - startTime) / 1000); // 秒
+                    return;
+                }
+
+                // ★ ここで連鎖終了を検知
+                if (phase === 'afterMove') {
+                    // 連鎖終了 → chainCount をリセット
+                    if (chainCount > maxChainCount) maxChainCount = chainCount;
+                    chainCount = 0;
+                    // 連鎖が終わったので予告から落とす
+                    spawnFromPreview();
+                    if (!gameOver) {
+                        phase = 'afterSpawn';
+                        gameState = 'spawning';
+                    }
+                } else if (phase === 'afterSpawn') {
+                    // 連鎖終了 → chainCount をリセット
+                    if (chainCount > maxChainCount) maxChainCount = chainCount;
+                    chainCount = 0;
+                    phase = 'idle';
+                    gameState = 'idle';
+                }
+            }
+
+            // 全消しチェック
+            function isBoardEmpty() {
+                return fruits.length === 0;
+            }
+
+            // 全消し演出
+            function handleAllClear() {
+                // 全消しテキスト
+                addScorePop(W / 2, boardTop + 40, "全消し！");
+
+                // 全消しボーナス（固定 +21）
+                clearedFruits += 21;
+                addScorePop(W / 2, boardTop + 80, "+21");
+
+                // 上から3段分の果物を降らせる
+                spawnThreeRows();
+
+                // ★ ステート遷移
+                phase = 'afterSpawn';
+                gameState = 'spawning';
+            }
+
+            function spawnThreeRows() {
+                // 3行分の果物を生成して直接 fruits に追加
+                for (let i = 0; i < 3; i++) {
+                    const rowIndex = i; // 上から3行
+
+                    const preview = generatePreviewRow(); // 1行分の果物を返す関数にする
+                    for (const p of preview) {
+                        fruits.push({
+                            id: nextFruitId++,
+                            col: p.col,
+                            size: p.size,
+                            row: rowIndex,
+                            y: rowIndex * cellSize - 40, // 少し上から落とす
+                            targetY: rowIndex * cellSize
+                        });
+                    }
+                }
+
+                // 既存の重力処理に任せる
+                applyGravityLogical();
+
+                // ステート遷移
+                phase = 'afterSpawn';
+                gameState = 'falling';
+            }
+
+
+            function updateFlashing() {
+                flashTimer--;
+                if (flashTimer <= 0) {
+                    gameState = 'clearing';
+
+                    // ★ ここで連鎖数を増やす
+                    chainCount++;
+                    if (chainCount >= 2) {
+                        chainTextColor = chainColors[Math.min(chainCount - 1, 6)];
+                        chainText = chainCount + "連鎖";
+                        chainTextTimer = 50; // 表示フレーム数
+                        chainAnim = 0;       // アニメーション開始
+                    }
+
+                    clearFullRowsAndSpawnParticles();
+
+                    if (!gameOver && !gameClear) {
+                        startGravityFromCurrentRows();
+                    }
+                }
+            }
+
+
+            function updateSpawning() {
+                let allStopped = true;
+                for (const f of fruits) {
+                    if (f.y < f.targetY) {
+                        f.y += fallSpeed;
+                        if (f.y > f.targetY) f.y = f.targetY;
+                        allStopped = false;
+                    }
+                }
+                if (allStopped) {
+                    // 予告果物の落下が終わったので、次の予告を生成
+                    generatePreview();
+                    // 予告から落ちきったので、さらに下に落ちる可能性をチェック
+                    startGravityFromCurrentRows();
+                }
+            }
+
+            function generatePreview() {
+                previewFruits = [];
+
+                let emptyNum = 4;
+                let adjustNum = 3;
+                if (clearedFruits < 7) {
+                    emptyNum = 4;
+                } else if (clearedFruits < 14) {
+                    emptyNum = 3;
+                } else if (clearedFruits < 50) {
+                    emptyNum = 2;
+                } else if (clearedFruits < 75) {
+                    emptyNum = 1;
+                } else if (clearedFruits < 100) {
+                    emptyNum = 0;
+                } else {
+                    emptyNum = 0;
+                    adjustNum = 2;
+                }
+
+                // 空白マス 1〜3 → 占有マスは 4〜6
+                const emptyCount = Math.max(emptyNum + Math.floor(Math.random() * adjustNum), 1);
+                const filled = COLS - emptyCount; // 4〜6
+
+                // まず「サイズの配列」を作る（小50%, 中40%, 大10%）
+                let remaining = filled;
+                const sizes = [];
+
+                while (remaining > 0) {
+                    let size;
+                    const r = Math.random();
+
+                    if (remaining === 1) {
+                        size = 1;
+                    } else if (remaining === 2) {
+                        size = r < 0.35 ? 1 : 2;
+                    } else {
+                        if (r < 0.35) size = 1;
+                        else if (r < 0.75) size = 2;
+                        else size = 3;
+                        if (size > remaining) size = remaining;
+                    }
+
+                    sizes.push(size);
+                    remaining -= size;
+                }
+
+                // サイズの順番をランダムに
+                sizes.sort(() => Math.random() - 0.5);
+
+                // placeRandomSet と同じ考え方で「7マスの中に重ならないように配置」
+                const occ = new Array(COLS).fill(false);
+
+                for (const size of sizes) {
+                    const candidates = [];
+                    for (let c = 0; c <= COLS - size; c++) {
+                        let ok = true;
+                        for (let cc = c; cc < c + size; cc++) {
+                            if (occ[cc]) { ok = false; break; }
+                        }
+                        if (ok) candidates.push(c);
+                    }
+                    if (!candidates.length) continue;
+                    const col = candidates[Math.floor(Math.random() * candidates.length)];
+                    for (let cc = col; cc < col + size; cc++) occ[cc] = true;
+                    previewFruits.push({ col, size });
+                }
+
+                // これで：
+                // ・果物の合計マス数は 4〜6
+                // ・空白は 1〜3 マス
+                // ・サイズは 1,2,3 だけ
+                // ・重なりなし
+                // ・並び順はランダム
+            }
+
+            // 1行分の果物リストを返す（全消し用）
+            function generatePreviewRow() {
+                const result = [];
+
+                let emptyNum = 0;
+                if (clearedFruits < 7) emptyNum = 4;
+                else if (clearedFruits < 14) emptyNum = 3;
+                else if (clearedFruits < 50) emptyNum = 2;
+                else emptyNum = 1;
+
+                const emptyCount = emptyNum + Math.floor(Math.random() * 3);
+                const filled = COLS - emptyCount;
+
+                let remaining = filled;
+                const sizes = [];
+
+                while (remaining > 0) {
+                    let size;
+                    const r = Math.random();
+
+                    if (remaining === 1) size = 1;
+                    else if (remaining === 2) size = r < 0.35 ? 1 : 2;
+                    else {
+                        if (r < 0.35) size = 1;
+                        else if (r < 0.75) size = 2;
+                        else size = 3;
+                        if (size > remaining) size = remaining;
+                    }
+
+                    sizes.push(size);
+                    remaining -= size;
+                }
+
+                sizes.sort(() => Math.random() - 0.5);
+
+                const occ = new Array(COLS).fill(false);
+
+                for (const size of sizes) {
+                    const candidates = [];
+                    for (let c = 0; c <= COLS - size; c++) {
+                        let ok = true;
+                        for (let cc = c; cc < c + size; cc++) {
+                            if (occ[cc]) { ok = false; break; }
+                        }
+                        if (ok) candidates.push(c);
+                    }
+                    if (!candidates.length) continue;
+
+                    const col = candidates[Math.floor(Math.random() * candidates.length)];
+                    for (let cc = col; cc < col + size; cc++) occ[cc] = true;
+
+                    result.push({ col, size });
+                }
+
+                return result;
+            }
+
+            function spawnFromPreview() {
+                // 最上段に果物があるならゲームオーバー
+                for (const p of previewFruits) {
+                    for (let c = p.col; c < p.col + p.size; c++) {
+                        if (isCellOccupied(0, c, null)) {
+                            gameOver = true;
+                            return;
+                        }
+                    }
+                }
+
+                // 予告果物を盤面に配置
+                for (const p of previewFruits) {
+                    const f = createFruit(0, p.col, p.size);
+                    f.y = -cellSize * 2;   // 上から落ちてくる
+                    f.targetY = 0;
+                    fruits.push(f);
+                }
+
+                // 予告エリアを空にする
+                previewFruits = [];
+            }
+
+            function initBoard() {
+                while (true) {
+                    fruits = [];
+
+                    // 最下段: 大1, 中1, 小1
+                    placeRandomSet(ROWS - 1, [FRUIT_LARGE, FRUIT_MED, FRUIT_SMALL]);
+
+                    // 下から2段目: 大1, 中1
+                    placeRandomSet(ROWS - 2, [FRUIT_LARGE, FRUIT_MED]);
+
+                    // 下から3段目: 中1, 小2
+                    placeRandomSet(ROWS - 3, [FRUIT_MED, FRUIT_SMALL, FRUIT_SMALL]);
+
+                    // ▼ 重力に逆らっていないかチェック
+                    if (!initialPlacementHasFloatingFruits()) {
+                        break; // OK なので抜ける
+                    }
+                }
+
+                // ▼ 最終的に y 座標を確定
+                for (const f of fruits) {
+                    f.y = f.row * cellSize;
+                    f.targetY = f.row * cellSize;
+                }
+            }
+
+            function initialPlacementHasFloatingFruits() {
+                for (const f of fruits) {
+                    // 最下段は浮かない
+                    if (f.row === ROWS - 1) continue;
+
+                    // f の下の行に、同じ列範囲に果物があるか？
+                    let supported = false;
+                    for (let c = f.col; c < f.col + f.size; c++) {
+                        if (isCellOccupied(f.row + 1, c, null)) {
+                            supported = true;
+                            break;
+                        }
+                    }
+
+                    if (!supported) {
+                        // 1つでも浮いていたら NG
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function placeRandomSet(row, sizes) {
+                const occ = new Array(COLS).fill(false);
+                for (const size of sizes) {
+                    const candidates = [];
+                    for (let c = 0; c <= COLS - size; c++) {
+                        let ok = true;
+                        for (let cc = c; cc < c + size; cc++) {
+                            if (occ[cc]) { ok = false; break; }
+                        }
+                        if (ok) candidates.push(c);
+                    }
+                    if (!candidates.length) continue;
+                    const col = candidates[Math.floor(Math.random() * candidates.length)];
+                    for (let cc = col; cc < col + size; cc++) occ[cc] = true;
+                    fruits.push(createFruit(row, col, size));
+                }
+            }
+
+            function getFruitAt(x, y) {
+                const col = Math.floor((x - boardLeft) / cellSize);
+                const row = Math.floor((y - boardTop) / cellSize);
+                if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
+                for (const f of fruits) {
+                    if (f.row === row && col >= f.col && col < f.col + f.size) return f;
+                }
+                return null;
+            }
+
+            function updateDraggingFruit(x) {
+                if (!draggingFruit) return;
+                const dx = x - dragStartX;
+                const deltaCols = Math.round(dx / cellSize);
+                let targetCol = fruitStartCol + deltaCols;
+                if (targetCol < 0) targetCol = 0;
+                if (targetCol + draggingFruit.size > COLS) targetCol = COLS - draggingFruit.size;
+
+                // 同じ行の他の果物を追い越さない
+                const row = draggingFruit.row;
+                // 左側
+                if (targetCol < fruitStartCol) {
+                    let minCol = targetCol;
+                    for (const f of fruits) {
+                        if (f.id === draggingFruit.id || f.row !== row) continue;
+                        if (f.col + f.size - 1 < fruitStartCol) {
+                            const limit = f.col + f.size;
+                            if (limit > minCol) minCol = limit;
+                        }
+                    }
+                    targetCol = minCol;
+                }
+                // 右側
+                if (targetCol > fruitStartCol) {
+                    let maxCol = targetCol;
+                    for (const f of fruits) {
+                        if (f.id === draggingFruit.id || f.row !== row) continue;
+                        if (f.col > fruitStartCol + draggingFruit.size - 1) {
+                            const limit = f.col - draggingFruit.size;
+                            if (limit < maxCol) maxCol = limit;
+                        }
+                    }
+                    targetCol = maxCol;
+                }
+
+                draggingFruit.col = targetCol;
+            }
+
+            function endDrag() {
+                if (!draggingFruit) return;
+
+
+                // 分割プレビューがあるなら、そちらを優先して確定
+                if (splitPreview) {
+                    applySplit(draggingFruit, splitPreview);
+                    splitPreview = null;
+                    dragVisualCol = null;
+                    draggingFruit = null;
+                } else {
+                    dragVisualCol = null;
+
+                    // ▼ 動かしたかどうか判定
+                    const startX = fruitStartCol * cellSize;
+                    const endX = draggingFruit.col * cellSize;
+                    const moved = Math.abs(endX - startX) >= cellSize;
+
+                    // ▼ 位置を確定
+                    draggingFruit.row = Math.round(draggingFruit.y / cellSize);
+                    draggingFruit.targetY = draggingFruit.row * cellSize;
+
+                    draggingFruit = null;
+
+                    if (!moved) {
+                        // ★ 動かしていなければノーカウント
+                        // 予告果物を落とさず、状態を idle に戻す
+                        phase = 'idle';
+                        gameState = 'idle';
+                        return;
+                    }
+
+                }
+
+                // ★ 動かした場合のみ、落下 → 連鎖 → 予告落下へ進む
+                phase = 'afterMove';
+                startGravityFromCurrentRows();
+            }
+
+            function applySplit(f, preview) {
+                // 元の果物を削除
+                fruits = fruits.filter(x => x.id !== f.id);
+
+                const row = f.row;
+
+                if (preview.left) {
+                    const p = preview.left;
+                    fruits.push(createFruit(row, p.col, p.size));
+                }
+                if (preview.right) {
+                    const p = preview.right;
+                    fruits.push(createFruit(row, p.col, p.size));
+                }
+            }
+
+            function updateParticles() {
+                for (const p of particles) {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.15;
+                    p.life--;
+                }
+                particles = particles.filter(p => p.life > 0 && p.y > -20 && p.y < H + 20);
+            }
+
+            function draw() {
+                ctx.clearRect(0, 0, W, H);
+                const grad = ctx.createLinearGradient(0, 0, 0, H);
+                grad.addColorStop(0, '#ffeefc');
+                grad.addColorStop(1, '#fff7d9');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, W, H);
+
+                ctx.fillStyle = '#ff5c93';
+                ctx.font = 'bold 20px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('ずらして ちぎって 大収穫！', W / 2, 28);
+
+                ctx.textAlign = 'left';
+                ctx.fillStyle = '#333';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.fillText(`消した果物: `, 70, 70);
+                ctx.font = 'bold 32px sans-serif';
+                // スコアはドラムロール式
+                if (displayScore < clearedFruits) {
+                    const diff = clearedFruits - displayScore;
+                    displayScore += Math.ceil(diff * 0.05); // 徐々に追いつく
+                }
+                ctx.fillText(`${displayScore}`, 165, 70 + 6);
+
+                ctx.textAlign = 'center';
+                // 予告エリア
+                ctx.strokeStyle = '#ff9ac5';
+                ctx.lineWidth = 2;
+                const previewTop = topMargin;
+                const previewLeft = boardLeft;
+                ctx.strokeRect(previewLeft, previewTop, COLS * cellSize, previewHeight);
+
+                for (const p of previewFruits) {
+                    const x = previewLeft + p.col * cellSize + 4;
+                    const y = previewTop + 4;
+                    drawFruitBox(x, y, p.size, cellSize - 8);
+                }
+
+                // 盤面枠
+                ctx.strokeStyle = '#ffb6d9';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(boardLeft, boardTop, COLS * cellSize, ROWS * cellSize);
+
+                // グリッド
+                ctx.strokeStyle = '#ffe0f0';
+                ctx.lineWidth = 1;
+                for (let r = 1; r < ROWS; r++) {
+                    const y = boardTop + r * cellSize;
+                    ctx.beginPath();
+                    ctx.moveTo(boardLeft, y);
+                    ctx.lineTo(boardLeft + COLS * cellSize, y);
+                    ctx.stroke();
+                }
+                for (let c = 1; c < COLS; c++) {
+                    const x = boardLeft + c * cellSize;
+                    ctx.beginPath();
+                    ctx.moveTo(x, boardTop);
+                    ctx.lineTo(x, boardTop + ROWS * cellSize);
+                    ctx.stroke();
+                }
+
+                // 果物
+                for (const f of fruits) {
+
+                    // ★ ドラッグ中の果物だけ、描画 col を差し替える
+                    let drawCol = f.col;
+                    if (draggingFruit && draggingFruit.id === f.id && dragVisualCol !== null) {
+                        drawCol = dragVisualCol;
+                    }
+
+                    const x = boardLeft + drawCol * cellSize + 4;
+                    const y = boardTop + f.y + 4;
+
+                    drawFruitBox(x, y, f.size, cellSize - 8, f);
+                }
+
+
+                // 光るライン
+                if (gameState === 'flashing') {
+                    ctx.fillStyle = 'rgba(255,255,200,0.6)';
+                    for (const r of flashRows) {
+                        ctx.fillRect(boardLeft, boardTop + r * cellSize, COLS * cellSize, cellSize);
+                    }
+                }
+
+                // パーティクル
+                for (const p of particles) {
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // 説明
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#444';
+                ctx.font = '13px sans-serif';
+                const lines = [
+                    '果物をタップ、左右にスライドで動かそう。',
+                    '枠の外に動かせば、1個分だけ反対側に動かせるよ',
+                    '横1列を果物で埋めて、果物をゲットしよう。',
+                    '画面が果物で埋まる前に、100個の果物をゲットだ！'
+                ];
+                for (let i = 0; i < lines.length; i++) {
+                    ctx.fillText(lines[i], W / 2, bottomTextTop + i * 18);
+                }
+
+                if (gameOver) {
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.fillRect(0, 0, W, H);
+
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 28px sans-serif';
+                    let resultText = '結果発表';
+                    if (clearedFruits > 100) {
+                        resultText = '大収穫おめでとう！';
+                    }
+                    ctx.fillText(resultText, W / 2, boardTop - 20);
+
+                    // 下線
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(W / 2 - 130, boardTop - 10);
+                    ctx.lineTo(W / 2 + 130, boardTop - 10);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '28px sans-serif';
+                    // Fruits 表示
+                    ctx.fillText(`${clearedFruits} Fruits`, W / 2, H / 2 - 80);
+
+                    // MaxChain 表示
+                    ctx.fillText(`MaxChain: ${maxChainCount}`, W / 2, H / 2 - 30);
+
+                    if (allClearCount > 0) {
+                        // AllClearCount 表示
+                        ctx.fillText(`AllClear: ${allClearCount}`, W / 2, H / 2 + 20);
+
+                    }
+
+                    ctx.font = '16px sans-serif';
+                    ctx.fillText('タップでリトライ', W / 2, H / 2 + 100);
+                }
+
+                if (gameClear) {
+                    clearFlg = true;
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.fillRect(0, 0, W, H);
+
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 28px sans-serif';
+                    ctx.fillText('大収穫おめでとう！', W / 2, boardTop - 20);
+
+                    // 下線
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(W / 2 - 130, boardTop - 10);
+                    ctx.lineTo(W / 2 + 130, boardTop - 10);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '28px sans-serif';
+                    // Fruits 表示
+                    ctx.fillText(`${clearedFruits} Fruits`, W / 2, H / 2 - 80);
+
+                    // Time 表示
+                    ctx.fillText(`Time: ${clearTime}s`, W / 2, H / 2 - 30);
+
+                    // MaxChain 表示
+                    ctx.fillText(`MaxChain: ${maxChainCount}`, W / 2, H / 2 + 20);
+
+
+                    ctx.globalAlpha = 0.85;
+
+                    // ★ 続きから遊ぶボタン
+                    drawButton(W / 2 - 100, H / 2 + 50, 200, 40, 'つづける', true);
+
+                    // ★ 初めから遊ぶボタン
+                    drawButton(W / 2 - 100, H / 2 + 130, 200, 40, 'はじめから', false);
+                    ctx.globalAlpha = 1.0;
+                }
+
+                // 連鎖テキスト演出
+                if (chainTextTimer > 0) {
+                    chainTextTimer--;
+                    chainAnim++;
+
+                    const t = chainAnim / 30;
+
+                    ctx.save();
+                    ctx.textAlign = 'center';
+
+                    // ▼ 点滅（sin波で透明度を変える）
+                    const alpha = 0.6 + Math.sin(t * 10) * 0.4;
+                    ctx.globalAlpha = alpha;
+
+                    // ▼ 拡大縮小（sin波でスケールを変える）
+                    //const scale = 1 + Math.sin(t * 4) * 0.2;
+                    const scale = 1 + t * 0.3;
+
+                    ctx.translate(W / 2, boardTop + 170);
+                    ctx.scale(scale, scale);
+
+                    // ▼ 光の輪（外側の発光）
+                    ctx.save();
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillStyle = '#ffddb7';
+                    ctx.beginPath();
+                    ctx.arc(0, -10, 15 + Math.sin(t * 5) * 10, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+
+                    // ▼ テキスト本体
+                    ctx.fillStyle = chainTextColor;
+                    ctx.font = 'bold 30px sans-serif';
+                    ctx.fillText(chainText, 0, 0);
+
+                    ctx.restore();
+                }
+
+                // スコアポップアップ
+                for (let i = scorePops.length - 1; i >= 0; i--) {
+                    const p = scorePops[i];
+
+                    // ふわっと上昇
+                    p.y += p.vy;
+
+                    // 拡大 → 縮小
+                    if (p.scale < 1.2) {
+                        p.scale += 0.05; // 拡大フェーズ
+                    }
+
+                    // 徐々に透明に
+                    p.alpha -= p.isBonus ? 0.02 : 0.03;
+
+                    if (p.alpha <= 0) {
+                        scorePops.splice(i, 1);
+                    }
+                }
+                // 描画
+                for (const p of scorePops) {
+                    ctx.save();
+                    ctx.globalAlpha = p.alpha;
+
+                    // BONUS は金色、それ以外は連鎖色
+                    const color = p.isBonus
+                        ? bonusColor
+                        : '#ff4fa0';
+
+                    ctx.fillStyle = color;
+                    ctx.font = 'bold 28px sans-serif';
+                    ctx.textAlign = 'center';
+
+                    // 拡大縮小
+                    ctx.translate(p.x, p.y);
+                    ctx.scale(p.scale, p.scale);
+
+                    ctx.fillText(p.text, 0, 0);
+
+                    ctx.restore();
+                }
+
+
+
+
+                if (splitPreview && draggingFruit) {
+                    ctx.save();
+                    const row = draggingFruit.row;
+
+                    if (splitPreview.left) {
+                        const p = splitPreview.left;
+                        drawPreviewBox(p.col, row, p.size);
+                    }
+                    if (splitPreview.right) {
+                        const p = splitPreview.right;
+                        drawPreviewBox(p.col, row, p.size);
+                    }
+                    ctx.restore();
+                }
+
+
+                // drawの終わり
+            }
+
+            function drawButton(x, y, w, h, text, f = true) {
+                if (f) {
+                    ctx.fillStyle = '#ff9ac5';
+                } else {
+                    ctx.fillStyle = '#6fd6dd';
+                }
+                ctx.fillRect(x, y, w, h);
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 18px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(text, x + w / 2, y + h / 2 + 6);
+            }
+
+            function drawFruitBox(x, y, size, h, fruitObj) {
+                const w = cellSize * size - 8;
+                const r = 10;
+
+                // ★ タップ中の果物なら色を変える
+                const isActive = draggingFruit && fruitObj && draggingFruit.id === fruitObj.id;
+
+                ctx.fillStyle = isActive ? '#ffe0f0' : '#fff';   // ← 少しピンクがかった色
+                ctx.strokeStyle = isActive ? '#ff4fa0' : '#ff9ac5'; // ← 枠線も濃く
+                ctx.lineWidth = isActive ? 3 : 2;
+
+                roundRect(x, y, w, h, r);
+
+                // 中身の果物絵
+                if (size === FRUIT_SMALL) drawCherry(x, y, w, h);
+                else if (size === FRUIT_MED) drawGrapes(x, y, w, h);
+                else drawBigMix(x, y, w, h);
+            }
+
+
+            function roundRect(x, y, w, h, r) {
+                ctx.beginPath();
+                ctx.moveTo(x + r, y);
+                ctx.arcTo(x + w, y, x + w, y + h, r);
+                ctx.arcTo(x + w, y + h, x, y + h, r);
+                ctx.arcTo(x, y + h, x, y, r);
+                ctx.arcTo(x, y, x + w, y, r);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            // 小：イチゴ
+            function drawCherry(x, y, w, h) {
+                const cx = x + w / 2 + 1;
+                const cy = y + h / 2 - 1;
+
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(0.4); // クラスター全体を少し傾ける
+
+                // 実を小さめにして下側に寄せる
+                const r = Math.min(w, h) * 0.18;
+                const fruitY = 0 + r * 0.8; // 下側に配置
+
+                // 左の実
+                ctx.fillStyle = '#ff4d4d';
+                ctx.beginPath();
+                ctx.arc(0 - r * 1.2, fruitY, r, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 右の実
+                ctx.beginPath();
+                ctx.arc(0 + r * 1.2, fruitY, r, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 房（逆さ ν の形、縦長）
+                ctx.strokeStyle = '#4caf50';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(0 - r * 1.2, fruitY - r * 0.6);
+                ctx.quadraticCurveTo(
+                    0, 0 - h * 0.5,   // 高い位置まで伸ばす
+                    0 + r * 1.2, fruitY - r * 0.6
+                );
+                ctx.stroke();
+
+                // 房の上の小さな枝
+                ctx.beginPath();
+                ctx.moveTo(0, 0 - h * 0.2);
+                ctx.lineTo(0, 0 - h * 0.3);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            function drawStrawberry(x, y, w, h) {
+                const cx = x + w / 2;
+                const cy = y + h / 2;
+                const r = Math.min(w, h) * 0.35;
+
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(0.8); // 少し斜めに
+
+                ctx.fillStyle = '#ff5c5c';
+                ctx.beginPath();
+                ctx.moveTo(0, 0 - r * 0.6);
+                ctx.bezierCurveTo(0 + r, 0 - r, 0 + r, 0 + r * 0.4, 0, 0 + r);
+                ctx.bezierCurveTo(0 - r, 0 + r * 0.4, 0 - r, 0 - r, 0, 0 - r * 0.6);
+                ctx.fill();
+                ctx.fillStyle = '#ffe8a3';
+                for (let i = 0; i < 6; i++) {
+                    const ang = (Math.PI * 2 / 6) * i;
+                    const rr = r * 0.5;
+                    ctx.beginPath();
+                    ctx.arc(0 + Math.cos(ang) * rr, 0 + Math.sin(ang) * rr * 0.7, 0.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.fillStyle = '#4caf50';
+                ctx.beginPath();
+                ctx.moveTo(0, 0 - r * 1.1);
+                ctx.lineTo(0 - r * 0.5, 0 - r * 0.6);
+                ctx.lineTo(0 - r * 0.1, 0 - r * 0.8);
+                ctx.lineTo(0 + r * 0.3, 0 - r * 0.6);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            // 中：ブドウ
+            function drawGrapes(x, y, w, h) {
+                const cx = x + w / 2;
+                const cy = y + h / 2 + 2;
+
+                const r = Math.min(w, h) * 0.17; // 粒を小さめに
+
+                // 左：緑ぶどう
+                drawGrapeCluster(cx - r * 2.6, cy, r, ['#7be24b', '#7ad24f']);
+
+                // 右：紫ぶどう
+                drawGrapeCluster(cx + r * 2.6, cy, r, ['#a07ae8', '##b28bff']);
+            }
+
+            function drawGrapeCluster(cx, cy, r, colors) {
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(-0.6); // クラスター全体を少し傾ける
+
+                // 上3・中2・下1 の配置
+                const positions = [
+                    { x: -r, y: -r * 1.2 },
+                    { x: 0, y: -r * 1.4 },
+                    { x: r, y: -r * 1.2 },
+
+                    { x: -r * 0.6, y: -r * 0.1 },
+                    { x: r * 0.6, y: -r * 0.1 },
+
+                    { x: 0, y: r * 1.2 }
+                ];
+
+                // 粒を2色交互に塗る（ぷるぷる感）
+                for (let i = 0; i < positions.length; i++) {
+                    const p = positions[i];
+                    const color = colors[i % 2]; // 交互に色を変える
+
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // 茎
+                ctx.strokeStyle = '#4caf50';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(0, -r * 2.2);
+                ctx.lineTo(0, -r * 1.4);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            // 大：バナナ＋メロン＋スイカ
+            function drawBigMix(x, y, w, h) {
+                const cx = x;
+                const cy = y;
+
+                // 横に3つ並べるためのオフセット
+                const spacing = w / 4;
+
+                // 左：メロン
+                drawStrawberry(cx - spacing, cy, w, h);
+
+                // 中央：バナナ
+                drawMikan(cx, cy, w, h);
+
+                // 右：スイカ
+                drawPeach(cx + spacing, cy, w, h);
+            }
+
+            function drawMikan(x, y, w, h) {
+                const cx = x + w / 2;
+                const cy = y + h / 2;
+                const r = Math.min(w, h) * 0.36;
+
+                // 本体
+                ctx.fillStyle = '#ffa726';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 固定つぶつぶ（ランダムではなく固定）
+                ctx.fillStyle = 'rgba(255,255,255,0.25)';
+                const dots = [
+                    [-0.4, -0.2], [0.2, -0.3], [0.1, 0.1],
+                    [-0.2, 0.3], [0.35, 0.2], [-0.1, -0.4]
+                ];
+                for (const d of dots) {
+                    ctx.beginPath();
+                    ctx.arc(cx + d[0] * r, cy + d[1] * r, r * 0.12, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // ヘタ
+                ctx.fillStyle = '#4caf50';
+                ctx.beginPath();
+                ctx.arc(cx, cy - r * 0.6, r * 0.25, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+
+            function drawPeach(x, y, w, h) {
+                const cx = x + w / 2;
+                const cy = y + h / 2;
+                const r = Math.min(w, h) * 0.5;
+
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(-2.8); // 全体を少し傾ける（かわいさUP）
+
+                // ▼ ハート型の輪郭（桃の形）
+                ctx.fillStyle = '#ffb6c1';
+                ctx.beginPath();
+                ctx.moveTo(0, r * 0.9); // 下の尖り
+
+                // 左のふくらみ
+                ctx.bezierCurveTo(
+                    -r * 1.1, r * 0.8,   // 左下
+                    -r * 1.1, -r * 1.2,  // 左上
+                    0, -r * 0.2          // 上のくぼみ
+                );
+
+                // 右のふくらみ
+                ctx.bezierCurveTo(
+                    r * 1.1, -r * 1.2,   // 右上
+                    r * 1.1, r * 0.8,    // 右下
+                    0, r * 0.9           // 下に戻る
+                );
+                ctx.fill();
+
+                // ▼ 葉っぱ（上のくぼみに付ける）
+                // ▼ 葉っぱ（左側）
+                ctx.fillStyle = '#66bb6a';
+                ctx.beginPath();
+                ctx.ellipse(
+                    -r * 0.3,   // x
+                    -r * 0.5,   // y
+                    r * 0.35,    // 横幅
+                    r * 0.15,    // 縦幅
+                    -0.5,        // 回転
+                    0, Math.PI * 2
+                );
+                ctx.fill();
+
+                // ▼ 葉っぱ（右側・反転版）
+                ctx.beginPath();
+                ctx.ellipse(
+                    r * 0.3,    // x（左右反転）
+                    -r * 0.5,   // y
+                    r * 0.35,
+                    r * 0.15,
+                    0.5,         // 反転方向に回転
+                    0, Math.PI * 2
+                );
+                ctx.fill();
+
+                // ▼ 割れ目（中央のライン）
+                ctx.strokeStyle = '#f48fb1';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, -r * 0.1);
+                ctx.quadraticCurveTo(0, r * 0.4, 0, r * 0.6);
+                ctx.stroke();
+
+                // ▼ ハイライト（控えめ）
+                ctx.fillStyle = 'rgba(255,255,255,0.35)';
+                ctx.beginPath();
+                ctx.ellipse(-r * 0.35, -r * 0.05, r * 0.35, r * 0.25, -0.4, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+
+
+
+            function getPointerPos(e) {
+                const rect = canvas.getBoundingClientRect();
+                let clientX, clientY;
+                if (e.touches && e.touches.length) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+                return {
+                    x: (clientX - rect.left) * (canvas.width / rect.width),
+                    y: (clientY - rect.top) * (canvas.height / rect.height)
+                };
+            }
+
+            function onDown(e) {
+                e.preventDefault();
+                const pos = getPointerPos(e);
+                lastPointerX = pos.x;
+
+                if (gameOver) {
+                    restart();
+                    return;
+                }
+                if (gameClear) {
+                    const pos = getPointerPos(e);
+
+                    // 続きから遊ぶ
+                    if (isInside(pos.x, pos.y, W / 2 - 100, H / 2 + 50, 200, 40)) {
+                        chainCount = 0;
+                        continueGame();
+                        return;
+                    }
+
+                    // 初めから遊ぶ
+                    if (isInside(pos.x, pos.y, W / 2 - 100, H / 2 + 130, 200, 40)) {
+                        restart();
+                        return;
+                    }
+
+                    return;
+                }
+
+                if (gameState !== 'idle') return; // 落下・演出中は操作不可
+                isPointerDown = true;
+                const f = getFruitAt(pos.x, pos.y);
+                if (f) {
+                    draggingFruit = f;
+                    dragStartX = pos.x;
+                    fruitStartCol = f.col;
+                }
+            }
+
+            function onMove(e) {
+                if (!isPointerDown || !draggingFruit) return;
+                const pos = getPointerPos(e);
+                lastPointerX = pos.x;
+
+                // いつも通り、まず通常の横移動
+                updateDraggingFruit(pos.x);
+
+                // 盤面の左右端のピクセル座標
+                const boardRight = boardLeft + COLS * cellSize;
+
+                // 左に飛び出した？
+                if (pos.x < boardLeft) {
+                    tryMakeSplitPreview('left');
+                    if (splitPreview) dragVisualCol = -1;
+                }
+                // 右に飛び出した？
+                else if (pos.x > boardRight) {
+                    tryMakeSplitPreview('right');
+                    if (splitPreview) dragVisualCol = COLS + 1 - draggingFruit.size;
+                }
+                // 枠内に戻ったらプレビュー解除
+                else {
+                    splitPreview = null;
+                    dragVisualCol = null;
+                }
+            }
+
+            function onUp(e) {
+                if (!isPointerDown) return;
+                isPointerDown = false;
+                if (draggingFruit) endDrag();
+            }
+
+            canvas.addEventListener('mousedown', onDown);
+            canvas.addEventListener('mousemove', onMove);
+            canvas.addEventListener('mouseup', onUp);
+            canvas.addEventListener('mouseleave', onUp);
+
+            canvas.addEventListener('touchstart', onDown, { passive: false });
+            canvas.addEventListener('touchmove', onMove, { passive: false });
+            canvas.addEventListener('touchend', onUp, { passive: false });
+            canvas.addEventListener('touchcancel', onUp, { passive: false });
+
+            // 反対端におけるか
+            function canPlaceOnLeftSide(fruit) {
+                const row = fruit.row;
+                const col = 0;
+                return !isCellOccupied(row, col, fruit.id);
+            }
+
+            function canPlaceOnRightSide(fruit) {
+                const row = fruit.row;
+                const col = COLS - 1;
+                return !isCellOccupied(row, col, fruit.id);
+            }
+
+            // 分割プレビュー生成用
+            function tryMakeSplitPreview(direction) {
+                const f = draggingFruit;
+                if (!f) return;
+
+                // 反対側の端に置けるかチェック
+                if (direction === 'left') {
+                    if (!canPlaceOnRightSide(f)) {
+                        splitPreview = null;
+                        return;
+                    }
+                } else {
+                    if (!canPlaceOnLeftSide(f)) {
+                        splitPreview = null;
+                        return;
+                    }
+                }
+
+                // サイズごとの分割パターン
+                if (f.size === 1) {
+                    splitPreview = makeSplitForSmall(direction);
+                } else if (f.size === 2) {
+                    splitPreview = makeSplitForMedium(direction);
+                } else {
+                    splitPreview = makeSplitForLarge(direction);
+                }
+            }
+
+            function makeSplitForSmall(dir) {
+                if (dir === 'left') {
+                    return {
+                        left: null,
+                        right: { col: COLS - 1, size: 1 }
+                    };
+                } else {
+                    return {
+                        left: { col: 0, size: 1 },
+                        right: null
+                    };
+                }
+            }
+
+            function makeSplitForMedium(dir) {
+                // 中は左右に小×2（どちらから越えても同じ）
+                return {
+                    left: { col: 0, size: 1 },
+                    right: { col: COLS - 1, size: 1 }
+                };
+            }
+
+            function makeSplitForLarge(dir) {
+                if (dir === 'left') {
+                    return {
+                        left: { col: 0, size: 2 },
+                        right: { col: COLS - 1, size: 1 }
+                    };
+                } else {
+                    return {
+                        left: { col: 0, size: 1 },
+                        right: { col: COLS - 2, size: 2 }
+                    };
+                }
+            }
+
+            // 分割プレビュー描画
+            function drawPreviewBox(col, row, size) {
+                const x = boardLeft + col * cellSize + 4;
+                const y = boardTop + row * cellSize + 4;
+                const w = cellSize * size - 8;
+                const h = cellSize - 8;
+
+                ctx.save();
+
+                // ★ 柔らかい点滅
+                const alpha = 0.6 + Math.sin(Date.now() / 200) * 0.3;
+
+                // ★ 半透明ミント塗りつぶし
+                ctx.globalAlpha = alpha * 0.35;
+                ctx.fillStyle = '#d8fff0'; // パステルミント
+                roundRect(x, y, w, h, 12, true, false);
+
+                // ★ 外側の光（グロー）
+                ctx.globalAlpha = alpha * 0.5;
+                ctx.strokeStyle = '#8fffe0'; // 明るいミント
+                ctx.lineWidth = 6;
+                ctx.shadowColor = '#b8fff0';
+                ctx.shadowBlur = 12;
+                roundRect(x, y, w, h, 12, false, true);
+
+                // ★ 内側の濃い線
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = '#2fc9a8'; // 濃いミント
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 0;
+                roundRect(x, y, w, h, 12, false, true);
+
+                ctx.restore();
+            }
+
+
+            // ボタンを押したか
+            function isInside(px, py, x, y, w, h) {
+                return px >= x && px <= x + w && py >= y && py <= y + h;
+            }
+
+            function continueGame() {
+                gameClear = false;
+
+                // 次のクリア目標を +100
+                //nextClearTarget += 100;
+
+                // 盤面はそのまま
+                // 状態だけ idle に戻す
+                gameState = 'idle';
+                phase = 'idle';
+            }
+
+            function restart() {
+                clearedFruits = 0;
+                chainCount = 0;
+                displayScore = 0;
+                maxChainCount = 1;
+                allClearCount = 0;
+                scorePops = [];
+                startTime = Date.now();
+                clearTime = 0;
+                nextClearTarget = 100;
+
+                gameOver = false;
+                gameClear = false;
+                clearFlg = false;
+                particles = [];
+                gameState = 'idle';
+                phase = 'idle';
+                initBoard();
+                generatePreview();
+            }
+
+            function loop() {
+                updateParticles();
+                if (gameState === 'falling') updateFalling();
+                else if (gameState === 'flashing') updateFlashing();
+                else if (gameState === 'spawning') updateSpawning();
+                draw();
+                requestAnimationFrame(loop);
+            }
+
+            restart();
+            loop();
+        })();
+    </script>
+</body>
+
+</html>

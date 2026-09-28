@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <title>逃げウサ囲み～Bunny Sweeper～</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202607/old/" />
+  <meta property="og:title" content="逃げウサ囲み～Bunny Sweeper～" />
+  <meta property="og:description" content="数字を頼りに移動して、ウサギを囲んで捕まえよう！数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_bunny.png" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #222;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    canvas {
+      background: #111;
+      touch-action: manipulation;
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="game" width="360" height="548"></canvas>
+  <script>
+    (() => {
+      const BASE_W = 360, BASE_H = 548;
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+
+      // 内部解像度は固定
+      canvas.width = BASE_W;
+      canvas.height = BASE_H;
+      
+      // リサイズ
+      let scale = 1;
+
+      function resize() {
+        scale = Math.min(innerWidth / BASE_W, innerHeight / BASE_H);
+
+        // CSS transform で拡大縮小
+        canvas.style.width = BASE_W * scale + "px";
+        canvas.style.height = BASE_H * scale + "px";
+
+        // 描画座標系は 1:1 のまま
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      addEventListener("resize", resize);
+      resize();
+
+      const W = BASE_W;
+      const H = BASE_H;
+
+      // レイアウト
+      const topAreaH = 80;
+      const boardSize = 300;
+      const boardX = (W - boardSize) / 2;
+      const boardY = topAreaH + 2;
+      let gridN = 7;
+      let cellSize = boardSize / gridN;
+      const bottomAreaH = H - topAreaH - boardSize;
+
+      // ゲーム状態
+      let bombsCount = 2;
+      let cells;
+      let bombs;
+      let player;
+      let gameOver = false;
+      let gameClear = false;
+      let message = '';
+      let currentStage = 1;
+      let stageStartTime = 0;
+      let elapsedTime = 0;
+      let stageTimes = [];   // 例： stageTimes[1] = ステージ1のクリア秒数
+      let turnCount = 0;
+      let stageTurns = [];   // ステージごとのターン数
+
+
+      const stageConfigs = {
+        1: { gridN: 5, bombsCount: 1 },
+        2: { gridN: 7, bombsCount: 2 },
+        3: { gridN: 9, bombsCount: 5 }
+      };
+
+      // ボタンレイアウト
+      const bw = 60, bh = 40;
+      const bottomY0 = H - bottomAreaH;
+      const btnCenterX = W / 2;
+      const btnCenterY = bottomY0 + 80;
+
+      const buttons = {
+        up: { x: btnCenterX - bw / 2, y: btnCenterY - bh - 20, w: bw, h: bh, type: 'move', dx: 0, dy: -1 },
+        down: { x: btnCenterX - bw / 2, y: btnCenterY + 20, w: bw, h: bh, type: 'move', dx: 0, dy: 1 },
+        left: { x: btnCenterX - bw - 20, y: btnCenterY - 20, w: bw, h: bh, type: 'move', dx: -1, dy: 0 },
+        right: { x: btnCenterX + 20, y: btnCenterY - 20, w: bw, h: bh, type: 'move', dx: 1, dy: 0 },
+        jumpLeft: { x: btnCenterX - bw - 20 - 10, y: btnCenterY + bh - 20 + 10, w: 50, h: 40, type: 'jumpLeft' },
+        jumpRight: { x: btnCenterX + bw / 2 + 10, y: btnCenterY + bh - 20 + 10, w: 50, h: 40, type: 'jumpRight' },
+        jumpUp: { x: btnCenterX - bw - 20 - 10, y: btnCenterY - bh - 20 - 10, w: 50, h: 40, type: 'jumpLeft' },
+        jumpDown: { x: btnCenterX + bw / 2 + 10, y: btnCenterY - bh - 20 - 10, w: 50, h: 40, type: 'jumpRight' },
+        waitL: { x: 20, y: btnCenterY + bh - 30, w: bw, h: bh, type: 'wait' },
+        waitR: { x: W - bw - 20, y: btnCenterY + bh - 30, w: bw, h: bh, type: 'wait' },
+        reset: { x: W - 70, y: btnCenterY - bh - 20, w: 60, h: 26, type: 'reset' },
+        nextStage: { x: W / 2 - 80, y: btnCenterY - 20, w: 160, h: 60, type: 'next' },
+        retry: { x: W / 2 - 80, y: btnCenterY - 30, w: 160, h: 60, type: 'retry' }
+      };
+
+const diagButtons = {
+  upLeft:  { x: btnCenterX - bw - 20-10, y: btnCenterY - bh - 20 - 10, w: 50, h: 40, dx: -1, dy: -1 },
+  upRight: { x: btnCenterX +  bw/2 +10,      y: btnCenterY - bh - 20-10, w: 50, h: 40, dx: 1,  dy: -1 },
+  downLeft:{ x: btnCenterX - bw - 20-10, y: btnCenterY + bh/2 +20-10,      w: 50, h: 40, dx: -1, dy: 1 },
+  downRight:{x: btnCenterX +  bw / 2+10,      y: btnCenterY + bh/2+ 20-10,      w: 50, h: 40, dx: 1,  dy: 1 }
+};
+
+      function createEmptyBoard() {
+        cells = [];
+        for (let y = 0; y < gridN; y++) {
+          const row = [];
+          for (let x = 0; x < gridN; x++) {
+            row.push({
+              opened: false,
+              captured: false,
+              prevNumber: 0,
+              number: 0,
+              hasBomb: false
+            });
+          }
+          cells.push(row);
+        }
+      }
+
+      function inBounds(x, y) {
+        return x >= 0 && x < gridN && y >= 0 && y < gridN;
+      }
+
+      function placeBombs() {
+        bombs = [];
+        const cx = Math.floor(gridN / 2);
+        const cy = Math.floor(gridN / 2);
+
+        function isForbidden(x, y) {
+          return Math.abs(x - cx) <= 1 && Math.abs(y - cy) <= 1;
+        }
+
+        let placed = 0;
+        while (placed < bombsCount) {
+          const x = Math.floor(Math.random() * gridN);
+          const y = Math.floor(Math.random() * gridN);
+          if (isForbidden(x, y)) continue;
+          if (cells[y][x].hasBomb) continue;
+          cells[y][x].hasBomb = true;
+          bombs.push({ x, y });
+          placed++;
+        }
+      }
+
+      function recomputeNumbers() {
+        for (let y = 0; y < gridN; y++) {
+          for (let x = 0; x < gridN; x++) {
+            const cell = cells[y][x];
+            cell.prevNumber = cell.number;
+            let count = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const nx = x + dx;
+                const ny = y + dy;
+                if (inBounds(nx, ny) && cells[ny][nx].hasBomb) count++;
+              }
+            }
+            cell.number = count;
+          }
+        }
+      }
+
+      function initGame() {
+        const cfg = stageConfigs[currentStage];
+
+        gridN = cfg.gridN;
+        bombsCount = cfg.bombsCount;
+
+        cellSize = boardSize / gridN;
+
+        gameOver = false;
+        gameClear = false;
+        message = '';
+
+        createEmptyBoard();
+        placeBombs();
+        recomputeNumbers();
+
+        const cx = Math.floor(gridN / 2);
+        const cy = Math.floor(gridN / 2);
+        player = { x: cx, y: cy, isHit: false };
+        cells[cy][cx].opened = true;
+
+        stageStartTime = performance.now();
+        turnCount = 0;
+      }
+
+      // 1マス移動
+      function movePlayer(dx, dy) {
+        if (gameOver || gameClear) return;
+        const nx = player.x + dx;
+        const ny = player.y + dy;
+        if (!inBounds(nx, ny)) return;
+
+        player.x = nx;
+        player.y = ny;
+
+        afterPlayerMove();
+      }
+
+      // 2マス先移動
+      function jumpPlayer(dir) {
+        if (gameOver || gameClear) return;
+
+        const dx = dir === "left" ? -1 : 1;
+
+        const x1 = player.x + dx;      // 1マス先
+        const x2 = player.x + dx * 2;  // 2マス先
+
+        // 2マス先が盤外 → 1マスだけ試す
+        if (!inBounds(x2, player.y)) {
+          if (inBounds(x1, player.y)) {
+            player.x = x1;
+            afterPlayerMove();
+          }
+          return;
+        }
+
+        // 2マス先が盤内なら必ずジャンプ
+        player.x = x2;
+        afterPlayerMove();
+      }
+
+      function jumpPlayerVertical(dir) {
+        if (gameOver || gameClear) return;
+
+        const dy = dir === "up" ? -1 : 1;
+
+        const y1 = player.y + dy;
+        const y2 = player.y + dy * 2;
+
+        // 2マス先が盤外 → 1マスだけ試す
+        if (!inBounds(player.x, y2)) {
+          if (inBounds(player.x, y1)) {
+            player.y = y1;
+            afterPlayerMove();
+          }
+          return;
+        }
+
+        // 2マス先が盤内なら必ずジャンプ
+        player.y = y2;
+        afterPlayerMove();
+      }
+
+
+      function afterPlayerMove() {
+        turnCount++;
+
+        const cell = cells[player.y][player.x];
+
+        if (cell.hasBomb) {
+          // ウサギを踏んだ
+          cell.captured = true;
+          cell.opened = true;
+          cell.hasBomb = false;
+          cell.wasStepped = true;
+
+          player.isHit = true;
+          gameOver = true;
+          message = 'ウサギに捕まった…！';
+          return;
+        }
+
+        cell.opened = true;
+        bombsTurn();
+      }
+
+
+      function waitTurn() {
+        if (gameOver || gameClear) return;
+        bombsTurn();
+      }
+
+      function bombsTurn() {
+        // 一旦爆弾フラグを消す
+        for (const b of bombs) {
+          cells[b.y][b.x].hasBomb = false;
+        }
+
+        const newBombs = [];
+
+        for (const b of bombs) {
+
+          const steps = Math.floor(Math.random() * 3); // 0,1,2
+          let curX = b.x;
+          let curY = b.y;
+          let movedAtLeastOnce = false;
+
+          for (let s = 0; s < steps; s++) {
+            let movedThisStep = false;
+
+            const dirs = [
+              { dx: 0, dy: -1 },
+              { dx: 0, dy: 1 },
+              { dx: -1, dy: 0 },
+              { dx: 1, dy: 0 }
+            ];
+            for (let i = dirs.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+            }
+
+            for (const d of dirs) {
+              const nx = curX + d.dx;
+              const ny = curY + d.dy;
+
+              if (!inBounds(nx, ny)) continue;
+              if (cells[ny][nx].opened) continue;
+              if (cells[ny][nx].captured) continue;
+              if (cells[ny][nx].hasBomb) continue;
+
+              // 同ターン内の移動先衝突チェック
+              if (newBombs.some(nb => nb.x === nx && nb.y === ny)) continue;
+
+              // 移動成功
+              curX = nx;
+              curY = ny;
+              movedThisStep = true;
+              movedAtLeastOnce = true;
+              break;
+            }
+
+            if (!movedThisStep) break;
+          }
+
+          if (steps > 0 && !movedAtLeastOnce) {
+            const cell = cells[b.y][b.x];
+            cell.captured = true;
+            cell.opened = true;
+            cell.hasBomb = false;
+          } else {
+            newBombs.push({ x: curX, y: curY });
+          }
+        }
+
+        // 盤面の爆弾フラグをリセットして再設定
+        for (let y = 0; y < gridN; y++) {
+          for (let x = 0; x < gridN; x++) {
+            cells[y][x].hasBomb = false;
+          }
+        }
+        for (const b of newBombs) {
+          cells[b.y][b.x].hasBomb = true;
+        }
+
+        bombs = newBombs;
+
+        recomputeNumbers();
+        checkCapture();
+
+        if (bombs.length === 0) {
+          gameClear = true;
+          stageTimes[currentStage] = elapsedTime;
+          stageTurns[currentStage] = turnCount;
+
+          if (currentStage < 3) {
+            message = `ステージクリア！`;
+          } else {
+            message = '完全制覇おめでとう！';
+          }
+        }
+      }
+
+      function checkCapture() {
+        const remaining = [];
+        for (const b of bombs) {
+          const x = b.x;
+          const y = b.y;
+          let ok = true;
+          const dirs = [
+            { dx: 0, dy: -1 },
+            { dx: 0, dy: 1 },
+            { dx: -1, dy: 0 },
+            { dx: 1, dy: 0 }
+          ];
+          for (const d of dirs) {
+            const nx = x + d.dx;
+            const ny = y + d.dy;
+            if (!inBounds(nx, ny)) continue; // 壁扱いでOK
+            const c = cells[ny][nx];
+            if (!c.opened && !c.captured && !c.hasBomb) {
+              ok = false;
+              break;
+            }
+          }
+          if (ok) {
+            const cell = cells[y][x];
+            cell.captured = true;
+            cell.opened = true;
+            cell.hasBomb = false;
+          } else {
+            remaining.push(b);
+          }
+        }
+        bombs = remaining;
+      }
+
+      const numColor = {
+        0: "#333333",
+        1: "#4aa3ff",
+        2: "#3cb371",
+        3: "#ff6b6b",
+        4: "#b57bff",
+        5: "#ffb347",
+        6: "#ffb347",
+        7: "#ffb347",
+        8: "#ffb347"
+      };
+
+      // 草タイル（m みたいな草を左下＆右上）
+      function drawGrass(x, y) {
+        ctx.fillStyle = "#7ecf6b";
+        ctx.fillRect(x, y, cellSize, cellSize);
+
+        ctx.strokeStyle = "#4fa85a";
+        ctx.lineWidth = 2;
+
+        // 左下の m 草
+        {
+          const bx = x + cellSize * 0.18;
+          const by = y + cellSize * 0.78;
+          ctx.beginPath();
+          ctx.moveTo(bx - 4, by);
+          ctx.quadraticCurveTo(bx, by - 6, bx + 4, by);
+          ctx.stroke();
+        }
+
+        // 右上の m 草
+        {
+          const bx = x + cellSize * 0.70;
+          const by = y + cellSize * 0.30;
+          ctx.beginPath();
+          ctx.moveTo(bx - 5, by);
+          ctx.quadraticCurveTo(bx, by - 7, bx + 5, by);
+          ctx.stroke();
+        }
+      }
+
+      // 土
+      function drawSoil(x, y) {
+        ctx.fillStyle = "#cfa97e";
+        ctx.fillRect(x, y, cellSize, cellSize);
+      }
+
+      // ウサギ（最新版）
+      function drawBunny(x, y, isStepped) {
+        const cx = x + cellSize / 2;
+        const cy = y + cellSize / 2;
+
+        // 顔（横長で大きめ）
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + 10, (300 / 7) * 0.33, (300 / 7) * 0.26, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 耳（白・外側に傾ける・少し下げ）
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.ellipse(cx - 10, cy - 6, 6, 14, -0.4, 0, Math.PI * 2);
+        ctx.ellipse(cx + 10, cy - 6, 6, 14, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 耳の内側（ピンク）
+        ctx.fillStyle = "#ffb7d5";
+        ctx.beginPath();
+        ctx.ellipse(cx - 10, cy - 6, 3, 9, -0.4, 0, Math.PI * 2);
+        ctx.ellipse(cx + 10, cy - 6, 3, 9, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 目（少し下）
+        ctx.fillStyle = isStepped ? "#ff4d4d" : "#000";
+        ctx.beginPath();
+        ctx.arc(cx - 7, cy + 10, 2.4, 0, Math.PI * 2);
+        ctx.arc(cx + 7, cy + 10, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 鼻（小さく・オレンジ）
+        ctx.fillStyle = "#ff914d";
+        ctx.beginPath();
+        ctx.arc(cx, cy + 14, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+
+      }
+
+      // ミニウサギアイコン
+      function drawMiniBunny(x, y) {
+        const base = (300 / 7) * 0.5;   // 半分サイズ
+        const cx = x;
+        const cy = y;
+
+        // 顔
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + base * 0.25, base * 0.45, base * 0.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 耳（白）
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.ellipse(cx - base * 0.28, cy - base * 0.1, base * 0.2, base * 0.4, -0.4, 0, Math.PI * 2);
+        ctx.ellipse(cx + base * 0.28, cy - base * 0.1, base * 0.2, base * 0.4, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 耳の内側
+        ctx.fillStyle = "#ffb7d5";
+        ctx.beginPath();
+        ctx.ellipse(cx - base * 0.28, cy - base * 0.1, base * 0.1, base * 0.2, -0.4, 0, Math.PI * 2);
+        ctx.ellipse(cx + base * 0.28, cy - base * 0.1, base * 0.1, base * 0.2, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 目
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.arc(cx - base * 0.23, cy + base * 0.25, base * 0.08, 0, Math.PI * 2);
+        ctx.arc(cx + base * 0.23, cy + base * 0.25, base * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 鼻
+        ctx.fillStyle = "#ff914d";
+        ctx.beginPath();
+        ctx.arc(cx, cy + base * 0.35, base * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+
+      // プレイヤー
+      function drawPlayer(x, y, t) {
+        const cx = x + cellSize / 2;
+        const cy = y + cellSize / 2;
+
+        // 踏んだ時は赤くしてアニメ停止
+        if (player.isHit) {
+          ctx.fillStyle = "#ff9d9d"; // 赤
+          ctx.beginPath();
+          ctx.ellipse(
+            cx,
+            cy,
+            cellSize * 0.4,
+            cellSize * 0.4,
+            0,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          return;
+        } else if (gameClear) {
+          // クリアでも停止
+          ctx.fillStyle = "#ffffff80";
+          ctx.beginPath();
+          ctx.ellipse(
+            cx,
+            cy,
+            cellSize * 0.4,
+            cellSize * 0.4,
+            0,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          return;
+        }
+
+        // 伸び縮み係数（0.9〜1.1）
+        const scale = 1 + Math.sin(t * 0.003) * 0.1;
+
+        ctx.fillStyle = "#ffffff80";
+        ctx.beginPath();
+        ctx.ellipse(
+          cx,
+          cy,
+          cellSize * 0.35 * scale,   // 横方向
+          cellSize * 0.35 * scale, // 縦方向（逆にして“ぷにっ”感）
+          0,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      }
+
+
+      function drawBoard() {
+        for (let y = 0; y < gridN; y++) {
+          for (let x = 0; x < gridN; x++) {
+            const px = boardX + x * cellSize;
+            const py = boardY + y * cellSize;
+            const c = cells[y][x];
+
+            // --- 背景（草 or 土） ---
+            if (c.captured) {
+              drawSoil(px, py);
+            } else if (c.opened) {
+              drawSoil(px, py);
+            } else {
+              drawGrass(px, py);
+            }
+
+            // --- プレイヤー ---
+            if (player.x === x && player.y === y) {
+              drawPlayer(boardX + player.x * cellSize, boardY + player.y * cellSize, performance.now());
+            }
+
+            // --- 数字 ---
+            if (c.captured) {
+              drawBunny(px, py, c.wasStepped);
+            } else if (c.opened) {
+              // 中央の数字
+              ctx.fillStyle = numColor[c.number];
+              ctx.font = "18px sans-serif";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(c.number, px + cellSize / 2, py + cellSize / 2);
+
+              // 左上の前ターン数字
+              ctx.fillStyle = "#000";
+              ctx.font = "10px sans-serif";
+              ctx.textAlign = "left";
+              ctx.textBaseline = "top";
+              ctx.fillText(c.prevNumber, px + 2, py + 2);
+            }
+
+            // グリッド線
+            ctx.strokeStyle = "#555";
+            ctx.strokeRect(px, py, cellSize, cellSize);
+          }
+        }
+      }
+
+
+      function drawTop() {
+        ctx.fillStyle = "#222";
+        ctx.fillRect(0, 0, W, topAreaH);
+
+        ctx.textBaseline = "top";
+        // メッセージ（クリア・ゲームオーバー時のみ）
+        if (message) {
+          ctx.fillStyle = "#ff914d";
+          ctx.textAlign = "center";
+          ctx.font = "20px sans-serif";
+          ctx.fillText(message, W / 2, 2);
+
+          // ステージごとの結果を表示
+          ctx.fillStyle = "#fff";
+          ctx.textAlign = "left";
+          ctx.font = "14px sans-serif";
+
+          let lineY = 28;  // メッセージの下から表示開始
+
+          for (let st = 1; st <= currentStage; st++) {
+            const time = stageTimes[st]?.toFixed(1) ?? "-";
+            const turns = stageTurns[st] ?? "-";
+
+            ctx.fillText(
+              `STAGE ${st} : ${time}s / ${turns} turns`,
+              W/4,
+              lineY
+            );
+
+            lineY += 18; // 行間
+          }
+        } else {
+          // ルール説明
+          ctx.fillStyle = "#fff";
+          ctx.textAlign = "left";
+          ctx.font = "14px sans-serif";
+          ctx.fillText("矢印ボタンで移動して、全てのウサギを捕まえよう", 10, 6);
+          ctx.fillText("数字は周囲８マスのウサギ数(大:現在,小:前ターン)", 10, 24);
+          ctx.fillText("ウサギは草原を毎ターン上下左右に0〜2マス移動するよ", 10, 42);
+          ctx.fillText("ウサギのいる上下左右のマスをあけて捕まえよう", 10, 60);
+        }
+      }
+
+
+      function drawBottom() {
+        const y0 = bottomY0 + 4;
+        const y1 = 8; // UI表示始点
+        const y2 = 24; // UI間隔
+
+        ctx.fillStyle = "#222";
+        ctx.fillRect(0, y0, W, bottomAreaH);
+
+        ctx.fillStyle = "#fff";
+
+        // ステージ
+        ctx.textAlign = "left";
+        ctx.font = "12px sans-serif";
+        ctx.fillText(`STAGE ${currentStage}`, 10, y0 + 4 + y1);
+
+        // 経過時間
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(`TIME ${elapsedTime.toFixed(1)}s`, 10, y0 + 4 + y2+ y1);
+
+        // 経過ターン
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(`TURN ${turnCount}`, 10, y0 + 4 + y2 * 2 + y1);
+
+        // 右上：ウサギアイコン + 残り数
+        const iconX = 20;
+        const iconY = y0 + 4 + y2*3 + 12+ y1;
+
+        drawMiniBunny(iconX, iconY);
+
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "left";
+        ctx.font = "12px sans-serif";
+        ctx.fillText(`× ${bombs.length}`, iconX+14, iconY-4);
+
+
+
+        function btn(b, label, rotate = 0) {
+          ctx.fillStyle = "#ffffff20";
+          ctx.fillRect(b.x, b.y, b.w, b.h);
+
+          ctx.strokeStyle = "#aaa";
+          ctx.strokeRect(b.x, b.y, b.w, b.h);
+
+          ctx.save();
+          ctx.translate(b.x + b.w / 2, b.y + b.h / 2);
+          ctx.rotate(rotate);
+
+          ctx.fillStyle = "#fff";
+          ctx.font = "18px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, 0, 0);
+
+          ctx.restore();
+        }
+
+
+        if (gameClear) {
+        // Retry
+          const b0 = buttons.retry;
+          const cf = buttons.jumpUp;
+
+          ctx.fillStyle = "#ffffff20";
+          ctx.fillRect(b0.x, cf.y, b0.w, cf.h);
+
+          ctx.strokeStyle = "#aaa";
+          ctx.strokeRect(b0.x, cf.y, b0.w, cf.h);
+
+          ctx.fillStyle = "#fff";
+          ctx.font = "18px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          ctx.fillText("もういちど", b0.x + b0.w / 2, cf.y + cf.h / 2);
+          
+        // Nextボタン
+          const b = buttons.nextStage;
+
+          ctx.fillStyle = "#ffffff20";
+          ctx.fillRect(b.x, b.y, b.w, b.h);
+
+          ctx.strokeStyle = "#aaa";
+          ctx.strokeRect(b.x, b.y, b.w, b.h);
+
+          ctx.fillStyle = "#fff";
+          ctx.font = "18px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          if (currentStage < 3) {
+            ctx.fillText("さきへすすむ", b.x + b.w / 2, b.y + b.h / 2);
+          } else {
+            ctx.fillText("はじめから", b.x + b.w / 2, b.y + b.h / 2);
+          }
+        } else if (gameOver) {
+          btn(buttons.retry, "もういちど");
+        } else {
+          btn(buttons.up, "↑");
+          btn(buttons.down, "↓");
+          btn(buttons.left, "←");
+          btn(buttons.right, "→");
+btn(diagButtons.upLeft,  "↑", -Math.PI/4);   // ↖
+btn(diagButtons.upRight, "↑",  Math.PI/4);   // ↗
+btn(diagButtons.downLeft,"↑", -3*Math.PI/4); // ↙
+btn(diagButtons.downRight,"↑",  3*Math.PI/4);// ↘
+
+          //btn(buttons.waitL, "待つ");
+          //btn(buttons.waitR, "待つ");
+
+          // リセットボタン
+          const b = buttons.reset;
+          ctx.fillStyle = "#ffffff20";
+          ctx.fillRect(b.x, b.y, b.w, b.h);
+          ctx.strokeStyle = "#aaa";
+          ctx.strokeRect(b.x, b.y, b.w, b.h);
+          ctx.fillStyle = "#fff";
+          ctx.font = "12px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("リセット", b.x + b.w / 2, b.y + b.h / 2);
+        }
+      }
+
+      function draw() {
+        if (!gameClear && !gameOver) {
+          elapsedTime = (performance.now() - stageStartTime) / 1000;
+        }
+        ctx.clearRect(0, 0, W, H);
+        drawTop();
+        drawBoard();
+        drawBottom();
+        requestAnimationFrame(draw);
+      }
+
+      function handlePointer(x, y) {
+        // リセット
+        const r = buttons.reset;
+        if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+          initGame();
+          return;
+        }
+
+        function hit(b) {
+          return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+        }
+
+        // Next
+        if (gameClear) {
+          const b0 = buttons.retry;
+          const cf = buttons.jumpUp;
+          if (x >= b0.x && x <= b0.x + b0.w && y >= cf.y && y <= cf.y + cf.h) {
+            initGame();
+            return;
+          }
+
+          const b = buttons.nextStage;
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            if (currentStage < 3) {
+              currentStage++;
+              initGame();
+            } else {
+              // 全クリア → ステージ1へ戻る
+              currentStage = 1;
+              initGame();
+            }
+            return;
+          }
+        } else if (gameOver) {
+          const b = buttons.retry;
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            initGame();
+            return;
+          }
+        }
+
+        if (hit(buttons.up)) { movePlayer(0, -1); return; }
+        if (hit(buttons.down)) { movePlayer(0, 1); return; }
+        if (hit(buttons.left)) { movePlayer(-1, 0); return; }
+        if (hit(buttons.right)) { movePlayer(1, 0); return; }
+        if (hit(buttons.waitL) || hit(buttons.waitR)) { waitTurn(); return; }
+if (hit(diagButtons.upLeft))  { movePlayer(-1, -1); return; }
+if (hit(diagButtons.upRight)) { movePlayer( 1, -1); return; }
+if (hit(diagButtons.downLeft)){ movePlayer(-1,  1); return; }
+if (hit(diagButtons.downRight)){movePlayer( 1,  1); return; }
+
+        if (hit(buttons.jumpLeft, x, y)) {
+          jumpPlayer("left");
+          return;
+        }
+        if (hit(buttons.jumpRight, x, y)) {
+          jumpPlayer("right");
+          return;
+        }
+        if (hit(buttons.jumpUp, x, y)) {
+          jumpPlayerVertical("up");
+          return;
+        }
+        if (hit(buttons.jumpDown, x, y)) {
+          jumpPlayerVertical("down");
+          return;
+        }
+
+      }
+
+      canvas.addEventListener("pointerdown", e => {
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+        handlePointer(x, y);
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (gameOver || gameClear) return;
+
+        switch (e.key) {
+          case "ArrowUp":
+            movePlayer(0, -1);
+            break;
+          case "ArrowDown":
+            movePlayer(0, 1);
+            break;
+          case "ArrowLeft":
+            movePlayer(-1, 0);
+            break;
+          case "ArrowRight":
+            movePlayer(1, 0);
+            break;
+          case " ":
+          case "Spacebar":
+            // スペースキーで「待つ」
+            waitTurn();
+            break;
+        }
+      });
+
+      initGame();
+      draw();
+    })();
+  </script>
+</body>
+
+</html>

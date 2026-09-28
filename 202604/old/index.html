@@ -1,0 +1,2021 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <title>囲って、ひも犬</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202604/old/" />
+  <meta property="og:title" content="囲って、ひも犬" />
+  <meta property="og:description" content="タップでひも犬を操作して敵やアイテムを囲おう！数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_himo.png" />
+  <style>
+    body {
+      margin: 0;
+      background: #222;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      touch-action: none;
+      font-family: system-ui, sans-serif;
+    }
+
+    canvas {
+      background: #f5f5ff;
+      border: 2px solid #333;
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="game" width="360" height="548"></canvas>
+  <script>
+    (() => {
+      const BASE_W = 360, BASE_H = 548;
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+// 内部解像度は固定
+canvas.width = BASE_W;
+canvas.height = BASE_H;
+
+let scale = 1;
+
+function resize() {
+  scale = Math.min(innerWidth / BASE_W, innerHeight / BASE_H);
+
+  // CSS transform で拡大縮小
+  canvas.style.width = BASE_W * scale + "px";
+  canvas.style.height = BASE_H * scale + "px";
+
+  // 描画座標系は 1:1 のまま
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+
+addEventListener("resize", resize);
+resize();
+
+const W = BASE_W;
+const H = BASE_H;
+
+      // レイアウト
+      const uiTopHeight = 40;      // ステージ/敵数/時間
+      const guideHeight = 24;      // ガイド文
+      const stageAreaTop = uiTopHeight + guideHeight;
+      const stageAreaHeight = Math.floor(H * 0.6);
+      const stageAreaBottom = stageAreaTop + stageAreaHeight;
+      const controlAreaTop = stageAreaBottom;
+      const controlAreaHeight = H - controlAreaTop;
+
+      // 仮想スライドパッド
+      const padCenter = { x: W / 2, y: controlAreaTop + controlAreaHeight / 2 };
+      const padRadius = 60;
+      const padKnobRadius = 20;
+      let padActive = false;
+      let padStartX = 0;
+      let padStartY = 0;
+      let padDir = { x: 0, y: 0 };
+
+      // ゲーム状態
+      let debugHitbox = false; // ← デバッグ用当たり判定表示
+      let stage = 1;
+      let enemies = [];
+      let tentacles = [];
+      let items = [];
+      let dog;
+      let ropePoints = [];
+      let ropeMaxLength = 120; // 初期紐長
+      let ropeTotalLength = 0;
+      let timeLimit = 60; // 秒
+      let timeLeft = timeLimit;
+      let collectedItemsCount = 0;
+      let lastTime = performance.now();
+      let enemyName = "デリシャス・タコボス"
+      let guideMessage = "紐で囲って回収しよう。道具を取ると紐が伸びるよ。";
+      let gameOver = false;
+      let gameClear = false;
+      let lastLoopPoly = null;   // 最後に囲ったポリゴン
+      let loopFlashTime = 0;     // 光る演出用
+      let popTexts = []; // popup text{x, y, text, t}
+      let pendingClear = false;  // クリア待ちフラグ
+      let bgTime = 0;
+      let stageRecords = {
+        1: { time: null, items: null },
+        2: { time: null, items: null },
+        3: { time: null, items: null },
+        4: { time: null, items: null }
+      };
+
+
+      // 犬の当たり判定
+      const realHeadSize = 16; // 見た目よりちょっと小さい
+
+      // アイテム出現管理
+      let itemSpawnTimer = 0;
+      const itemSpawnInterval = 10; // 秒
+      const maxItems = 3;
+
+      // ユーティリティ
+      function clamp(v, min, max) {
+        return v < min ? min : v > max ? max : v;
+      }
+
+      function dist(a, b) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        return Math.hypot(dx, dy);
+      }
+
+      function pointInPolygon(point, poly) {
+        // 射線法
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = poly[i].x, yi = poly[i].y;
+          const xj = poly[j].x, yj = poly[j].y;
+          const intersect =
+            ((yi > point.y) !== (yj > point.y)) &&
+            (point.x < (xj - xi) * (point.y - yi) / (yj - yi + 0.00001) + xi);
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      }
+
+      function resetStage1() {
+        gameOver = false;
+        gameClear = false;
+        timeLimit = 60;
+        timeLeft = timeLimit;
+        collectedItemsCount = 0;
+        itemSpawnTimer = 0;
+        ropeMaxLength = 120;
+        ropeTotalLength = 0;
+        ropePoints = [];
+        popTexts = [];
+        pendingClear = false;
+        guideMessage = "タップしたままスライドして、アイテムを囲ってみよう。";
+        enemyName = "サクラッポイ・ヒトデ";
+
+        // 犬初期位置（ステージエリア中央下寄り）
+        dog = {
+          x: W / 2,
+          y: stageAreaTop + stageAreaHeight * 0.7,
+          vx: 0,
+          vy: 0,
+          speed: 1.6,
+          dirX: 1,
+          dirY: 0,
+          facing: 1
+        };
+
+        // 敵1体（動かない）
+        enemies = [{
+          x: W / 2,
+          y: stageAreaTop + stageAreaHeight * 0.35,
+          r: 28,
+          alive: true,
+          animT: 0,
+          vx: 0,
+          minX: 0,
+          maxX: 0,
+          stunned: 0,
+          stunLevel: 0
+        }];
+
+        // アイテム1個（敵を囲うには必須の位置）
+        items = [{
+          x: W / 2 - 100,
+          y: stageAreaTop + stageAreaHeight * 0.55,
+          r: 12,
+          taken: false,
+          sparkleT: 0
+        },
+        {
+          x: W / 2 + 80,
+          y: stageAreaTop + stageAreaHeight * 0.75,
+          r: 12,
+          taken: false,
+          sparkleT: 0
+        }];
+
+        // 紐の初期ポイント
+        ropePoints.push({ x: dog.x, y: dog.y });
+
+        ropeMaxLength += 160;       // アイテム取得時と同じ伸び量
+      }
+
+      function resetStage2() {
+        gameOver = false;
+        gameClear = false;
+        pendingClear = false;
+        popTexts = [];
+        timeLimit = 60;
+        timeLeft = timeLimit;
+        collectedItemsCount = 0;
+        enemyName = "ユレルダケ・クラゲ";
+        guideMessage = "ゆらゆら揺れるクラゲに気を付けて、紐で囲おう";
+
+        // 犬初期位置
+        dog = {
+          x: W / 2,
+          y: stageAreaTop + stageAreaHeight * 0.7,
+          speed: 1.6,
+          dirX: 1,
+          dirY: 0,
+          facing: 1
+        };
+
+        // 敵（左右に往復）
+        enemies = [{
+          x: W / 2 + 30,
+          y: stageAreaTop + stageAreaHeight * 0.25,
+          r: 26,
+          alive: true,
+          animT: 0,
+          vx: 0.05,         // 左右移動速度
+          minX: W / 2 + 30 - 20,        // 往復範囲
+          maxX: W / 2 + 30 + 20,
+          stunned: 0,       // しびれ時間
+          stunLevel: 0
+        }];
+
+        // アイテム2個
+        items = [
+          { x: W / 2 - 100, y: stageAreaTop + stageAreaHeight * 0.55, r: 12, taken: false, sparkleT: 0 },
+          { x: W / 2 + 100, y: stageAreaTop + stageAreaHeight * 0.55, r: 12, taken: false, sparkleT: 0 }
+        ];
+
+        // 紐
+        ropePoints = [{ x: dog.x, y: dog.y }];
+        ropeTotalLength = 0;
+        ropeMaxLength = 120 + 80; // ステージ2は少し長めスタート
+
+        ropeMaxLength += 160;       // アイテム取得時と同じ伸び量
+
+      }
+
+      function resetStage3() {
+        gameOver = false;
+        gameClear = false;
+        pendingClear = false;
+        popTexts = [];
+        timeLimit = 60;
+        timeLeft = timeLimit;
+        collectedItemsCount = 0;
+        enemyName = "ミタママノ・サカナ";
+        guideMessage = "動きの速い魚も、紐が当たるとしばらく動きが止まるよ";
+
+        dog = {
+          x: W / 2,
+          y: stageAreaTop + stageAreaHeight * 0.7,
+          speed: 1.6,
+          dirX: 1,
+          dirY: 0,
+          facing: 1,
+          hitW: 20,
+          hitH: 20
+        };
+
+        enemies = [];
+        for (let i = 0; i < 2; i++) {
+          enemies.push({
+            x: 60 + Math.random() * (W - 130),
+            y: stageAreaTop + 80 + stageAreaHeight * (0.3 * i),
+            r: 18,
+            alive: true,
+            animT: Math.random() * 10,
+            vx: ((i - 2) / 1.2 * 0.2 - 0.5) * (Math.random() < 0.5 ? 1 : -1),
+            minX: 60,
+            maxX: W - 60,
+            stunned: 0,
+            stunLevel: 0
+          });
+        }
+
+        items = [
+          { x: W / 2 - 100, y: stageAreaTop + stageAreaHeight * 0.8, r: 12, taken: false, sparkleT: 0 },
+          { x: W / 2 + 100, y: stageAreaTop + stageAreaHeight * 0.8, r: 12, taken: false, sparkleT: 0 }
+        ];
+
+        ropePoints = [{ x: dog.x, y: dog.y }];
+        ropeTotalLength = 0;
+        ropeMaxLength = 400;
+
+      }
+
+
+      function resetStage4() {
+        gameOver = false;
+        gameClear = false;
+        pendingClear = false;
+        popTexts = [];
+        timeLimit = 120;
+        timeLeft = timeLimit;
+        collectedItemsCount = 0;
+        enemyName = "デリシャス・タコ";
+        guideMessage = "紐を当てれば触手が消える！触手が消えればタコが縮む！";
+
+        dog = {
+          x: W / 2,
+          y: stageAreaTop + stageAreaHeight * 0.7,
+          speed: 1.6,
+          dirX: 1,
+          dirY: 0,
+          facing: 1,
+          hitW: 20,
+          hitH: 20
+        };
+
+        enemies = [{
+          type: "boss",
+          x: W / 2,
+          y: stageAreaTop + stageAreaHeight * 0.25,
+          r: 80,
+          alive: true,
+          animT: 0,
+          minX: 0,
+          maxX: 0,
+          stretch: 0,
+          stunned: 0,
+          stunLevel: 0,
+          eyeStun: 0
+        }];
+
+        initTentacles();
+
+        items = [
+          { x: W / 2 - 120, y: stageAreaTop + stageAreaHeight * 0.6, r: 12, taken: false, sparkleT: 0 },
+          { x: W / 2 + 120, y: stageAreaTop + stageAreaHeight * 0.6, r: 12, taken: false, sparkleT: 0 }
+        ];
+
+        ropePoints = [{ x: dog.x, y: dog.y }];
+        ropeTotalLength = 0;
+        ropeMaxLength = 260;
+      }
+
+      function initTentacles() {
+        const boss = enemies.find(e => e.type === "boss");
+        tentacles = [];
+
+        for (let i = 0; i < 8; i++) {
+          if (i != 6) {
+            tentacles.push({
+              angle: (Math.PI * 2 / 8) * i,
+              length: 120,
+              alive: true,
+              animT: i != 2 ? Math.random() * 10 : 7,
+              wiggle: 0
+            });
+          }
+        }
+      }
+
+
+      // 入力処理（タッチ＋マウス）
+      function handlePointerDown(x, y) {
+        if (stage != "ending") {
+          if (gameClear) {
+            if (stage === 1) {
+              stage = 2;
+              resetStage2();
+              return;
+            } else if (stage === 2) {
+              stage = 3;
+              resetStage3();
+              return;
+            } else if (stage === 3) {
+              stage = 4;
+              resetStage4();
+              return;
+            }
+          }
+        }
+        //if (gameOver) {
+        //  if (stage === 1) resetStage1();
+        //  else resetStage2();
+        //  return;
+        //}
+
+        const d = dist({ x, y }, padCenter);
+        if (d <= padRadius + 20) {
+          padActive = true;
+          updatePadDir(x, y);
+        }
+      }
+
+      function handlePointerMove(x, y) {
+        if (!padActive) return;
+        updatePadDir(x, y);
+      }
+
+      function handlePointerUp() {
+        padActive = false;
+        padDir.x = 0;
+        padDir.y = 0;
+      }
+
+      function updatePadDir(x, y) {
+        const dx = x - padCenter.x;
+        const dy = y - padCenter.y;
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) {
+          padDir.x = 0;
+          padDir.y = 0;
+          return;
+        }
+        // 4方向にスナップ
+        if (Math.abs(dx) > Math.abs(dy)) {
+          padDir.x = dx > 0 ? 1 : -1;
+          padDir.y = 0;
+        } else {
+          padDir.y = dy > 0 ? 1 : -1;
+          padDir.x = 0;
+        }
+      }
+
+      // canvas座標に変換
+      function getCanvasPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+        return { x, y };
+      }
+
+      // pointerdown
+      canvas.addEventListener("pointerdown", e => {
+        e.preventDefault();
+        const pos = getCanvasPos(e);
+
+        // --- エンディング画面 ---
+        if (stage === "ending") {
+          // ボタン範囲
+          const bx = W / 2 - 80;
+          const by = H - 140;
+          const bw = 160;
+          const bh = 50;
+
+          if (pos.x >= bx && pos.x <= bx + bw &&
+            pos.y >= by && pos.y <= by + bh) {
+
+            // ★ 最初から遊ぶ
+            stage = 1;
+            resetStage1();
+
+            // 記録をリセット
+            stageRecords = {
+              1: { time: null, items: null },
+              2: { time: null, items: null },
+              3: { time: null, items: null },
+              4: { time: null, items: null }
+            };
+          }
+
+          return;
+        }
+
+        // --- ① クリア・ゲームオーバー時のタップを最優先 ---
+        if (gameClear) {
+          if (stage === 1) {
+            stage = 2;
+            resetStage2();
+          } else if (stage === 2) {
+            stage = 3;
+            resetStage3();
+          } else if (stage === 3) {
+            stage = 4;
+            resetStage4();
+          }
+
+          return;
+        }
+
+
+        if (gameOver) {
+          if (stage === 1) {
+            stage = 1;
+            resetStage1();
+          } else if (stage === 2) {
+            stage = 2;
+            resetStage2();
+          } else if (stage === 3) {
+            stage = 3;
+            resetStage3();
+          } else if (stage === 4) {
+            stage = 4;
+            resetStage4();
+          }
+          return;
+        }
+
+        // --- ② 通常時はパッド操作として扱う ---
+        padActive = true;
+        padStartX = pos.x;
+        padStartY = pos.y;
+      });
+
+
+      // pointermove
+      canvas.addEventListener("pointermove", e => {
+        if (!padActive) return;
+
+        const pos = getCanvasPos(e);
+
+        const dx = pos.x - padStartX;
+        const dy = pos.y - padStartY;
+        const len = Math.hypot(dx, dy);
+
+        if (len > 8) { // 少し動いたら入力とみなす
+          padDir.x = dx / len;
+          padDir.y = dy / len;
+        } else {
+          padDir.x = 0;
+          padDir.y = 0;
+        }
+      });
+
+      // pointerup
+      canvas.addEventListener("pointerup", e => {
+        padActive = false;
+        padDir.x = 0;
+        padDir.y = 0;
+      });
+
+
+
+      // 更新
+      function update(dt) {
+        bgTime += dt;
+        if (gameOver || gameClear) return;
+
+        // 時間
+        timeLeft -= dt;
+        if (timeLeft <= 0) {
+          timeLeft = 0;
+          gameOver = true;
+          guideMessage = "時間切れ…タップでやり直し";
+          return;
+        }
+
+        // 犬の移動
+        // --- 進行方向の更新（スティック入力があったときだけ） ---
+        if (padDir.x !== 0 || padDir.y !== 0) {
+          const len = Math.hypot(padDir.x, padDir.y);
+          dog.dirX = padDir.x / len;
+          dog.dirY = padDir.y / len;
+
+          // 左右反転用
+          if (dog.dirX > 0) dog.facing = 1;
+          if (dog.dirX < 0) dog.facing = -1;
+        }
+
+        // --- 常に前進 ---
+        dog.x += dog.dirX * dog.speed;
+        dog.y += dog.dirY * dog.speed;
+
+
+        // ステージエリア内に制限
+        const margin = 10;
+        dog.x = clamp(dog.x, margin, W - margin);
+        dog.y = clamp(dog.y, stageAreaTop + margin, stageAreaBottom - margin);
+
+        // --- 紐ポイント更新 ---
+        {
+          const last = ropePoints[ropePoints.length - 1];
+          const d = dist(last, dog);
+
+          // 少しでも動いたら点を打つ（ロープをちゃんと伸ばす）
+          if (d > 0.5) {
+            ropePoints.push({ x: dog.x, y: dog.y });
+            ropeTotalLength += d;
+          }
+
+          // --- 紐長制限 ---
+          while (ropePoints.length > 1 && ropeTotalLength > ropeMaxLength) {
+            const p0 = ropePoints[0];
+            const p1 = ropePoints[1];
+            const seg = dist(p0, p1);
+            ropeTotalLength -= seg;
+            ropePoints.shift();
+          }
+        }
+
+        // --- ロープの途中交差によるループ判定（簡易・安定版） ---
+        if (ropePoints.length > 8) {
+          const head = ropePoints[ropePoints.length - 1];
+          let loopStartIndex = -1;
+
+          // 最新点と「十分前の点」が近づいたらループとみなす
+          for (let i = 0; i < ropePoints.length - 6; i++) {
+            const p = ropePoints[i];
+            if (dist(p, head) < 6) { // 交差とみなす距離
+              loopStartIndex = i;
+              break;
+            }
+          }
+
+          if (loopStartIndex >= 0) {
+            // ループポリゴンを作成（loopStartIndex ～ 最後）
+            const loopPoly = [];
+            for (let k = loopStartIndex; k < ropePoints.length; k++) {
+              loopPoly.push({ x: ropePoints[k].x, y: ropePoints[k].y });
+            }
+            // 閉じる
+            loopPoly.push({ x: ropePoints[loopStartIndex].x, y: ropePoints[loopStartIndex].y });
+
+            // 面積が小さすぎるループは無視
+            const area = polygonArea(loopPoly);
+            if (area > 150) {
+              let anyHit = false;
+
+              // 敵判定
+              enemies.forEach(e => {
+                if (!e.alive) return;
+                if (pointInPolygon({ x: e.x, y: e.y }, loopPoly)) {
+                  e.alive = false;
+                  anyHit = true;
+
+                  // ★ ゲット演出追加 ★
+                  popTexts.push({
+                    x: e.x,          // または it.x
+                    y: e.y,          // または it.y
+                    text: "ゲット！",
+                    t: 0.8,          // 表示時間
+                    vy: -25,         // 上に浮く速度(px/sec)
+                    scale: 0.2,      // 最初は小さく
+                    flash: 1.0       // 光エフェクトの強さ
+                  });
+                }
+
+              });
+
+              // アイテム判定
+              items.forEach(it => {
+                if (it.taken) return;
+                if (pointInPolygon({ x: it.x, y: it.y }, loopPoly)) {
+                  it.taken = true;
+                  ropeMaxLength += 80;
+                  if(stage===1)guideMessage = "紐が伸びた！敵を囲って捕まえよう！";
+                  anyHit = true;
+                  collectedItemsCount++;
+
+                  // ★ ゲット演出追加 ★
+                  popTexts.push({
+                    x: it.x,          // または it.x
+                    y: it.y,          // または it.y
+                    text: "のびーる！",
+                    t: 0.8,          // 表示時間
+                    vy: -25,         // 上に浮く速度(px/sec)
+                    scale: 0.2,      // 最初は小さく
+                    flash: 1.0       // 光エフェクトの強さ
+                  });
+                }
+
+              });
+
+              // 囲えたかどうかに関わらず、ループ成立でロープをリセット
+              lastLoopPoly = loopPoly;
+              loopFlashTime = 0.5;
+
+              ropePoints = [{ x: dog.x, y: dog.y }];
+              ropeTotalLength = 0;
+            }
+          }
+        }
+
+        // --- 敵と紐の接触判定 ---
+        for (let i = 0; i < ropePoints.length - 1; i++) {
+          const p1 = ropePoints[i];
+          const p2 = ropePoints[i + 1];
+
+          enemies.forEach(e => {
+            if (!e.alive) return;
+
+            // しびれ中は当たり判定なし
+            if (e.stunned > 0) return;
+
+            const d = distToSegment(e.x, e.y, p1.x, p1.y, p2.x, p2.y);
+            if (d < e.r) {
+
+              // 紐リセット
+              ropePoints = [{ x: dog.x, y: dog.y }];
+              ropeTotalLength = 0;
+
+              // 敵をしびれ状態に
+              e.stunLevel++; // しびれレベルを1増やす
+              e.stunned = 6.0 + e.stunLevel * 1.5; // 6.0秒動かない
+
+              // 見た目の演出（ゲットとは別）
+              popTexts.push({
+                x: e.x,
+                y: e.y - 20,
+                text: "ビリッ！",
+                t: 0.6,
+                vy: -20,
+                scale: 0.2,
+                flash: 1.0
+              });
+            }
+          });
+        }
+
+        // 犬と敵の接触
+        const dogBox = getDogHitbox();
+        enemies.forEach(e => {
+          if (!e.alive) return;
+          if (rectCircleCollision(dogBox, e.x, e.y, e.r * 0.5)) {
+            gameOver = true;
+            guideMessage = "敵にやられた…タップして再挑戦しよう";
+          }
+        });
+
+        // 敵アニメーション
+        enemies.forEach(e => {
+          e.animT += dt;
+        });
+
+        // アイテムキラキラ
+        items.forEach(it => {
+          it.sparkleT += dt;
+        });
+
+        // アイテム自動出現（上限あり）
+        itemSpawnTimer += dt;
+        if (itemSpawnTimer >= itemSpawnInterval && items.filter(i => !i.taken).length < maxItems) {
+          itemSpawnTimer = 0;
+
+          let ix, iy;
+          let safe = false;
+
+          // 敵から十分離れた位置が見つかるまで繰り返す
+          for (let tries = 0; tries < 30 && !safe; tries++) {
+            ix = 40 + Math.random() * (W - 80);
+            iy = stageAreaTop + 40 + Math.random() * (stageAreaHeight - 80);
+
+            safe = true;
+
+            // 敵との距離チェック
+            enemies.forEach(e => {
+              const d = Math.hypot(ix - e.x, iy - e.y);
+              if (d < e.r * 3) {   // ← 敵の半径 × 3 以上離す（調整可）
+                safe = false;
+              }
+            });
+          }
+
+          // 安全な位置が見つかったら生成
+          if (safe) {
+            items.push({
+              x: ix,
+              y: iy,
+              r: 12,
+              taken: false,
+              sparkleT: 0
+            });
+          }
+        }
+
+
+        // クリア判定
+        if (enemies.every(e => !e.alive)) {
+          pendingClear = true;   // ← クリア待ちにする
+          // gameClear = true;
+          // guideMessage = "ステージクリア！タップで次のステージ";
+        }
+
+        // 囲いエフェクトの時間管理
+        if (loopFlashTime > 0) {
+          loopFlashTime -= dt;
+          if (loopFlashTime <= 0) {
+            loopFlashTime = 0;
+            lastLoopPoly = null;
+          }
+        }
+
+        // --- ゲット演出の時間管理 ---
+        for (let i = popTexts.length - 1; i >= 0; i--) {
+          popTexts[i].t -= dt;
+          if (popTexts[i].t <= 0) {
+            popTexts.splice(i, 1);
+          }
+        }
+
+        // --- ゲット！演出のアニメーション ---
+        for (let i = popTexts.length - 1; i >= 0; i--) {
+          const p = popTexts[i];
+
+          p.t -= dt;
+          if (p.t <= 0) {
+            popTexts.splice(i, 1);
+            continue;
+          }
+
+          // 上にふわっと浮く
+          p.y += p.vy * dt;
+
+          // スケールアップ（0.2 → 1.0）
+          p.scale += (1.0 - p.scale) * 10 * dt;
+
+          // 光エフェクトは時間とともに弱くなる
+          p.flash -= dt * 2;
+          if (p.flash < 0) p.flash = 0;
+        }
+
+        // --- ゲット演出が終わったらクリア画面を出す ---
+        if (pendingClear && popTexts.length === 0) {
+          pendingClear = false;
+          gameClear = true;
+          guideMessage = "ステージクリアおめでとう！タップすると次のステージに進むよ";
+          // 記録
+          stageRecords[stage].time = Math.floor(timeLimit - timeLeft);
+          stageRecords[stage].items = collectedItemsCount;
+          if (stage === 4) {
+            stage = "ending";
+          }
+        }
+
+        // --- ステージ2の敵の往復移動 ---
+        enemies.forEach(e => {
+          if (!e.alive) return;
+
+          if (e.stunned > 0) {
+            e.stunned -= dt;
+            return; // しびれ中は動かない
+          }
+
+          if (stage === 2) {
+            enemies.forEach(e => {
+              if (!e.alive) return;
+
+              //if (e.stunned > 0) {
+              //  e.stunned -= dt;
+              //  return;
+              //}
+
+              e.animT += dt / 20;
+
+              // 上下にふわふわ
+              e.x += e.vx;
+              if (e.x < e.minX || e.x > e.maxX) {
+                e.vx *= -1;
+              }
+              e.y += Math.sin(e.animT * 1.5) * 0.6;
+            });
+          }
+          if (stage === 3) {
+            enemies.forEach(e => {
+              if (!e.alive) return;
+
+              if (e.stunned > 0) {
+                e.stunned -= dt;
+                return;
+              }
+
+              e.animT += dt;
+
+              // 横移動
+              e.x += e.vx;
+
+              if (e.x < e.minX || e.x > e.maxX) {
+                e.vx *= -1;
+              }
+
+              // 少し上下に揺れる
+              e.y += Math.sin(e.animT * 4) * 0.3;
+            });
+          }
+          if (stage === 4) {
+            updateTentacles(dt);
+
+            enemies.forEach(e => {
+              if (e.type === "boss") {
+                e.animT += dt;
+              }
+            });
+          }
+
+
+        });
+
+
+        // updateの終わり
+      }
+
+
+      function polygonArea(poly) {
+        let area = 0;
+        for (let i = 0; i < poly.length - 1; i++) {
+          area += poly[i].x * poly[i + 1].y - poly[i + 1].x * poly[i].y;
+        }
+        return Math.abs(area) / 2;
+      }
+
+      // 描画
+      function drawUI() {
+        ctx.fillStyle = "#333";
+        ctx.fillRect(0, 0, W, uiTopHeight);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px system-ui";
+        ctx.textBaseline = "middle";
+
+        const enemyLeft = enemies.filter(e => e.alive).length;
+        const timeStr = Math.ceil(timeLeft).toString();
+
+        ctx.textAlign = "left";
+        ctx.fillText("STAGE " + stage, 8, uiTopHeight / 2);
+
+        ctx.textAlign = "right";
+        ctx.fillText("vs " + enemyName, W - 8, uiTopHeight / 2);
+
+        ctx.textAlign = "left";
+        ctx.fillText("TIME: ", W / 2 - 88, uiTopHeight / 2);
+        ctx.font = "bold 40px system-ui";
+        ctx.fillText(timeStr, W / 2 - 36, uiTopHeight / 2);
+
+        // ガイド
+        ctx.fillStyle = "#eee";
+        ctx.fillRect(0, uiTopHeight, W, guideHeight);
+        ctx.fillStyle = "#333";
+        ctx.font = "12px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(guideMessage, W / 2, uiTopHeight + guideHeight / 2);
+      }
+
+      function drawStageArea() {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, stageAreaTop, W, stageAreaHeight);
+        ctx.clip();
+
+        // 背景
+        ctx.fillStyle = "#dff7ff";
+        ctx.fillRect(0, stageAreaTop, W, stageAreaHeight);
+
+        // 地面ライン
+        ctx.strokeStyle = "#b0d0e0";
+        ctx.lineWidth = 1;
+        for (let y = stageAreaTop + 20; y < stageAreaBottom; y += 20) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(W, y);
+          ctx.stroke();
+        }
+
+        // 紐
+        if (ropePoints.length > 1) {
+          ctx.strokeStyle = "#ff8844";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(ropePoints[0].x, ropePoints[0].y);
+          for (let i = 1; i < ropePoints.length; i++) {
+            ctx.lineTo(ropePoints[i].x, ropePoints[i].y);
+          }
+          ctx.stroke();
+        }
+
+        // アイテム
+        items.forEach(it => {
+          if (it.taken) return;
+          const t = it.sparkleT;
+          const pulse = 0.4 + 0.3 * Math.sin(t * 6);
+          const r = it.r * (1 + pulse * 0.2);
+
+          // カプセル
+          ctx.save();
+          ctx.translate(it.x, it.y);
+          const grad = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+          grad.addColorStop(0, "rgba(255,255,255,1)");
+          grad.addColorStop(1, "rgba(200,230,255,0.2)");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(0, 0, r, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = "#88aaff";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, r - 1, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // 中の紐っぽい絵
+          ctx.strokeStyle = "#ff8844";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-r * 0.6, -r * 0.2);
+          ctx.quadraticCurveTo(0, r * 0.6, r * 0.6, -r * 0.1);
+          ctx.stroke();
+
+          // キラキラ
+          ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 8);
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(-r * 0.2, -r * 0.9);
+          ctx.lineTo(r * 0.2, -r * 0.5);
+          ctx.moveTo(r * 0.5, r * 0.2);
+          ctx.lineTo(r * 0.9, r * 0.6);
+          ctx.stroke();
+
+          ctx.restore();
+
+          if (debugHitbox) {
+            ctx.save();
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(it.x - it.r, it.y - it.r, it.r * 2, it.r * 2);
+            ctx.restore();
+          }
+
+        });
+
+        // 敵（コウモリ風）
+        enemies.forEach(e => {
+          if (!e.alive) return;
+
+          ctx.save();
+          ctx.translate(e.x, e.y);
+
+          if (e.stunned > 0) {
+            const shake = Math.sin(Date.now() * 0.03) * 3;
+            ctx.translate(shake, 0);
+          }
+
+          if (stage === 1) drawStarfishEnemy(ctx, e);
+          else if (stage === 2) drawJellyfishEnemy(ctx, e);
+          else if (stage === 3) drawFishEnemy(ctx, e);
+          else if (stage === 4) {
+            const boss = enemies.find(e => e.type === "boss");
+
+            tentacles.forEach(t => drawTentacle(ctx, boss, t));
+            drawOctopusBoss(ctx, boss);
+          }
+
+          ctx.restore();
+        });
+
+
+        // 犬
+        drawDog();
+
+        ctx.restore();
+
+        // --- 囲ったエリアの強調表示 ---
+        if (lastLoopPoly && loopFlashTime > 0) {
+          ctx.save();
+
+          // 光るような半透明グラデーション
+          const grad = ctx.createRadialGradient(
+            dog.x, dog.y, 10,
+            dog.x, dog.y, 200
+          );
+          grad.addColorStop(0, "rgba(255,255,200,0.6)");
+          grad.addColorStop(1, "rgba(255,200,100,0.2)");
+
+          ctx.fillStyle = grad;
+          ctx.strokeStyle = "rgba(255,180,80,0.9)";
+          ctx.lineWidth = 3;
+
+          ctx.beginPath();
+          ctx.moveTo(lastLoopPoly[0].x, lastLoopPoly[0].y);
+          for (let i = 1; i < lastLoopPoly.length; i++) {
+            ctx.lineTo(lastLoopPoly[i].x, lastLoopPoly[i].y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.restore();
+        }
+
+        // --- ゲット！ポップ演出 ---
+        popTexts.forEach(p => {
+          const alpha = Math.min(1, p.t / 0.8);
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+
+          // 光エフェクト（パッと光る）
+          if (p.flash > 0) {
+            ctx.beginPath();
+            ctx.fillStyle = `rgba(255,255,255,${p.flash * 0.4})`;
+            ctx.arc(p.x, p.y, 20 * p.flash, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // テキスト（白＋黒縁取り）
+          ctx.translate(p.x, p.y);
+          ctx.scale(p.scale, p.scale);
+
+          ctx.font = "bold 26px sans-serif";
+          ctx.textAlign = "center";
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = "black";
+          ctx.strokeText(p.text, 0, -10);
+          ctx.fillStyle = "white";
+          ctx.fillText(p.text, 0, -10);
+
+          ctx.restore();
+        });
+
+
+      }
+
+      function drawDog() {
+        const x = dog.x;
+        const y = dog.y;
+
+        // 新デザイン寸法
+        const headSize = 28;      // 大きめの四角い頭
+        const bodyW = 14;         // 体は極小
+        const bodyH = 10;
+        const dir = dog.dirX >= 0 ? 1 : -1;
+
+        ctx.save();
+        ctx.translate(x, y);
+
+        // --- 影 ---
+        ctx.fillStyle = "rgba(0,0,0,0.15)";
+        ctx.beginPath();
+        ctx.ellipse(0, headSize * 0.55, headSize * 0.6, headSize * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // --- 体（極小） ---
+        ctx.fillStyle = "#ffddaa";
+        ctx.strokeStyle = "#ccaa77";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-bodyW / 2, headSize * 0.2, bodyW, bodyH, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        // --- 足（さらに小さい） ---
+        ctx.fillStyle = "#ffcc88";
+        const legW = 4;
+        const legH = 6;
+        ctx.fillRect(-bodyW * 0.4 - legW / 2, headSize * 0.2 + bodyH - 1, legW, legH);
+        ctx.fillRect(bodyW * 0.4 - legW / 2, headSize * 0.2 + bodyH - 1, legW, legH);
+
+        // --- 尻尾（短く控えめ） ---
+        ctx.strokeStyle = "#ccaa77";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-bodyW / 2 + 2, headSize * 0.25);
+        ctx.quadraticCurveTo(-bodyW, headSize * 0.1, -bodyW * 0.6, headSize * 0.0);
+        ctx.stroke();
+
+        // --- 頭（大きく四角いデフォルメ） ---
+        ctx.save();
+        const headOffsetX = dir * (headSize * 0.05);
+        ctx.translate(headOffsetX, 0);
+
+        ctx.fillStyle = "#ffddaa";
+        ctx.strokeStyle = "#ccaa77";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(-headSize / 2, -headSize / 2, headSize, headSize, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        // --- 耳（角ばった形） ---
+        ctx.fillStyle = "#cc9966";
+        const earW = 10;
+        const earH = 12;
+        if (dir > 0) {
+          ctx.fillRect(-headSize / 2, -headSize / 2 - earH + 2, earW, earH);
+        } else {
+          ctx.fillRect(headSize / 2 - earW, -headSize / 2 - earH + 2, earW, earH);
+        }
+
+        // --- 目（大きめでデフォルメ） ---
+        ctx.fillStyle = "#000";
+        const eyeX = dir > 0 ? headSize * 0.15 : -headSize * 0.15;
+        ctx.beginPath();
+        ctx.arc(eyeX, -headSize * 0.1, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // --- 鼻と口（紐をくわえる位置） ---
+        ctx.strokeStyle = "#cc7744";
+        ctx.lineWidth = 2;
+        const noseX = dir > 0 ? headSize * 0.32 : -headSize * 0.32;
+
+        // 口
+        ctx.beginPath();
+        ctx.moveTo(noseX - dir * 3, headSize * 0.05);
+        ctx.lineTo(noseX, headSize * 0.05);
+        ctx.stroke();
+
+        // 鼻
+        //ctx.fillStyle = "#000";
+        //ctx.beginPath();
+        //ctx.arc(noseX + dir * 1, headSize * 0.02, 3, 0, Math.PI * 2);
+        //ctx.fill();
+
+        // --- 紐をくわえている線 ---
+        ctx.strokeStyle = "#ff8844";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(noseX + dir * 3, headSize * 0.02);
+        ctx.lineTo(noseX + dir * 10, headSize * 0.02);
+        ctx.stroke();
+
+        if (debugHitbox) {
+          ctx.save();
+          ctx.strokeStyle = "red";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(-realHeadSize / 2, -realHeadSize / 2, realHeadSize, realHeadSize);
+          ctx.restore();
+        }
+
+        ctx.restore(); // 頭
+        ctx.restore(); // 全体
+
+        // drawstageareaの終わり
+      }
+
+
+      function drawStarfishEnemy(ctx, e) {
+        const r = e.r;
+        const t = e.animT;
+
+        // ゆらぎ（柔らかい動き）
+        const wiggle = Math.sin(t * 2) * 2;
+
+        // まばたき（縦線の目）
+        const blink = Math.abs(Math.sin(t * 1.1));
+        const eyeOpen = 1 - Math.pow(blink, 10);
+
+        // しびれ中の揺れ
+        if (e.stunned > 0) {
+          const shake = Math.sin(Date.now() * 0.03) * 3;
+          ctx.translate(shake, 0);
+        }
+
+        ctx.fillStyle = "#ffb7d1";  // 桜色
+        ctx.strokeStyle = "#cc7799";
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+
+        // ★ 花びら5枚を回転して配置
+        for (let i = 0; i < 5; i++) {
+          const angle = (Math.PI * 2 / 5) * i - Math.PI / 2;
+
+          ctx.save();
+          ctx.rotate(angle);
+
+          // 花びらの先端（丸い）
+          const tipX = 0;
+          const tipY = -(r + 10 + wiggle);
+
+          // 花びらの左右のふくらみ
+          const leftX = -r * 0.6;
+          const leftY = -r * 0.2;
+
+          const rightX = r * 0.6;
+          const rightY = -r * 0.2;
+
+          // 花びらの根元（中央に向かう）
+          const baseX = 0;
+          const baseY = r * 0.3;
+
+          // 花びら1枚を描く
+          ctx.moveTo(baseX, baseY);
+          ctx.bezierCurveTo(leftX, leftY, leftX, leftY, tipX, tipY);
+          ctx.bezierCurveTo(rightX, leftY, rightX, leftY, baseX, baseY);
+
+          ctx.restore();
+        }
+
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // ★ 顔（中央）
+        ctx.fillStyle = "#ffe8f0";
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ★ 目（縦線）
+        if (e.stunned > 0) {
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 2;
+          // ×目
+          ctx.beginPath();
+          ctx.moveTo(-6, -4); ctx.lineTo(-2, 0);
+          ctx.moveTo(-2, -4); ctx.lineTo(-6, 0);
+          ctx.moveTo(2, -4); ctx.lineTo(6, 0);
+          ctx.moveTo(6, -4); ctx.lineTo(2, 0);
+          ctx.stroke();
+        } else {
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 3 * eyeOpen;
+          // 通常の縦線の目
+          ctx.beginPath();
+          ctx.moveTo(-6, -4);
+          ctx.lineTo(-6, 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(6, -4);
+          ctx.lineTo(6, 2);
+          ctx.stroke();
+        }
+
+        // ★ 口
+        ctx.strokeStyle = "#aa5577";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 5, 5, 0, Math.PI);
+        ctx.stroke();
+      }
+
+
+      function drawJellyfishEnemy(ctx, e) {
+        const r = e.r;
+        const t = e.animT;
+
+        // 触手のゆらぎ
+        const wiggle = Math.sin(t * 3) * 4;
+
+        // しびれ中の揺れ
+        if (e.stunned > 0) {
+          const shake = Math.sin(Date.now() * 0.03) * 3;
+          ctx.translate(shake, 0);
+        }
+
+        // ★ 傘（ぷにぷに丸い）
+        ctx.fillStyle = "#aee7ff";
+        ctx.strokeStyle = "#66bcd9";
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        ctx.ellipse(0, -r * 0.2, r, r * 0.7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // ★ 触手（ゆらゆら）
+        ctx.strokeStyle = "#66bcd9";
+        ctx.lineWidth = 4;
+
+        for (let i = -2; i <= 2; i++) {
+          ctx.beginPath();
+          ctx.moveTo(i * 10, r * 0.2);
+          ctx.quadraticCurveTo(
+            i * 10 + wiggle * 0.3,
+            r * 0.6,
+            i * 10,
+            r * 1.0
+          );
+          ctx.stroke();
+        }
+
+        // ★ 顔（中央）
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(0, -r * 0.1, r * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ★ 目（縦線 or ×）
+        if (e.stunned > 0) {
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 2;
+          // ×目
+          ctx.beginPath();
+          ctx.moveTo(-6, -r * 0.1 - 4); ctx.lineTo(-2, -r * 0.1);
+          ctx.moveTo(-2, -r * 0.1 - 4); ctx.lineTo(-6, -r * 0.1);
+          ctx.moveTo(2, -r * 0.1 - 4); ctx.lineTo(6, -r * 0.1);
+          ctx.moveTo(6, -r * 0.1 - 4); ctx.lineTo(2, -r * 0.1);
+          ctx.stroke();
+        } else {
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 3;
+          // 縦線の目
+          ctx.beginPath();
+          ctx.moveTo(-6, -r * 0.1 - 4);
+          ctx.lineTo(-6, -r * 0.1 + 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(6, -r * 0.1 - 4);
+          ctx.lineTo(6, -r * 0.1 + 2);
+          ctx.stroke();
+        }
+
+        // ★ 口
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, -r * 0.1 + 6, 6, 0, Math.PI);
+        ctx.stroke();
+      }
+
+
+
+      function drawCrabEnemy(ctx, e) {
+        const r = e.r;
+
+        // 体
+        ctx.fillStyle = "#ff6644";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.9, r * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ハサミ
+        ctx.fillStyle = "#ff5533";
+        ctx.beginPath();
+        ctx.arc(-r * 1.1, -r * 0.2, r * 0.4, 0, Math.PI * 2);
+        ctx.arc(r * 1.1, -r * 0.2, r * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 目
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(-r * 0.4, -r * 0.5, r * 0.2, 0, Math.PI * 2);
+        ctx.arc(r * 0.4, -r * 0.5, r * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#000";
+        if (e.stunned > 0) {
+          ctx.fillText("× ×", -10, -10);
+        } else {
+          ctx.beginPath();
+          ctx.arc(-r * 0.4, -r * 0.5, r * 0.1, 0, Math.PI * 2);
+          ctx.arc(r * 0.4, -r * 0.5, r * 0.1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function drawAnemoneEnemy(ctx, e) {
+        const r = e.r;
+        const stretch = e.stretch; // 上下に伸び縮み
+
+        // 本体（縦に伸びる）
+        ctx.fillStyle = "#cc66ff";
+        ctx.beginPath();
+        ctx.ellipse(0, stretch * 0.5, r * 0.6, r * 1.0 + stretch, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 触手
+        ctx.strokeStyle = "#dd88ff";
+        ctx.lineWidth = 4;
+        for (let i = -2; i <= 2; i++) {
+          ctx.beginPath();
+          ctx.moveTo(i * 8, stretch * 0.5);
+          ctx.lineTo(i * 8, -r * 1.2 + stretch);
+          ctx.stroke();
+        }
+
+        // 目
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(-r * 0.2, -r * 0.2 + stretch, r * 0.15, 0, Math.PI * 2);
+        ctx.arc(r * 0.2, -r * 0.2 + stretch, r * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#000";
+        if (e.stunned > 0) {
+          ctx.fillText("× ×", -10, -r * 0.2 + stretch);
+        } else {
+          ctx.beginPath();
+          ctx.arc(-r * 0.2, -r * 0.2 + stretch, r * 0.07, 0, Math.PI * 2);
+          ctx.arc(r * 0.2, -r * 0.2 + stretch, r * 0.07, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function drawFishEnemy(ctx, e) {
+        const r = e.r;
+        const flap = Math.sin(e.animT * 6) * 4;
+
+        ctx.fillStyle = "#66ccff";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r, r * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 尾びれ
+        ctx.beginPath();
+        ctx.moveTo(-r, 0);
+        ctx.lineTo(-r - 10, flap);
+        ctx.lineTo(-r - 10, -flap);
+        ctx.closePath();
+        ctx.fill();
+
+        // ★ まばたき用の値（0〜1）
+        const blink = Math.abs(Math.sin(e.animT));
+        const eyeOpen = 1 - Math.pow(blink, 12);
+        // ほぼ開いてるけど、時々スッと閉じる
+
+        // 目の位置（魚の右側）
+        const eyeX = r * 0.4;
+        const eyeY = -r * 0.1;
+
+        if (e.stunned > 0) {
+          // ★ ×目（1個だけ）
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 2;
+
+          ctx.beginPath();
+          ctx.moveTo(eyeX - 4, eyeY - 4);
+          ctx.lineTo(eyeX + 4, eyeY + 4);
+          ctx.moveTo(eyeX + 4, eyeY - 4);
+          ctx.lineTo(eyeX - 4, eyeY + 4);
+          ctx.stroke();
+
+        } else {
+          // ★ 通常の黒丸の目（まばたきで縦につぶれる）
+          ctx.fillStyle = "#000";
+          ctx.beginPath();
+          ctx.ellipse(
+            eyeX,            // x
+            eyeY,            // y
+            r * 0.15,        // 横幅
+            r * 0.15 * eyeOpen, // 縦幅（まばたきで潰れる）
+            0,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        }
+
+
+      }
+
+      function drawOctopusBoss(ctx, e) {
+        const r = e.r;
+
+        // 本体
+        ctx.fillStyle = "#cc3366";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r, r * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ★ 目の状態で分岐
+        if (e.eyeStun > 0) {
+          // ×目
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = r * 0.1;
+
+          // 左目
+          ctx.beginPath();
+          ctx.moveTo(-r * 0.45, -r * 0.3);
+          ctx.lineTo(-r * 0.15, -r * 0.1);
+          ctx.moveTo(-r * 0.15, -r * 0.3);
+          ctx.lineTo(-r * 0.45, -r * 0.1);
+          ctx.stroke();
+
+          // 右目
+          ctx.beginPath();
+          ctx.moveTo(r * 0.15, -r * 0.3);
+          ctx.lineTo(r * 0.45, -r * 0.1);
+          ctx.moveTo(r * 0.45, -r * 0.3);
+          ctx.lineTo(r * 0.15, -r * 0.1);
+          ctx.stroke();
+
+        } else {
+          // 通常の目（あなたの元コード）
+          ctx.fillStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(-r * 0.3, -r * 0.2, r * 0.2, 0, Math.PI * 2);
+          ctx.arc(r * 0.3, -r * 0.2, r * 0.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = "#000";
+          ctx.beginPath();
+          ctx.arc(-r * 0.3, -r * 0.2, r * 0.1, 0, Math.PI * 2);
+          ctx.arc(r * 0.3, -r * 0.2, r * 0.1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function updateTentacles(dt) {
+        const boss = enemies.find(e => e.type === "boss");
+        if (!boss) return;
+
+        const dogBox = getDogHitbox();
+
+        tentacles.forEach(t => {
+          if (!t.alive) return;
+
+          t.animT += dt;
+          t.wiggle = Math.sin(t.animT * 1.5) * 60;
+
+          // 触手の先端座標
+          const tipX = boss.x + Math.cos(t.angle) * (t.length + t.wiggle);
+          const tipY = boss.y + Math.sin(t.angle) * (t.length + t.wiggle);
+
+          // 紐との当たり判定
+          for (let p of ropePoints) {
+            const dx = p.x - tipX;
+            const dy = p.y - tipY;
+            if (dx * dx + dy * dy < 20 * 20) {
+              t.alive = false;
+              boss.eyeStun = 0.6;
+              break;
+            }
+          }
+
+          // ★ 犬との接触判定（触手全体）
+          // 犬は四角形なので、四角形の4点を円として判定する
+          const dogR = realHeadSize * 0.5;
+          const dogPoints = [
+            { x: dogBox.x, y: dogBox.y },
+            { x: dogBox.x + dogBox.w, y: dogBox.y },
+            { x: dogBox.x, y: dogBox.y + dogBox.h },
+            { x: dogBox.x + dogBox.w, y: dogBox.y + dogBox.h }
+          ];
+
+          for (let p of dogPoints) {
+            if (circleLineCollision(p.x, p.y, dogR, boss.x, boss.y, tipX, tipY)) {
+              gameOver = true;
+              guideMessage = "敵にやられた…タップして再挑戦しよう";
+              return;
+            }
+          }
+        });
+
+        // 触手が減ると本体が小さくなる
+        const aliveCount = tentacles.filter(t => t.alive).length;
+        boss.r = 80 - (8 - aliveCount) * 6; // 1本消えるごとに少し縮む
+
+        if (boss.eyeStun > 0) {
+          boss.eyeStun -= dt;
+          if (boss.eyeStun < 0) boss.eyeStun = 0;
+        }
+
+      }
+
+      function drawTentacle(ctx, boss, t) {
+        if (!t.alive) return;
+
+        const baseX = 0;
+        const baseY = boss.r * 0.6;
+
+        const tipX = Math.cos(t.angle) * (t.length + t.wiggle);
+        const tipY = Math.sin(t.angle) * (t.length + t.wiggle);
+
+        ctx.strokeStyle = "#cc3366";
+        ctx.lineWidth = 14;
+
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(tipX, tipY);
+        ctx.stroke();
+      }
+
+      function drawControlArea() {
+        ctx.fillStyle = "#f0f0f0";
+        ctx.fillRect(0, controlAreaTop, W, controlAreaHeight);
+
+        if (padActive) {
+          ctx.save();
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = "rgba(0,0,0,0.7)";
+          ctx.fillStyle = "rgba(0,0,0,0.7)";
+
+          const cx = padStartX;
+          const cy = padStartY;
+          const tx = padStartX + padDir.x * 50; // 矢印の長さ
+          const ty = padStartY + padDir.y * 50;
+
+          // --- 矢印の線 ---
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(tx, ty);
+          ctx.stroke();
+
+          // --- 矢印の先端（三角形） ---
+          const angle = Math.atan2(ty - cy, tx - cx);
+          const headLen = 14;
+
+          ctx.beginPath();
+          ctx.moveTo(tx, ty);
+          ctx.lineTo(
+            tx - Math.cos(angle - Math.PI / 6) * headLen,
+            ty - Math.sin(angle - Math.PI / 6) * headLen
+          );
+          ctx.lineTo(
+            tx - Math.cos(angle + Math.PI / 6) * headLen,
+            ty - Math.sin(angle + Math.PI / 6) * headLen
+          );
+          ctx.closePath();
+          ctx.fill();
+
+          // --- 中心の円 ---
+          ctx.beginPath();
+          ctx.arc(cx, cy, 18, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.restore();
+        }
+
+
+      }
+
+      // dog hit return
+      function getDogHitbox() {
+        return {
+          x: dog.x - realHeadSize / 2,
+          y: dog.y - realHeadSize / 2,
+          w: realHeadSize,
+          h: realHeadSize
+        };
+      }
+
+      // collision check rect and circle
+      function rectCircleCollision(rect, cx, cy, r) {
+        const closestX = Math.max(rect.x, Math.min(cx, rect.x + rect.w));
+        const closestY = Math.max(rect.y, Math.min(cy, rect.y + rect.h));
+        const dx = cx - closestX;
+        const dy = cy - closestY;
+        return (dx * dx + dy * dy) < (r * r);
+      }
+
+      function circleLineCollision(cx, cy, r, x1, y1, x2, y2) {
+        // 線分 x1,y1 - x2,y2 と 円(cx,cy,r) の最短距離を求める
+        const A = cx - x1;
+        const B = cy - y1;
+        const C = x2 - x1;
+        const D = y2 - y1;
+
+        const dot = A * C + B * D;
+        const lenSq = C * C + D * D;
+        let t = dot / lenSq;
+
+        t = Math.max(0, Math.min(1, t));
+
+        const closestX = x1 + C * t;
+        const closestY = y1 + D * t;
+
+        const dx = cx - closestX;
+        const dy = cy - closestY;
+
+        return dx * dx + dy * dy <= r * r;
+      }
+
+      // 線分と点の距離関数を追加
+      function distToSegment(px, py, x1, y1, x2, y2) {
+        const A = px - x1;
+        const B = py - y1;
+        const C = x2 - x1;
+        const D = y2 - y1;
+
+        const dot = A * C + B * D;
+        const len = C * C + D * D;
+        let t = dot / len;
+
+        t = Math.max(0, Math.min(1, t));
+
+        const xx = x1 + C * t;
+        const yy = y1 + D * t;
+
+        return Math.hypot(px - xx, py - yy);
+      }
+
+      function drawEnding() {
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        ctx.font = "bold 28px system-ui";
+        ctx.fillText("クリアおめでとう！", W / 2, 90);
+
+        ctx.font = "18px system-ui";
+        let y = 180;
+
+        for (let i = 1; i <= 4; i++) {
+          const rec = stageRecords[i];
+          ctx.fillText(
+            `ステージ${i}： ${rec.time}秒 / アイテム${rec.items}個`,
+            W / 2,
+            y
+          );
+          y += 40;
+        }
+
+        // ボタン
+        ctx.fillStyle = "#333";
+        ctx.fillRect(W / 2 - 80, H - 140, 160, 50);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px system-ui";
+        ctx.fillText("もういちど遊ぶ", W / 2, H - 115);
+
+        ctx.restore();
+      }
+
+      function drawOverlay() {
+        if (!gameOver && !gameClear) return;
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 24px system-ui";
+        ctx.fillText(gameClear ? "CLEAR!" : "GAME OVER", W / 2, H / 2 - 20);
+
+        ctx.font = "14px system-ui";
+        ctx.fillText(gameClear ? "タップで次のステージへ" : "タップでリトライ", W / 2, H / 2 + 10);
+        ctx.restore();
+      }
+
+function drawBottomUI() {
+  const areaHeight = 160;
+  const yBase = H - areaHeight;
+
+  ctx.save();
+
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillRect(0, yBase, W, areaHeight);
+
+  // --- ロゴ位置 ---
+  const logoX = W / 2;
+  const logoY = yBase + 28;
+  const logoW = 180;
+  const logoH = 40;
+
+  // --- ロゴ文字 ---
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 28px system-ui";
+  ctx.fillStyle = "#ff6699";
+  ctx.fillText("囲って、ひも犬", logoX, logoY);
+
+  // --- ロゴを囲むひも ---
+  drawRopeCenter(ctx, logoX, logoY, logoW+40, logoH+5);
+
+  // --- ミニひも犬（ひもをくわえている） ---
+  const dogMouthX = logoX - logoW / 2 - 20;
+  const dogMouthY = logoY + logoH / 2 + 10;
+  drawMiniDogForLogo(ctx, dogMouthX+160, dogMouthY-3);
+
+  // --- 説明文とミニアイコン ---
+  const lines = [
+    "画面をタップ、そのままスライドした方向に移動",
+    "敵に当たらず、すべての敵をひもで囲ったらクリア",
+    "アイテムを囲うと、ひもの長さが伸びるよ",
+    "ひもが当たった敵は、少し大人しくなるよ"
+  ];
+
+  let y = yBase + 78;
+
+  for (let i = 0; i < lines.length; i++) {
+    ctx.font = "13px system-ui";
+    ctx.fillStyle = "#333";
+    ctx.fillText(lines[i], W / 2, y);
+    y += 22;
+  }
+
+  ctx.restore();
+}
+
+function drawMiniDogForLogo(ctx, x, y) {
+  // x, y は「ひもをくわえる位置」
+  // ミニ犬の描画は頭中心なので少し調整
+  drawMiniDogIcon(ctx, x - 8, y - 4, 18);
+}
+
+function drawRopeCenter(ctx, cx, cy, w, h, gapSize = 40) {
+  const r = 20; // 角丸半径
+  const bg = "#f0f0f0"; // 背景色（あなたのゲームの背景）
+
+  // 左上座標に変換
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+
+  ctx.save();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#ff8844"; // ロープ色
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  // 角丸枠
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.stroke();
+
+  // 下辺中央に隙間を作る
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(
+    cx + 40,
+    y + h - 10,
+    30,
+    20
+  );
+
+  ctx.restore();
+}
+
+function drawMiniDogIcon(ctx, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  const head = size;        // 四角い頭
+  const bodyW = size * 0.6; // 小さな体
+  const bodyH = size * 0.4;
+
+  // --- 影 ---
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(0, head * 0.55, head * 0.6, head * 0.25, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- 体 ---
+  ctx.fillStyle = "#ffddaa";
+  ctx.strokeStyle = "#ccaa77";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(-bodyW / 2, head * 0.2, bodyW, bodyH, 3);
+  ctx.fill();
+  ctx.stroke();
+
+  // --- 頭（四角） ---
+  ctx.fillStyle = "#ffddaa";
+  ctx.strokeStyle = "#ccaa77";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(-head / 2, -head / 2, head, head, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // --- 耳（四角） ---
+  ctx.fillStyle = "#cc9966";
+  const earW = size * 0.35;
+  const earH = size * 0.45;
+  ctx.fillRect(-head / 2, -head / 2 - earH + 2, earW, earH);
+
+  // --- 目 ---
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(head * 0.15, -head * 0.1, size * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- 紐 ---
+  ctx.strokeStyle = "#ff8844";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(head * 0.32, head * 0.02);
+  ctx.lineTo(head * 0.55, head * 0.02);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+
+
+      // メインループ
+      function loop(now) {
+        const dt = (now - lastTime) / 1000;
+        lastTime = now;
+
+        update(dt);
+
+        ctx.clearRect(0, 0, W, H);
+        drawUI();
+        drawStageArea();
+        drawControlArea();
+        drawBottomUI();
+        if (gameClear && stage == "ending") {
+          drawEnding();
+        } else {
+          drawOverlay();
+        }
+
+        requestAnimationFrame(loop);
+      }
+
+      // 初期化
+      resetStage1();
+      requestAnimationFrame(loop);
+    })();
+  </script>
+</body>
+
+</html>

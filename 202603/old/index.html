@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ぴよこの飛行訓練</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202603/old/" />
+  <meta property="og:title" content="ぴよこの飛行訓練" />
+  <meta property="og:description" content="タップでぴよこが目を閉じて空を飛ぶ！上手くゴールまで連れて行こう。数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_piyo.png" />
+<style>
+  html,body{width:100%;height:100%;;margin:0;background:#111;display:flex;align-items:center;justify-content:center}
+  canvas{display:block;touch-action:none;-webkit-tap-highlight-color:transparent}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+(() => {
+const BASE_W = 360, BASE_H = 548;
+const container = document.getElementById('game-container');
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// 内部解像度は固定
+canvas.width = BASE_W;
+canvas.height = BASE_H;
+
+let scale = 1;
+
+function resize() {
+  scale = Math.min(innerWidth / BASE_W, innerHeight / BASE_H);
+
+  // CSS transform で拡大縮小
+  canvas.style.width = BASE_W * scale + "px";
+  canvas.style.height = BASE_H * scale + "px";
+
+  // 描画座標系は 1:1 のまま
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+
+addEventListener("resize", resize);
+resize();
+
+const W = BASE_W;
+const H = BASE_H;
+
+
+  // --- 基本設定 ---
+  const TILE_SIZE = 32;
+  const VIEW_TILES = 10; // 画面に見せるマス数
+  const GROUND_Y = H - 300; // 足場の高さ
+  const PLAYER_SIZE = 24;
+  const GRAVITY = 0.6;
+
+  // スタミナ: フルで約8マス進めるくらい
+  const STAMINA_MAX = 100;
+  const STAMINA_DRAIN_PER_FRAME = 1.5; // 押しっぱなし時
+  const STAMINA_RECOVER_PER_FRAME = STAMINA_MAX / (60 * 1.7); // 3秒で全回復想定
+  const MOVE_SPEED_PER_STAMINA = (6.0 * TILE_SIZE) / STAMINA_MAX * 1.0; // ざっくり調整
+
+  // ひび割れ足場
+  const CRACK_TIME = 1.5; // 秒
+  const CRACK_COUNTDOWN = 3; // 3カウント表示
+
+  // 落石
+  const ROCK_SIZE = 20;
+  const ROCK_FALL_SPEED = 6;
+
+  // ステージ定義
+  const STAGES = [
+    {
+      id: 1,
+      text: "タップして ぴよこが目を閉じ 空を飛ぶ",
+      length: 10,
+      holes: 4,
+      crackedCount: 0,
+      rocks: [], // なし
+      ensureSafeEvery: 0 // なし
+    },
+    {
+      id: 2,
+      text: "ミニマップ 先の足場が ちょい見える",
+      length: 20,
+      holes: 10,
+      crackedCount: 0,
+      rocks: [], // なし
+      ensureSafeEvery: 4 // なし
+    },
+    {
+      id: 3,
+      text: "落下マス 時間経過で 落ちまーす",
+      length: 30,
+      holes: 12,
+      crackedCount: 5,
+      rocks: [],
+      ensureSafeEvery: 5
+    },
+    {
+      id: 4,
+      text: "落石は 足場が壊れて 大ピンチ",
+      length: 50,
+      holes: 20,
+      crackedCount: 8,
+      // あらかじめ指定した4箇所に落石
+      rocks: [12, 20, 32, 42],
+      ensureSafeEvery: 5
+    }
+  ];
+
+  // ゲーム状態
+  let gameState = 'title'; // title, playing, result, allResult
+  let currentStageIndex = 0;
+  let stageData = null;
+
+  let tiles = []; // {type: 'normal'|'hole'|'start'|'goal'|'cracked', crackTimer, crackCount}
+  let rocks = []; // {tileIndex, x, y, active, triggered, warningTimer}
+  let player = null;
+  let cameraX = 0;
+
+  let isPressing = false;
+  let darkMode = false;
+
+  let stamina = STAMINA_MAX;
+  let staminaRecoverDelay = 0;
+  let stageStartTime = 0;
+  let stageClearTime = 0;
+  let jumpCount = 0;
+
+  let results = []; // {stage, time, jumps}
+
+  let flashTimer = 0;
+  let messageTimer = 0;
+  let messageText = '';
+  let stageText = '';
+
+  // ボタン（リザルト用）
+  let buttons = []; // {x,y,w,h,text,action}
+
+  // 入力
+  function setupInput() {
+    const startPress = (e) => {
+      e.preventDefault();
+      if (gameState === 'playing') {
+        if (!isPressing && stamina > 0) {
+          jumpCount++;
+        }
+        isPressing = true;
+      } else if (gameState === 'title') {
+        startStage(0);
+      } else if (gameState === 'result' || gameState === 'allResult') {
+        const rect = canvas.getBoundingClientRect();
+        const rawX = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        const rawY = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+        // 画面リサイズのスケール補正（これがないとズレる）
+        const x = rawX / scale;
+        const y = rawY / scale;
+        handleButtonClick(x, y);
+      }
+    };
+    
+    const endPress = (e) => {
+      e.preventDefault();
+      if (gameState === 'playing') {
+        isPressing = false;
+        darkMode = false;
+      }
+    };
+
+
+    canvas.addEventListener('mousedown', startPress);
+    canvas.addEventListener('touchstart', startPress, {passive: false});
+    window.addEventListener('mouseup', endPress);
+    window.addEventListener('touchend', endPress);
+  }
+
+  function handleButtonClick(x, y) {
+    for (const b of buttons) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        b.action();
+        break;
+      }
+    }
+  }
+
+  // ステージ生成
+  function generateStage(stageConfig) {
+    stageText = stageConfig.text;
+    tiles = [];
+    rocks = [];
+
+    const len = stageConfig.length;
+
+    // まず全部足場
+    for (let i = 0; i < len; i++) {
+      tiles.push({
+        type: 'normal',
+        crackTimer: 0,
+        crackCount: CRACK_COUNTDOWN
+      });
+    }
+
+    // start, goal
+    tiles[0].type = 'start';
+    tiles[len - 1].type = 'goal';
+
+    // 穴をランダム配置（startとgoal以外）
+    let holePositions = [];
+    while (holePositions.length < stageConfig.holes) {
+      const idx = 1 + Math.floor(Math.random() * (len - 2));
+      if (tiles[idx].type === 'normal') {
+        tiles[idx].type = 'hole';
+        holePositions.push(idx);
+      }
+    }
+
+// 安全マス確保（スタミナで進める範囲かつ視認できる範囲）
+if (stageConfig.ensureSafeEvery > 0) {
+  const step = stageConfig.ensureSafeEvery;
+
+  for (let i = step; i < len; i += step) {
+
+    // ★ 落石がこのマスにあるか？
+    const rockHere = stageConfig.rocks.includes(i);
+
+    // ★ このマスが穴 or 落石予定なら安全マスとして normal に戻す
+    if (tiles[i].type === 'hole' || rockHere) {
+      tiles[i].type = 'normal';
+    }
+  }
+}
+
+
+    // ひび割れ足場
+    let crackedCount = 0;
+    while (crackedCount < stageConfig.crackedCount) {
+      const idx = 1 + Math.floor(Math.random() * (len - 2));
+      if (tiles[idx].type === 'normal') {
+        tiles[idx].type = 'cracked';
+        tiles[idx].crackTimer = 0;
+        tiles[idx].crackCount = CRACK_COUNTDOWN;
+        crackedCount++;
+      }
+    }
+
+    // 落石
+    for (const tIndex of stageConfig.rocks) {
+      if (tIndex >= 0 && tIndex < len) {
+        rocks.push({
+          tileIndex: tIndex,
+          x: tIndex * TILE_SIZE + TILE_SIZE / 2,
+          y: -40,
+          active: false,
+          triggered: false,
+          warningTimer: 0,
+          fallDelay: null
+        });
+      }
+    }
+  }
+
+  function startStage(index) {
+    currentStageIndex = index;
+    stageData = STAGES[index];
+    generateStage(stageData);
+
+    player = {
+      x: TILE_SIZE * 0.5,
+      y: GROUND_Y - PLAYER_SIZE / 2,
+      vy: 0,
+      onGround: true,
+      alive: true,
+      falling: false,
+      wasFalling: false,
+      landEffect: 0
+    };
+
+    cameraX = 0;
+    stamina = STAMINA_MAX;
+    isPressing = false;
+    darkMode = false;
+    stageStartTime = performance.now();
+    stageClearTime = 0;
+    jumpCount = 0;
+    flashTimer = 0;
+    messageTimer = 0;
+    messageText = '';
+    buttons = [];
+    gameState = 'playing';
+  }
+
+  function endStage(success) {
+    gameState = 'result';
+    stageClearTime = (performance.now() - stageStartTime) / 1000;
+
+    if (success) {
+      messageText = 'おめでとう！';
+      messageTimer = 2;
+      results.push({
+        stage: stageData.id,
+        time: stageClearTime,
+        jumps: jumpCount
+      });
+    } else {
+      messageText = '今回の成果';
+      messageTimer = 2;
+    }
+
+    buttons = [];
+    const bw = 160;
+    const bh = 50;
+    const bx = (W - bw) / 2;
+    const by1 = H / 2 + 150;
+
+    if (success) {
+      if (currentStageIndex < STAGES.length - 1) {
+        buttons.push({
+          x: bx,
+          y: by1,
+          w: bw,
+          h: bh,
+          text: 'NEXT',
+          action: () => {
+            startStage(currentStageIndex + 1);
+          }
+        });
+      } else {
+        messageText = '完全制覇だ！';
+        // 最終ステージクリア
+        buttons.push({
+          x: bx,
+          y: by1,
+          w: bw,
+          h: bh,
+          text: 'RESULT',
+          action: () => {
+            gameState = 'allResult';
+            buttons = [];
+            const by2 = H / 2 + 150;
+            buttons.push({
+              x: bx,
+              y: by2,
+              w: bw,
+              h: bh,
+              text: 'はじめから',
+              action: () => {
+                results = [];
+                startStage(0);
+              }
+            });
+          }
+        });
+      }
+    } else {
+      buttons.push({
+        x: bx,
+        y: by1,
+        w: bw,
+        h: bh,
+        text: 'もういちど',
+        action: () => {
+          startStage(currentStageIndex);
+        }
+      });
+    }
+  }
+
+  function update() {
+    if (gameState === 'title') return;
+    if (gameState === 'result' || gameState === 'allResult') return;
+    if (!player || !player.alive) return;
+
+
+// --- スタミナが残っているかどうかの判定を厳格にする ---
+// --- スタミナが残っているかどうか ---
+const canMove = isPressing && stamina > 0 && !player.falling;
+
+if (canMove) {
+  darkMode = true;
+
+  // ★ スタミナを固定量だけ減らす
+  stamina -= STAMINA_DRAIN_PER_FRAME;
+
+  // ★ 0 未満なら完全に 0 に固定（端数を絶対に残さない）
+  if (stamina < 0) stamina = 0;
+
+  // ★ スタミナが 0 になった瞬間に移動を止める
+  if (stamina === 0) {
+    // 移動しない、羽ばたきもしない
+    isPressing = false;
+    darkMode = false;
+    //スタミナ切れ用
+    if (staminaRecoverDelay <= 0) staminaRecoverDelay = 0.8; // 0.5秒のラグ
+    
+  } else {
+    // ★ 移動量は「固定値」だけ
+    const move = STAMINA_DRAIN_PER_FRAME * MOVE_SPEED_PER_STAMINA;
+    player.x += move;
+
+    // 羽ばたきアニメーション
+    player.y -= 0.5;
+    player.y += Math.sin(performance.now() / 80) * 0.3;
+  }
+
+} else {
+  // ★ 移動できない → 暗転解除
+  darkMode = false;
+
+  if (staminaRecoverDelay > 0) {
+    //スタミナ切れペナルティ
+    staminaRecoverDelay -= 1/60;
+  } else {
+    // スタミナ回復
+    stamina = Math.min(STAMINA_MAX, stamina + STAMINA_RECOVER_PER_FRAME);
+  }
+}
+
+
+
+
+    // カメラ追従
+    cameraX = player.x - (W / 2);
+    if (cameraX < 0) cameraX = 0;
+    const maxCam = stageData.length * TILE_SIZE - W;
+    if (cameraX > maxCam) cameraX = maxCam;
+
+// プレイヤーの足場判定
+const tileIndex = Math.floor(player.x / TILE_SIZE);
+const tile = tiles[tileIndex];
+
+if (!player.falling) {
+  // ★ タップ中は穴の上を通過できる（＝穴を無視）
+  const isHole = !tile || tile.type === 'hole';
+  const treatAsHole = isHole && !isPressing; // ←「タップしていないときだけ穴扱い」
+
+  if (treatAsHole) {
+    // 落下開始
+    player.falling = true;
+    player.onGround = false;
+    player.vy = 0;
+    flashTimer = 0.2;
+  } else {
+    // 足場の上にいる
+    player.onGround = true;
+    player.y = GROUND_Y - PLAYER_SIZE / 2;
+
+    // ひび割れ足場処理
+    if (tile && tile.type === 'cracked') {
+      tile.color = '#ff4444'; // 赤くする
+      tile.crackTimer += 1 / 60;
+      const total = CRACK_TIME;
+      const remain = Math.max(0, total - tile.crackTimer);
+      const count = Math.ceil(remain / (total / CRACK_COUNTDOWN));
+      tile.crackCount = count;
+
+      if (tile.crackTimer >= CRACK_TIME) {
+        tile.type = 'hole';
+        player.falling = true;
+        player.onGround = false;
+        player.vy = 0;
+        flashTimer = 0.2;
+      }
+    } else if (tile) {
+      tile.crackTimer = 0;
+      tile.crackCount = CRACK_COUNTDOWN;
+    }
+  }
+} else {
+  // 落下中
+  player.vy += GRAVITY;
+  player.y += player.vy;
+  if (player.y > H + 50) {
+    player.alive = false;
+    endStage(false);
+  }
+}
+
+//着地検知
+// 着地判定（falling → false になった瞬間）
+if (player.wasFalling && !darkMode) {
+  player.landEffect = 0.25; // 0.25秒くらいのエフェクト
+  console.log("着地!");
+}
+player.wasFalling = darkMode;
+  
+    // ゴール判定
+    if (tile && tile.type === 'goal' && !player.falling) {
+      player.alive = false;
+      endStage(true);
+    }
+
+// 落石処理
+for (const r of rocks) {
+  const rx = r.tileIndex * TILE_SIZE;
+  const inView = rx >= cameraX - TILE_SIZE && rx <= cameraX + W - TILE_SIZE;
+
+  // 視界に入った瞬間に落下予約
+  if (inView && !r.triggered) {
+    r.triggered = true;
+
+    // ★ 落下までの遅延をランダムで設定（0.3+0.0〜1.0秒）
+    r.fallDelay = 0.3 + Math.random();
+
+    // 警告表示は今まで通り
+    r.warningTimer = 1.0;
+    messageText = '落石注意！';
+    messageTimer = 1.0;
+  }
+
+  // 警告タイマー
+  if (r.warningTimer > 0) {
+    r.warningTimer -= 1 / 60;
+  }
+
+  // ★ 落下遅延中
+  if (r.triggered && !r.active) {
+    if (r.fallDelay !== null) {
+      r.fallDelay -= 1 / 60;
+
+      // 時間が来たら落下開始
+      if (r.fallDelay <= 0) {
+        r.active = true;
+      }
+    }
+  }
+
+  // ★ 落下中
+  if (r.active) {
+    r.y += ROCK_FALL_SPEED;
+
+    // プレイヤーに当たった？
+    if (!player.falling && player.alive) {
+      const px = player.x;
+      const py = player.y;
+      if (Math.abs(px - r.x) < (PLAYER_SIZE / 2 + ROCK_SIZE / 2) &&
+          Math.abs(py - r.y) < (PLAYER_SIZE / 2 + ROCK_SIZE / 2)) {
+        player.alive = false;
+        flashTimer = 0.3;
+        endStage(false);
+      }
+    }
+
+    // 足場に当たった？
+    if (r.y >= GROUND_Y - ROCK_SIZE / 2) {
+      const tIndex = r.tileIndex;
+      const t = tiles[tIndex];
+      if (t && t.type !== 'hole') {
+        t.type = 'hole'; // 足場破壊
+      }
+      r.active = false;
+    }
+  }
+}
+
+
+    // フラッシュ・メッセージタイマー
+    if (flashTimer > 0) {
+      flashTimer -= 1 / 60;
+      if (flashTimer < 0) flashTimer = 0;
+    }
+    if (messageTimer > 0) {
+      messageTimer -= 1 / 60;
+      if (messageTimer < 0) {
+        messageTimer = 0;
+        messageText = '';
+      }
+    }
+    
+    
+//updateの最後でlandEffectを減らす
+if (player.landEffect > 0) {
+  player.landEffect -= 1/60;
+  if (player.landEffect < 0) player.landEffect = 0;
+}
+
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // 背景
+    ctx.fillStyle = '#222';
+    ctx.fillRect(0, 0, W, H);
+
+    // ステージ・進行表示
+    if (stageData) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '16px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`ステージ ${stageData.id}`, 8, 8);
+
+      ctx.textAlign = 'center';
+      const progress = Math.min(stageData.length, Math.max(1, Math.floor(player.x / TILE_SIZE) + 1));
+      ctx.font = '20px sans-serif';
+      ctx.fillText(`${progress} / ${stageData.length} マス`, W / 2, 8);
+    }
+
+
+
+    // タイル描画
+    if (stageData && (!darkMode || gameState === 'result')) {  // ← darkMode のときは描画しない
+      const startTile = Math.floor(cameraX / TILE_SIZE);
+      const endTile = startTile + VIEW_TILES + 2;
+
+      for (let i = startTile; i <= endTile; i++) {
+        if (i < 0 || i >= stageData.length) continue;
+        const t = tiles[i];
+        const x = i * TILE_SIZE - cameraX;
+        const y = GROUND_Y - TILE_SIZE / 2;
+
+        if (t.type === 'hole') {
+          // 穴は背景色と同化
+          ctx.fillStyle = '#222';
+          ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        } else {
+          // 足場
+          if (t.type === 'start') ctx.fillStyle = '#4caf50';
+          else if (t.type === 'goal') ctx.fillStyle = '#ff9800';
+          else if (t.type === 'cracked'){
+            ctx.fillStyle = t.color || '#bdbdbd';
+          }
+          else ctx.fillStyle = '#607d8b';
+
+          ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+
+          // ひび割れ
+          if (t.type === 'cracked') {
+            ctx.strokeStyle = '#333';
+            ctx.beginPath();
+            ctx.moveTo(x + 4, y + 4);
+            ctx.lineTo(x + TILE_SIZE - 4, y + TILE_SIZE - 4);
+            ctx.moveTo(x + TILE_SIZE - 4, y + 4);
+            ctx.lineTo(x + 4, y + TILE_SIZE - 4);
+            ctx.stroke();
+
+            ctx.fillStyle = '#000';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(t.crackCount.toString(), x + TILE_SIZE / 2, y + TILE_SIZE / 2 +9);
+          }
+
+          if (t.type === 'start' || t.type === 'goal') {
+            ctx.fillStyle = '#000';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(t.type === 'start' ? 'START' : 'GOAL', x + TILE_SIZE / 2, y + TILE_SIZE/2);
+          }
+        }
+      }
+    }
+
+// --- メモリ（タイルに同期した点線 + 5刻み数字 + 10刻み太線） ---
+const startTile = Math.floor(cameraX / TILE_SIZE);
+const endTile = startTile + Math.ceil(W / TILE_SIZE) + 1;
+
+for (let i = startTile; i <= endTile; i++) {
+  const x = i * TILE_SIZE - cameraX;
+
+if((!darkMode || gameState === 'result')){
+  // 10刻みは太線
+  if (i % 10 === 0) {
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 2;
+  } else {
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+  }
+
+  // 縦線
+  ctx.beginPath();
+  ctx.moveTo(x, GROUND_Y - 80);
+  ctx.lineTo(x, GROUND_Y + 60);
+  ctx.stroke();
+}
+  // 5刻み数字
+  if (i % 5 === 0) {
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(i.toString(), x - TILE_SIZE/2, GROUND_Y - 85);
+  }
+}
+
+ctx.setLineDash([]);
+ctx.lineWidth = 1;
+
+    // 落石描画
+    for (const r of rocks) {
+      const x = r.x - cameraX;
+      if (x < -50 || x > W ) continue;
+
+      if (r.warningTimer > 0) {
+        // 上に警告マーク
+        ctx.fillStyle = '#ffeb3b';
+        ctx.beginPath();
+        ctx.arc(x, 40, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('!', x, 40);
+      }
+
+      if (r.active) {
+        ctx.fillStyle = '#795548';
+        ctx.beginPath();
+        ctx.arc(x, r.y, ROCK_SIZE / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // プレイヤー描画
+    if (player) {
+      const px = player.x - cameraX;
+      let py = player.y;
+      if (isPressing && stamina > 0) {
+        py -= 8; // 浮かせる
+      }
+
+
+      // 鳥っぽいシルエット
+      ctx.save();
+      ctx.translate(px, py);
+
+      // 体
+      ctx.fillStyle = '#ffeb3b';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, PLAYER_SIZE / 2, PLAYER_SIZE / 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // くちばし（右向き）
+      ctx.fillStyle = '#ff9800';
+      ctx.beginPath();
+      ctx.moveTo(PLAYER_SIZE / 2, -4);
+      ctx.lineTo(PLAYER_SIZE / 2 + 8, 0);
+      ctx.lineTo(PLAYER_SIZE / 2, 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // 羽（上下に少し動かす）
+      const wingOffset = Math.sin(performance.now() / 80) * 4 * (isPressing ? 1 : 0.3);
+      ctx.fillStyle = '#fbc02d';
+      ctx.beginPath();
+      ctx.ellipse(-4, wingOffset, PLAYER_SIZE / 3, PLAYER_SIZE / 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+// 目
+ctx.fillStyle = '#000';
+ctx.font = 'bold 12px sans-serif';
+ctx.textAlign = 'center';
+ctx.textBaseline = 'middle';
+
+if (isPressing && stamina > 0) {
+  ctx.fillText('>', 6, -4); // 目を瞑る
+} else {
+  ctx.beginPath();
+  ctx.arc(4, -4, 2, 0, Math.PI*2);
+  ctx.fill();
+}
+
+// --- 足（判定位置の可視化） ---
+const footX = 0;
+const footY = 8; // 地面より少し下に
+
+ctx.fillStyle = '#8d6e63'; // 茶色
+ctx.beginPath();
+ctx.arc(footX, footY, 1, 0, Math.PI * 2);
+ctx.fill();
+
+      ctx.restore();
+
+// --- 着地エフェクト ---
+if (player.landEffect > 0) {
+  const t = player.landEffect; // 0〜0.25
+  const ratio = 1 - (t / 0.25); // 0→1
+
+  const x = player.x - cameraX;
+  const y = GROUND_Y;
+
+  const radius = 6 + ratio * 12; // 小さく→大きく
+  const alpha = 1 - ratio;       // 不透明→透明
+
+  if(player.falling){
+    ctx.strokeStyle = `rgba(255,128,128,${alpha})`;
+  }else{
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+  }
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+      
+if((!darkMode || gameState === 'result')){
+  // --- ミニマップ（次の10マス） ---
+  
+  
+  const miniSize = 20;
+  const miniBaseX = (W - miniSize * 10) / 2;
+  const miniBaseY = H-150;
+
+  const currentTileIndex = Math.floor(player.x / TILE_SIZE)-1;
+
+
+//ミニマップのテキスト
+  ctx.fillStyle = '#fff';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.fillText("ミニマップ", miniBaseX-miniSize/2, miniBaseY + 3);
+
+
+  for (let i = 1; i <= 11; i++) {
+    const idx = currentTileIndex + i;
+    if (idx >= stageData.length) break;
+
+    const t = tiles[idx];
+    const x = miniBaseX + (i - 1) * miniSize;
+
+    // 足場の色
+    if (t.type === 'hole') ctx.fillStyle = '#222';
+    else if (t.type === 'cracked') ctx.fillStyle = '#ff4444';
+    else if (t.type === 'goal') ctx.fillStyle = '#ff9800';
+    else if(t.type === 'start') ctx.fillStyle = '#4caf50';
+    else ctx.fillStyle = '#607d8b';
+
+    ctx.fillRect(x, miniBaseY, miniSize, miniSize);
+
+    // メモリ（タイル境界線）
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = (idx % 10 === 0) ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(x, miniBaseY);
+    ctx.lineTo(x, miniBaseY + miniSize);
+    ctx.stroke();
+
+    // 5刻み数字
+    if (idx % 5 === 0) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(idx.toString(), x-miniSize/2, miniBaseY + miniSize + 2);
+    }
+  }
+
+  // --- ミニマップにプレイヤー位置を表示 ---
+  const miniPlayerX = miniBaseX + (0 * miniSize) + miniSize / 2;
+  const miniPlayerY = miniBaseY + miniSize / 2;
+
+  ctx.fillStyle = '#ffeb3b'; // 黄色
+  ctx.beginPath();
+  ctx.arc(miniPlayerX, miniPlayerY, miniSize * 0.35, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+    }
+
+    // スタミナバー
+    ctx.fillStyle = '#444';
+    ctx.fillRect(20, GROUND_Y + 100, W - 40, 24);
+    
+    const ratio = stamina / STAMINA_MAX;
+    let barColor = '#4caf50'; // 緑
+    if (ratio <= 0.6) barColor = '#ffeb3b'; // 黄
+    if (ratio <= 0.4) {
+      const blink = (Math.sin(performance.now() / 150) + 1) / 2; // 0〜1
+      barColor = `rgba(255,0,0,${0.4 + 0.6 * blink})`; // 赤点滅
+    }
+    ctx.fillStyle = barColor;
+    const sw = (W - 40) * (stamina / STAMINA_MAX);
+    ctx.fillRect(20, GROUND_Y + 100, sw, 24);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('スタミナ', 20, GROUND_Y + 100 - 4);
+
+// スタミナ切れ
+if (stamina === 0 && staminaRecoverDelay > 0) {
+  const blink = Math.sin(performance.now() / 105) > 0;
+  if (blink) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '18px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('スタミナ切れ…', W/2, GROUND_Y + 100 + 10);
+  }
+}
+
+    // フラッシュ
+    if (flashTimer > 0) {
+      const alpha = Math.min(0.8, flashTimer * 3);
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // メッセージ
+    if(gameState != 'result'){
+      if (messageText) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(0, 55, W, 80);
+        ctx.fillStyle = '#fff';
+        ctx.font = '24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(messageText, W / 2, 95);
+      }else{
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(0, 55, W, 80);
+        ctx.fillStyle = '#fff';
+        ctx.font = '18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(stageText, W / 2, 95);
+      }
+    }
+
+    // タイトル
+    if (gameState === 'title') {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '24px sans-serif';
+      ctx.fillText('ぴよこの飛行訓練', W / 2, H / 2 - 40);
+      ctx.font = '16px sans-serif';
+      ctx.fillText('タップして空を飛ぼう', W / 2, H / 2 + 10);
+    }
+
+    // リザルト
+    if (gameState === 'result') {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.font = '22px sans-serif';
+      ctx.fillText(messageText, W / 2, 50);
+
+      ctx.font = '16px sans-serif';
+      //ctx.fillText(`STAGE ${stageData.id}`, W / 2, 75);
+      ctx.fillText(`練習時間: ${stageClearTime.toFixed(2)} 秒`, W / 2, 90);
+      ctx.fillText(`飛行回数: ${jumpCount} 回`, W / 2, 115);
+
+      // ボタン
+      for (const b of buttons) {
+        ctx.fillStyle = '#2196f3';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = '#fff';
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.fillStyle = '#fff';
+        ctx.font = '18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.text, b.x + b.w / 2, b.y + b.h / 2);
+      }
+    }
+
+    // 全リザルト
+    if (gameState === 'allResult') {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.font = '22px sans-serif';
+      //ctx.fillText('RESULT', W / 2, 40);
+
+      ctx.font = '14px sans-serif';
+      let y = 180;
+      for (const r of results) {
+        ctx.fillText(
+          `ステージ ${r.stage}  練習時間: ${r.time.toFixed(2)}秒  飛行回数: ${r.jumps}回`,
+          W / 2,
+          y
+        );
+        y += 24;
+      }
+
+      for (const b of buttons) {
+        ctx.fillStyle = '#e91e63';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = '#fff';
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.fillStyle = '#fff';
+        ctx.font = '18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.text, b.x + b.w / 2, b.y + b.h / 2);
+      }
+    }
+    
+
+
+
+
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  setupInput();
+  gameState = 'title';
+  loop();
+})();
+</script>
+</body>
+</html>

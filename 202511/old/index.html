@@ -1,0 +1,1108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+  <title>消して100ぐちぱ！</title>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202511/old/" />
+  <meta property="og:title" content="消して100ぐちぱ！" />
+  <meta property="og:description" content="ぐちぱを繋げてたくさん消そう。敵が３つ並ぶとアウト。数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_gcp.png">
+
+  <style>
+    html,body{height:100%;margin:0;background:#111;display:flex;align-items:center;justify-content:center}
+    /* stage height slightly reduced to make room for top counters and bottom rule box */
+    #stageWrapper{width:360px;height:500px;border-radius:12px;overflow:hidden;background:#222;box-shadow:0 10px 30px rgba(0,0,0,0.6);position:relative}
+    canvas{display:block}
+/* 実績表示（画面上部、カウントの上） */
+#achievements {
+  position: absolute;
+  top: 12px; /* ← 以前28pxだったが上に移動 */
+  left: 0;
+  right: 0;
+  height: 28px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  font-size: 12px;
+  padding: 0 6px;
+}
+#statMaxCombo {
+  font-family: 'Comic Sans MS', 'Hiragino Maru Gothic Pro', cursive;
+  font-size: 24px;
+  font-weight: bold;
+  text-align: center;
+  color: #ffb300;
+  text-shadow:
+    0 0 6px #fff,
+    0 0 10px #ff6600,
+    0 0 20px #ff0000,
+    0 0 30px #ff6600;
+  letter-spacing: 2px;
+  animation: logoGlow 3s ease-in-out infinite alternate;
+}
+
+@keyframes logoGlow {
+  0% { text-shadow: 0 0 8px #fff, 0 0 16px #ff6600, 0 0 24px #ff0000; color: #ffb300; }
+  50% { text-shadow: 0 0 12px #ffff33, 0 0 24px #ff8800, 0 0 36px #ff6600; color: #fff700; }
+  100% { text-shadow: 0 0 8px #fff, 0 0 16px #ff6600, 0 0 24px #ff0000; color: #ffb300; }
+}
+
+    /* ルールテキスト（画面下部） */
+    #ruleBox{position:absolute;left:0;right:0;bottom:0;height:56px;background:rgba(0,0,0,0.6);color:#fff;display:flex;align-items:center;justify-content:center;padding:6px;font-size:13px}
+/* カウントダウン（実績の下、各列の中央に配置されるよう left は JS で上書きします） */
+.countCol{
+  position:absolute;
+  top:60px;            /* 実績の下に配置 */
+  /* left は JS が設定します（inline leftがあっても上書きされます） */
+  text-align:center;
+  color:#fff;
+  font-weight:bold;
+  font-size:16px;
+  white-space:nowrap;
+  transform:translateX(-50%); /* 左位置を要素中心点に合わせる（JSで center x を left に入れる想定） */
+}
+/* ゲームオーバー画面：盤面が見えるように透明度を下げる */
+/* リザルト全体 */
+#gameOver {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  background: rgba(0,0,0,0.4); /* 盤面が少し見える */
+  color: #fff;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 20px;
+  padding-bottom: 50px;
+  z-index: 20;
+}
+
+/* 外枠 */
+#resultArea {
+  position: absolute;
+  top: 50px;
+  left: 30px;
+  width: 300px;
+  height: 440px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  box-shadow: 0 0 20px rgba(255,255,255,0.25);
+  text-align: center;
+}
+
+/* 上部のRESULTタイトル */
+#resultTitle {
+  font-size: 36px;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 0 12px #ffcc33, 0 0 24px #ff9900;
+  margin-top: 0px;
+}
+
+#resultStats {
+  font-size: 22px;
+  line-height: 2.0;
+  color: #fff;
+  margin-top: 30px;
+}
+
+/* 下部のリトライボタン */
+#retryBtn {
+  width: 10em; /* 横幅 */
+  padding: 10px 22px;
+  font-size: 18px;
+  border: none;
+  border-radius: 8px;
+  background: #ff5050;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+  margin-top: 75px;
+  margin-bottom: 30px;
+}
+#retryBtn:hover {
+  opacity: 1;
+}
+
+  </style>
+</head>
+<body>
+  <div id="stageWrapper">
+    <!-- カウントダウン（各列上部に表示） - 6列 -->
+    <div id="count0" class="countCol" style="left:0%"></div>
+    <div id="count1" class="countCol" style="left:16.6667%"></div>
+    <div id="count2" class="countCol" style="left:33.3334%"></div>
+    <div id="count3" class="countCol" style="left:50%"></div>
+    <div id="count4" class="countCol" style="left:66.6667%"></div>
+    <div id="count5" class="countCol" style="left:83.3334%"></div>
+
+    <!-- 実績表示 -->
+    <div id="achievements">
+      <div id="statRemoved"></div>
+      <div id="statMaxCombo">じゃんけん100連勝！</div>
+      <div id="statEnemies"></div>
+    </div>
+
+<!-- ゲームオーバー画面 -->
+<div id="gameOver">
+<div id="resultArea">
+  <!-- 上部タイトル -->
+  <div id="resultTitle">RESULT</div>
+
+  <!-- 中央統計パネル -->
+  <div id="resultPanel">
+    <div id="resultStats">
+      <div id="resultEnemies"></div>
+      <div id="resultCombo"></div>
+      <div id="resultRemoved"></div>
+    </div>
+  </div>
+
+<!-- メッセージ表示エリア -->
+<div id="resultMessage" style="
+  font-size: 18px;
+  color: #fff;
+  line-height: 1.6;
+  margin-top: 20px;
+  padding: 0 10px;
+"></div>
+
+  <!-- 下部ボタン -->
+  <button id="retryBtn">リトライ</button>
+</div>
+</div>
+
+    <!-- ルール説明（画面下部） -->
+    <div id="ruleBox">ぐ→ち→ぱ→ぐ→…と繋げて連鎖しよう！<br/>タップで消せない敵コマが３つ並ぶとゲームオーバー。<br/>4連鎖以上で現れる特殊コマなら敵コマを消せる！</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+
+  <script>
+  // ----------------------
+  // 設定
+  // ----------------------
+  const VIEW_W = 360;
+  const VIEW_H = 520; // ルールテキスト・カウント領域を考慮
+  const COLS = 6; // 横6
+  const ROWS = 6; // 縦6 に変更
+  const TYPES = ['gu','ch','pa'];
+  const SPECIALS = ['h','v','cross']; // 横, 縦, 十字
+
+  // カラー設定（チョキ=緑、パー=青、グー=赤）
+  const COLORS = { gu:0xf87b7b, ch:0x9af78a, pa:0x7bcff8, enemy:0xffff00, special:0xffffff };
+  const HIGHLIGHT_BY_TYPE = { gu:0xff6666, ch:0x66ff66, pa:0x6666ff, enemy:0x444444, special:0xffff99 };
+  const HIGHLIGHT_COLORS_CYCLE = [0x3b82f6,0x22c55e,0xeab308,0xf97316,0xef4444]; // fallback cycle
+
+  const wrapper = document.getElementById('stageWrapper');
+  const app = new PIXI.Application({ width: VIEW_W, height: VIEW_H, backgroundColor: 0x1b1b1b, antialias:true });
+  wrapper.appendChild(app.view);
+
+  // ----------------------
+  // 状態変数
+  // ----------------------
+  const grid = Array.from({length:COLS},()=>Array(ROWS).fill(null));
+  const container = new PIXI.Container();
+  app.stage.addChild(container);
+
+  // enemy spawn counters for each column and pending flags
+  // initial counters should be random assignment of [1,2,4,5,7,8]
+  const initialCountersPool = [1,2,4,5,7,8];
+  const enemyCounters = Array.from({length:COLS}, (_,i)=>0);
+  // shuffle and assign
+  (function assignInitialCounters(){
+    const pool = initialCountersPool.slice();
+    for(let x=0;x<COLS;x++){
+      const idx = Math.floor(Math.random()*pool.length);
+      enemyCounters[x] = pool.splice(idx,1)[0];
+    }
+  })();
+
+  const enemyPending = Array.from({length:COLS},()=>false);
+
+  // special spawn request after combos
+  let pendingSpecial = null; // {col, type}
+
+  // achievements
+  let totalRemoved = 0;
+  let maxCombo = 0;
+  let enemiesRemoved = 0;
+  let nextClearTarget = 100;
+
+  // UI elements
+  const countEls = [
+    document.getElementById('count0'),document.getElementById('count1'),document.getElementById('count2'),
+    document.getElementById('count3'),document.getElementById('count4'),document.getElementById('count5')
+  ];
+  const gameOverEl = document.getElementById('gameOver');
+  const retryBtn = document.getElementById('retryBtn');
+  const statRemovedEl = document.getElementById('statRemoved');
+  const statMaxComboEl = document.getElementById('statMaxCombo');
+  const statEnemiesEl = document.getElementById('statEnemies');
+
+  const CELL = Math.min((VIEW_W-12*2)/COLS, (VIEW_H-80-56)/ROWS); // leave room for top counts and bottom rule
+  const OFFSET_X = Math.floor((VIEW_W - CELL*COLS)/2);
+  const OFFSET_Y = 86; // leave top margin for counters + achievements
+
+  let busy = false;
+  let lastTappedColumn = 0;
+  let totalComboForLast = 0;
+  let score = 0;
+
+  // ----------------------
+  // ユーティリティ関数
+  // ----------------------
+  function posToPixel(x,y){
+    return { x: OFFSET_X + x*CELL + CELL/2, y: OFFSET_Y + y*CELL + CELL/2 };
+  }
+
+  function weaknessOf(t){ return t==='gu' ? 'ch' : t==='ch' ? 'pa' : 'gu'; }
+
+// ----------------------
+// カウント列の水平位置を盤面の各列中央に合わせる
+// ・.countCol は transform: translateX(-50%) を使っているので、left に中央 x を入れればちょうど中央に来ます
+// ----------------------
+function positionCountCols(){
+  for(let x=0;x<COLS;x++){
+    const el = countEls[x];
+    if(!el) continue;
+    const p = posToPixel(x, 0); // returns {x,y} in pixels relative to canvas area
+    // place the center of the element at p.x inside the wrapper
+    el.style.left = `${p.x}px`;
+  }
+}
+
+  // ----------------------
+  // ピース作成（テキスト・形状含む）
+  // - normal: circle/triangle/rect with text
+  // - enemy: diamond shape with text '敵' (white) and rotating graphic (text not rotated)
+  // - special: capsule (rounded rect) white with text '横'/'縦'/'十'
+  // ----------------------
+  function makePiece(type){
+    const c = new PIXI.Container();
+    c.type = type;
+    c.interactive = true;
+    c.buttonMode = true;
+
+    const g = new PIXI.Graphics();
+    const s = CELL*0.78;
+    const half = s/2;
+
+    if(type === 'gu'){
+      // circle
+      g.beginFill(COLORS.gu).drawCircle(0,0,half).endFill();
+    } else if(type === 'ch'){
+      // triangle
+      g.beginFill(COLORS.ch).drawPolygon([0,-half, half,half, -half,half]).endFill();
+    } else if(type === 'pa'){
+      // square
+      g.beginFill(COLORS.pa).drawRect(-half,-half,s,s).endFill();
+    } else if(type === 'enemy'){
+      // diamond: draw rotated square on the graphic only
+      g.beginFill(COLORS.enemy).drawPolygon([0,-half, half,0,0,half, -half,0]).endFill();
+      // rotate the graphic continuously to make enemy stand out
+      gsap.to(g, { rotation: Math.PI*2, duration: 4 + Math.random()*3, repeat: -1, ease:'none' });
+    } else if(type === 'h' || type === 'v' || type === 'cross'){
+      // special: capsule (rounded rect) white, add subtle shimmer animation
+      g.beginFill(COLORS.special).drawRoundedRect(-half,-half,s,s,half*0.6).endFill();
+      gsap.to(g, {alpha:0.8, duration:0.8, repeat:-1, yoyo:true});
+    }
+
+    // text label
+    let labelText = '';
+    if(type === 'gu') labelText = 'ぐ';
+    else if(type === 'ch') labelText = 'ち';
+    else if(type === 'pa') labelText = 'ぱ';
+    else if(type === 'enemy') labelText = '敵';
+    else if(type === 'h') labelText = '横';
+    else if(type === 'v') labelText = '縦';
+    else if(type === 'cross') labelText = '十';
+
+    // enemy label should be white for visibility; specials use dark label
+    //const labelColor = (type === 'enemy') ? 0xffffff : 0x111111;
+    const labelColor = 0x111111;
+    const txt = new PIXI.Text(labelText, { fontSize: Math.floor(CELL*0.32), fill: labelColor, fontWeight:'bold' });
+    txt.anchor.set(0.5);
+
+    c.addChild(g, txt);
+    c.graphic = g; c.label = txt;
+
+    // pointer handler (specials respond, enemy doesn't)
+    c.on('pointerdown', () => {
+      if(busy) return;
+      // enemy ignores taps
+      if(c.type === 'enemy') return;
+      // specials activate on tap
+      if(c.type === 'h' || c.type === 'v' || c.type === 'cross'){
+        // activate special effect at coords
+        activateSpecialAt(c.gridX, c.gridY, c.type);
+        return;
+      }
+      handleTap(c.gridX, c.gridY);
+    });
+
+    return c;
+  }
+
+  // ----------------------
+  // 盤面への配置
+  // ----------------------
+  function placePiece(piece, x, y, instant=false, spawnFromTop=false){
+    piece.gridX = x; piece.gridY = y;
+    const p = posToPixel(x,y);
+    // spawn from top for falling effect
+    if(spawnFromTop){ piece.x = p.x; piece.y = OFFSET_Y - CELL - Math.random()*40; }
+    else { piece.x = p.x; piece.y = p.y; }
+    container.addChild(piece);
+    grid[x][y] = piece;
+    if(!instant && spawnFromTop){ gsap.to(piece, { y: p.y, duration: 0.42, ease:'bounce.out' }); }
+  }
+
+  // ----------------------
+  // 初期盤面生成
+  // ----------------------
+  function initGrid(){
+    container.removeChildren();
+    for(let x=0;x<COLS;x++){
+      grid[x] = [];
+      enemyPending[x] = false;
+      for(let y=0;y<ROWS;y++){
+        const t = TYPES[Math.floor(Math.random()*TYPES.length)];
+        const piece = makePiece(t);
+        placePiece(piece, x, y, true);
+      }
+    }
+    // reset achievements
+    totalRemoved = 0; maxCombo = 0; enemiesRemoved = 0; updateStats(); nextClearTarget = 100;
+    updateCountDisplays();
+    statMaxComboEl.textContent = '消して100ぐちぱ！';
+  }
+  initGrid();
+  positionCountCols();
+
+  // ----------------------
+  // カウントダウン表示更新（画面上部の各列）
+  // ----------------------
+  function updateCountDisplays(){
+    for(let x=0;x<COLS;x++){
+      const el = countEls[x];
+      if(enemyPending[x]) el.textContent = '敵!';
+      else el.textContent = Math.max(0, enemyCounters[x]);
+    }
+  }
+
+  function updateStats(){
+    //statRemovedEl.textContent = `連勝数: ${totalRemoved}`;
+    statMaxComboEl.textContent = `現在: ${totalRemoved}ぐちぱ！`;
+    //statEnemiesEl.textContent = `倒した敵: ${enemiesRemoved}`;
+  }
+
+  // ----------------------
+  // 連鎖レベル計算（スナップショット基準）
+  // ----------------------
+  function computeChainLevels(sx, sy, type){
+    // take a snapshot of types so that animations / removals do not affect detection
+    const snap = Array.from({length:COLS}, ()=>Array(ROWS).fill(null));
+    for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++) snap[x][y] = grid[x]?.[y]?.type || null;
+
+    const visited = Array.from({length:COLS}, ()=>Array(ROWS).fill(false));
+    const levels = [[{x:sx,y:sy,type:type}]];
+    visited[sx][sy] = true;
+
+    let idx = 0;
+    while(true){
+      const cur = levels[idx];
+      const next = [];
+      for(const node of cur){
+        const weak = weaknessOf(node.type);
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        for(const d of dirs){
+          const nx = node.x + d[0], ny = node.y + d[1];
+          if(nx<0||ny<0||nx>=COLS||ny>=ROWS) continue;
+          if(visited[nx][ny]) continue;
+          if(snap[nx][ny] === weak){ visited[nx][ny] = true; next.push({x:nx,y:ny,type:snap[nx][ny]}); }
+        }
+      }
+      if(next.length === 0) break;
+      levels.push(next);
+      idx++;
+    }
+    return levels;
+  }
+
+  // ----------------------
+  // ハイライト描画（連勝数の縦横1マス範囲）
+  // - colorは連勝数の色
+  // - returns the PIXI Graphics layer so caller can destroy it
+  // ----------------------
+  function drawLevelHighlight(nodes, color){
+    const layer = new PIXI.Graphics();
+    layer.alpha = 0.45;
+    for(const n of nodes){
+      const center = {x:n.x, y:n.y};
+      const areas = [center, {x:center.x+1,y:center.y},{x:center.x-1,y:center.y},{x:center.x,y:center.y+1},{x:center.x,y:center.y-1}];
+      for(const a of areas){
+        if(a.x<0||a.y<0||a.x>=COLS||a.y>=ROWS) continue;
+        const p = posToPixel(a.x,a.y);
+        layer.beginFill(color).drawRect(p.x-CELL/2,p.y-CELL/2,CELL,CELL).endFill();
+      }
+    }
+    app.stage.addChild(layer);
+    return layer;
+  }
+
+  // ----------------------
+  // ピース消去アニメーション
+  // ----------------------
+  function explodePiece(piece, fast=false){
+    // fast: special-induced deletion should be quicker
+    return new Promise(res => {
+      if(!piece) return res();
+      piece.interactive = false;
+      const scaleDur = fast ? 0.06 : 0.12;
+      const totalDur = fast ? 0.18 : 0.28;
+      gsap.to(piece.scale, { x:1.35, y:1.35, duration:scaleDur });
+      gsap.to(piece, { alpha:0, scaleX:0.1, scaleY:0.1, duration:totalDur, ease:'power2.in', onComplete: ()=>{ if(piece.parent) piece.parent.removeChild(piece); res(); } });
+    });
+  }
+
+  // ----------------------
+  // 盤面を下詰めし、補充する（ここで enemyPending / pendingSpecial を反映）
+  // - 特殊コマは pendingSpecial.col に優先的に1個出現（上から落とす）
+  // - enemyPending[col] が true -> 優先的に敵を1個出現させる（次の落下で）
+  // - 落下アニメ: 既存のコマで実際に落ちる必要があるものだけを落とす（画面外から落ちるのは新規）
+  // ----------------------
+  async function collapseAndFill(){
+    for(let x=0;x<COLS;x++){
+      // gather remaining pieces in this column (from bottom to top)
+      const colPieces = [];
+      for(let y=ROWS-1;y>=0;y--){ if(grid[x][y]){ colPieces.push(grid[x][y]); grid[x][y]=null; } }
+
+      // place remaining pieces from bottom up and animate only those that need to move
+      for(let i=0;i<colPieces.length;i++){
+        const targetY = ROWS-1 - i;
+        const p = colPieces[i];
+        const currentPixelY = p.y; // p.y is current pixel position
+        grid[x][targetY] = p;
+        p.gridY = targetY;
+        p.x = posToPixel(x,targetY).x;
+        const targetPixelY = posToPixel(x,targetY).y;
+        // if currentPixelY is already at targetPixelY (within small epsilon), do nothing
+        if(Math.abs(currentPixelY - targetPixelY) > 2){
+          // animate from current position down to target
+          gsap.to(p, { y: targetPixelY, duration: 0.38, ease:'power2.out' });
+        } else {
+          p.y = targetPixelY;
+        }
+      }
+
+      // fill new pieces above remaining
+      const toFill = ROWS - colPieces.length;
+      for(let i=0;i<toFill;i++){
+        const fillY = toFill - 1 - i; // from top down
+        let spawnType = null;
+        if(pendingSpecial && pendingSpecial.col === x){ spawnType = pendingSpecial.type; pendingSpecial = null; }
+        else if(enemyPending[x]){ spawnType = 'enemy'; enemyPending[x] = false; enemyCounters[x] = Math.floor(Math.random()*6)+4; }
+        else { spawnType = TYPES[Math.floor(Math.random()*TYPES.length)]; }
+        const np = makePiece(spawnType);
+        // place above and drop
+        placePiece(np, x, fillY, false, true);
+      }
+    }
+
+    // small delay to allow drops to settle
+    await new Promise(r=>setTimeout(r,420));
+    updateCountDisplays();
+    
+    // 敵コマの隣接チェック:
+    updateEnemyWarnings();
+    
+    // after fill, check if any enemy lines cause game over
+    checkGameOver();
+    
+    checkClear();
+  }
+
+// ----------------------
+// クリアチェック：100の倍数で発動
+// ----------------------
+function checkClear() {
+  // totalRemoved が nextClearTarget を越えた（初めて達成した）ときに発火
+  // もし大きくジャンプして複数の閾値を同時に超えた場合は、超えた分だけ順に処理する
+  while (totalRemoved >= nextClearTarget) {
+    // 値をキャプチャしてポップアップに渡す（表示用）
+    const triggeredTarget = nextClearTarget;
+    // advance to next threshold before showing popup to avoid re-entrancy issues
+    nextClearTarget += 100;
+
+    // showClearPopup に閾値を渡す（必要ならpopup内で合計ではなく閾値を表示）
+    showClearPopup(triggeredTarget);
+
+    // 注意: 複数閾値を一気に処理する場合、ここでは次のループで再び showClearPopup が呼ばれる。
+    // UI上は連続ポップアップになるので、必要ならここで break; して「一度に1回だけ」表示に切り替えてください。
+    // break;
+  }
+}
+
+// ----------------------
+// クリア画面ポップアップ（小型＋半透明）
+// ----------------------
+function showClearPopup(target) {
+  if (document.getElementById("clearPopup")) return;
+
+  const popup = document.createElement("div");
+  popup.id = "clearPopup";
+  Object.assign(popup.style, {
+    position: "absolute",
+    top: "0", left: "0",
+    width: "100%", height: "100%",
+    background: "rgba(255,255,255,0.3)", // 透過で盤面を見せる
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: "30",
+    pointerEvents: "auto" // ←ボタン押下可能
+  });
+
+  // 内部カード
+  const card = document.createElement("div");
+  Object.assign(card.style, {
+    width: "260px",
+    height: "360px",
+    background: "rgba(255,255,255,0.9)",
+    borderRadius: "10px",
+    boxShadow: "0 0 16px rgba(0,0,0,0.3)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "space-around",
+    padding: "16px",
+    textAlign: "center",
+  });
+
+  card.innerHTML = `
+    <div id="clearTitle" style="font-size:32px;font-weight:bold;color:#ff6600;
+      text-shadow:0 0 10px #ffcc00;">GAME CLEAR!</div>
+    <div id="clearCount" style="font-size:16px;color:#333;">
+      ${target}ぐちぱを超えた、ぐちぱの王！
+    </div>
+    <div id="clearStats" style="font-size:22px;color:#333;line-height:3.0;margin-top:10px;">
+      倒した敵：${enemiesRemoved}<br>
+      MAX COMBO：${maxCombo}<br>
+      TOTAL ぐちぱ：${totalRemoved}
+    </div>
+    <div style="display:flex;gap:30px;margin-top:14px;">
+      <button id="btnContinue" style="padding:8px 18px;font-size:16px;border:none;
+        border-radius:6px;background:#4caf50;color:white;cursor:pointer;">つづける</button>
+      <button id="btnRestart" style="padding:8px 18px;font-size:16px;border:none;
+        border-radius:6px;background:#f44336;color:white;cursor:pointer;">最初から</button>
+    </div>
+  `;
+
+  popup.appendChild(card);
+  wrapper.appendChild(popup);
+
+  gsap.fromTo(card, { scale: 0.7, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.6, ease: "back.out(1.7)" });
+
+  // PIXIの流れ星をステージ上で生成（10本くらい流す）
+  for (let i = 0; i < 10; i++) {
+    setTimeout(() => createPixiStar(), i * 500);
+  }
+
+  // ボタンイベント
+  document.getElementById("btnContinue").onclick = () => continueGame(popup);
+  document.getElementById("btnRestart").onclick = () => restartGame(popup);
+}
+
+// ----------------------
+// 続きから遊ぶ
+// ----------------------
+function continueGame(popup) {
+  gsap.to(popup, {
+    opacity: 0,
+    duration: 0.4,
+    ease: "power2.in",
+    onComplete: () => popup.remove()
+  });
+}
+
+// ----------------------
+// 最初から遊ぶ
+// ----------------------
+function restartGame(popup) {
+  gsap.to(popup, {
+    opacity: 0,
+    duration: 0.4,
+    ease: "power2.in",
+    onComplete: () => {
+      popup.remove();
+      initGrid();
+      positionCountCols();
+    }
+  });
+}
+
+// ----------------------
+// PIXI流れ星アニメーション（黄色系の輝き）
+// ----------------------
+function createPixiStar() {
+  const container = new PIXI.Container();
+
+  // 星の本体（少し黄白）
+  const starCore = new PIXI.Graphics();
+  starCore.beginFill(0xffee88, 1); // ★黄色っぽく
+  starCore.drawCircle(0, 0, 3);
+  starCore.endFill();
+
+  // 光のオーラ（オレンジ寄りのグロー）
+  const glow = new PIXI.Graphics();
+  glow.beginFill(0xffcc55, 0.6);
+  glow.drawCircle(0, 0, 8);
+  glow.endFill();
+  glow.alpha = 0.8;
+
+  // 尾（右上方向へ伸びるグラデーション風ライン）
+  const tail = new PIXI.Graphics();
+  const tailLength = 60;
+  for (let i = 0; i < tailLength; i += 6) {
+    const alpha = 1 - i / tailLength;
+    const gradColor = 0xffcc33 - Math.floor(i * 10); // 少しずつ暗く
+    tail.lineStyle(2, gradColor, alpha * 0.9);
+    tail.moveTo(i * 0.7, -i * 0.7);
+    tail.lineTo((i + 6) * 0.7, -(i + 6) * 0.7);
+  }
+
+  container.addChild(tail, glow, starCore);
+
+  // 出発点（右上）
+  container.x = VIEW_W + 30;
+  container.y = 20 + Math.random() * 60;
+  container.alpha = 0.9;
+  app.stage.addChild(container);
+
+  // 移動（右上 → 左下）
+  const duration = 2 + Math.random() * 1.5;
+  gsap.to(container, {
+    x: -80,
+    y: VIEW_H + 100,
+    alpha: 0,
+    duration,
+    ease: "power2.inOut",
+    onComplete: () => {
+      if (container.parent) container.parent.removeChild(container);
+    }
+  });
+
+  // 光の瞬き
+  gsap.fromTo(starCore.scale, { x: 1, y: 1 }, { x: 1.4, y: 1.4, duration: 0.25, yoyo: true, repeat: -1 });
+  gsap.fromTo(glow.scale, { x: 1, y: 1 }, { x: 1.5, y: 1.5, duration: 0.5, yoyo: true, repeat: -1 });
+}
+
+  // ----------------------
+  // コンボ表示（各レベル）
+  // ----------------------
+  function showComboText(level){
+    const color = HIGHLIGHT_COLORS_CYCLE[(level-1) % HIGHLIGHT_COLORS_CYCLE.length];
+    const txt = new PIXI.Text(`x${level} COMBO`, { fontSize:28, fill:color, stroke:0x000000, strokeThickness:4 });
+    txt.anchor.set(0.5); txt.x = VIEW_W/2; txt.y = VIEW_H*0.38;
+    app.stage.addChild(txt);
+    gsap.fromTo(txt.scale, {x:0.6,y:0.6}, {x:1.1,y:1.1, duration:0.35, ease:'back.out(1.2)'});
+    gsap.to(txt, { alpha:0, duration:0.8, delay:0.9, onComplete: ()=>txt.destroy() });
+  }
+
+  // ----------------------
+  // TOTAL COMBO 表示（簡潔に、4連鎖以上で発動）
+  // ----------------------
+  async function showTotalCombo(n){
+    if(n < 4) return;
+    const txt = new PIXI.Text(`特殊コマゲット！`, { fontSize:26, fill:0xffffff, stroke:0xff6600, strokeThickness:4 });
+    txt.anchor.set(0.5); txt.x = VIEW_W/2; txt.y = VIEW_H/2;
+    app.stage.addChild(txt);
+    gsap.fromTo(txt.scale, {x:0.6,y:0.6}, {x:1.0,y:1.0, duration:0.28, ease:'back.out(1.2)'});
+    for(let i=0;i<6;i++) setTimeout(()=>particleBurst(VIEW_W/2, VIEW_H/2, HIGHLIGHT_COLORS_CYCLE[i%HIGHLIGHT_COLORS_CYCLE.length]), i*90);
+    gsap.to(txt, { alpha:0, duration:0.7, delay:0.9, onComplete: ()=>txt.destroy() });
+    score += n*100;
+  }
+
+  // ----------------------
+  // パーティクル（簡易）
+  // ----------------------
+  function particleBurst(x,y,color){
+    for(let i=0;i<10;i++){
+      const dot = new PIXI.Graphics(); dot.beginFill(color).drawCircle(0,0,3).endFill(); dot.x = x; dot.y = y; app.stage.addChild(dot);
+      gsap.to(dot, { x: x + (Math.random()-0.5)*80, y: y + (Math.random()-0.5)*80, alpha:0, duration:0.6, onComplete: ()=>{ if(dot.parent) dot.parent.removeChild(dot); } });
+    }
+  }
+
+// ----------------------
+// 敵のピンチ警告（2並び: 黄色点滅、3以上: 赤点滅）
+// 対象判定は piece.type === 'enemy' を使います。
+// 点滅は piece.graphic（描画グラフィック）に対して行います。
+// ----------------------
+  function updateEnemyWarnings(){
+    // 全ての敵コマの状態を初期化
+    const allEnemies=[];
+    for(let x=0;x<COLS;x++){
+      for(let y=0;y<ROWS;y++){
+        const e=grid[x][y];
+        if(e&&e.type==='enemy'){
+          e.graphic.tint=COLORS.enemy;
+          e.graphic.alpha=1;
+          allEnemies.push(e);
+        }
+      }
+    }
+
+    // 状態マップを作成（0:安全,1:警告,2:危険）
+    const dangerMap=new Map();
+
+    // 横チェック
+    for(let y=0;y<ROWS;y++){
+      let streak=[];
+      for(let x=0;x<=COLS;x++){
+        const cell=grid[x]?.[y];
+        if(cell&&cell.type==='enemy')streak.push(cell);else{
+          if(streak.length>=2){
+            const level=streak.length>=3?2:1;
+            for(const e of streak){dangerMap.set(e,Math.max(dangerMap.get(e)||0,level));}
+          }
+          streak=[];
+        }
+      }
+    }
+
+    // 縦チェック
+    for(let x=0;x<COLS;x++){
+      let streak=[];
+      for(let y=0;y<=ROWS;y++){
+        const cell=grid[x]?.[y];
+        if(cell&&cell.type==='enemy')streak.push(cell);else{
+          if(streak.length>=2){
+            const level=streak.length>=3?2:1;
+            for(const e of streak){dangerMap.set(e,Math.max(dangerMap.get(e)||0,level));}
+          }
+          streak=[];
+        }
+      }
+    }
+
+    // 最終的な状態を反映
+    for(const e of allEnemies){
+      const level=dangerMap.get(e)||0;
+      if(level===2){ // 危険: 赤固定・回転停止
+        e.graphic.tint=0xff0000;
+        gsap.killTweensOf(e.graphic);
+        e.graphic.rotation=0;
+        e.graphic.alpha=1;
+      }else if(level===1){ // 警告: 赤点滅
+        gsap.killTweensOf(e.graphic, "alpha"); // alpha点滅のみリセット
+        e.graphic.tint=0xff4444;
+        gsap.to(e.graphic,{alpha:0.4,duration:0.3,repeat:-1,yoyo:true});
+      }else{
+        gsap.killTweensOf(e.graphic, "alpha"); // alpha点滅のみリセット
+        e.graphic.tint=COLORS.enemy;
+        e.graphic.alpha=1;
+      }
+    }
+  }
+
+// blinkは graphic（PIXI.Graphics）に対して行う
+function blinkEnemy(graphic, color){
+  // stop previous tweens on this graphic
+  try{ gsap.killTweensOf(graphic); }catch(e){}
+  // set tint to highlight color and animate alpha to create flashing
+  graphic.tint = color;
+  graphic._warnTween = gsap.to(graphic, { alpha: 0.25, duration: 0.35, yoyo:true, repeat:-1, ease:'sine.inOut' });
+}
+
+  // ----------------------
+  // 敵の連続判定によるゲームオーバー
+  // - 縦または横で敵が3つ以上連続しているとゲームオーバー
+  // ----------------------
+  function checkGameOver(){
+    // check rows
+    for(let y=0;y<ROWS;y++){
+      let count = 0;
+      for(let x=0;x<COLS;x++){
+        if(grid[x][y] && grid[x][y].type === 'enemy') count++; else count = 0;
+        if(count >= 3){ triggerGameOver(); return true; }
+      }
+    }
+    // check columns
+    for(let x=0;x<COLS;x++){
+      let count = 0;
+      for(let y=0;y<ROWS;y++){
+        if(grid[x][y] && grid[x][y].type === 'enemy') count++; else count = 0;
+        if(count >= 3){ triggerGameOver(); return true; }
+      }
+    }
+    return false;
+  }
+
+function triggerGameOver() {
+  const resultEl = document.getElementById('gameOver');
+  const titleEl = document.getElementById('resultTitle');
+  const panel = document.getElementById('resultPanel');
+  const removedEl = document.getElementById('resultRemoved');
+  const comboEl = document.getElementById('resultCombo');
+  const enemyEl = document.getElementById('resultEnemies');
+  // メッセージ生成処理
+  const msgEl = document.getElementById('resultMessage');
+  const score = totalRemoved;
+  // 10点ごとの区間を計算
+  const base = Math.floor(score / 10) * 10;
+  const nextTarget = base + 10;
+
+  // メッセージ一覧
+  const messages = [
+    "100ぐちぱの道も、1ぐちぱから。",
+    "ぐちぱ筋がついてきている！",
+    "ぐちぱの壁を越えられそう！",
+    "ぐちぱウェーブに乗るしかない！",
+    "ついに来たぞ、折り返しぐちぱ！",
+    "心頭滅却にて、ぐちぱもクール！",
+    "ぐちぱゾーンに入ってきている！",
+    "この安定感は、ベテランぐちぱ！",
+    "ぐちぱの限界、限界ぐちぱ目前！",
+    "グレート超パーフェクトぐちぱ！"
+  ];
+
+  let msg = "";
+
+  if (score >= 100) {
+    // 100以上は特別メッセージ（次の目標なし）
+    msg = "ぐちぱの王、ぐちぱキング！✨" + `<br><span style="color:#ffd700;">良ければまた遊んでね！</span>`;
+  } else {
+    // 通常メッセージ
+    const idx = Math.min(Math.floor(score / 10), messages.length - 1);
+    msg = messages[idx] + `<br><span style="color:#ffd700;">次はできそう、${nextTarget}ぐちぱ！</span>`;
+  }
+
+  msgEl.innerHTML = msg;
+  
+  // 統計値反映
+  enemyEl.textContent = `倒した敵：${enemiesRemoved}`;
+  comboEl.textContent = `MAX COMBO：${maxCombo}`;
+  removedEl.textContent = `TOTAL ぐちぱ：${totalRemoved}`;
+
+  // 表示前に初期化
+  resultEl.style.display = 'flex';
+  titleEl.style.opacity = 0;
+  panel.style.opacity = 0;
+  panel.style.transform = 'scale(0.7)';
+  retryBtn.style.opacity = 0;
+  msgEl.style.opacity = 0;
+
+  // アニメーション順：タイトル → パネル → リトライ
+  gsap.to(titleEl, { opacity: 1, y: 8, duration: 0.6, ease: 'power2.out' });
+  gsap.to(panel, {
+    opacity: 1,
+    scale: 1,
+    duration: 0.6,
+    delay: 0.2,
+    ease: 'back.out(1.2)',
+  });
+  gsap.to(msgEl, { opacity: 1, y: 8, duration: 1.8, ease: 'power2.out' });
+  gsap.to(retryBtn, { opacity: 0.8, duration: 2.0, delay: 0.8, ease: 'power1.out' });
+
+}
+
+  // ----------------------
+  // 特殊コマ発動（座標ベース）
+  // - when special removes pieces, it will also remove enemies and trigger other specials
+  // - chain-activations are supported: if a special removes another special, that special will be activated too
+  // ----------------------
+// 特殊コマの発動処理（視覚要素が残らないように修正）
+async function activateSpecialAt(cx, cy, type){
+  if(cx<0||cy<0||cx>=COLS||cy>=ROWS) return;
+  // allow activation even if the piece object isn't present (we may have removed it earlier)
+  const piece = grid[cx]?.[cy];
+  // if piece exists and is special, remove it visually first
+  if(piece && (piece.type === 'h' || piece.type === 'v' || piece.type === 'cross')){
+    grid[cx][cy] = null;
+    await explodePiece(piece, true); // ensure visuals removed
+  }
+
+  // collect coordinates to delete according to type
+  const toRemove = [];
+  if(type === 'h'){
+    for(let x=0;x<COLS;x++) toRemove.push({x, y:cy});
+  } else if(type === 'v'){
+    for(let y=0;y<ROWS;y++) toRemove.push({x:cx, y});
+  } else if(type === 'cross'){
+    for(let x=0;x<COLS;x++) toRemove.push({x, y:cy});
+    for(let y=0;y<ROWS;y++) toRemove.push({x:cx, y});
+  }
+
+  // We'll process removals and handle cascading special activations
+  const cascade = [];
+  for(const coord of toRemove){
+    const p = grid[coord.x]?.[coord.y];
+    if(!p) continue;
+
+    // If it's another special: remove visuals immediately then schedule its activation.
+    if(p.type === 'h' || p.type === 'v' || p.type === 'cross'){
+      // remove logically
+      grid[coord.x][coord.y] = null;
+      // crucial: remove the visual now to avoid leftover graphics
+      await explodePiece(p, true);
+      // schedule cascade activation (we pass coordinates and type)
+      cascade.push({x:coord.x, y:coord.y, type:p.type});
+      continue;
+    }
+
+    // If enemy, remove and count
+    if(p.type === 'enemy'){
+      grid[coord.x][coord.y] = null;
+      enemiesRemoved++; updateStats();
+      await explodePiece(p, true); // fast
+      continue;
+    }
+
+    // Normal piece: remove with particle + explode
+    grid[coord.x][coord.y] = null;
+    totalRemoved++; updateStats();
+    const pos = posToPixel(coord.x, coord.y);
+    particleBurst(pos.x, pos.y, COLORS[p.type] || 0xffffff);
+    await explodePiece(p, true);
+  }
+
+  // process cascaded specials sequentially (after their visuals already removed)
+  for(const s of cascade){
+    // Note: we call by coordinates & type; even though visuals were removed,
+    // the activation will execute based on the type and the current grid state.
+    await activateSpecialAt(s.x, s.y, s.type);
+  }
+  
+        // For enemy spawning: decrement counters and set pending flags for columns whose counter hits zero
+      for(let x=0;x<COLS;x++){
+        enemyCounters[x] = Math.max(0, enemyCounters[x]);
+        enemyCounters[x]--;
+        if(enemyCounters[x] <= 0){ enemyPending[x] = true; }
+      }
+
+  // after all removals triggered by this special, collapse & fill
+  await collapseAndFill();
+}
+
+  // ----------------------
+  // タップ処理（中心）
+  // - 連鎖レベルごとに以下を実行
+  //   1) ハイライト（連勝数の縦横1マス）を表示（色は連勝数色）
+  //   2) そのレベルのコマを順に消す（消えるアニメーション中にハイライトは見えている）
+  //   3) ハイライトは次レベル直前にフェードアウト
+  //   4) ハイライト範囲内の敵は通常の連鎖では消えない（仕様変更）
+  // - 最初に連勝数の列は lastTappedColumn に保存しておき、4/6/8+連鎖で特殊コマをその列に優先出現させる
+  // ----------------------
+  function handleTap(sx, sy){
+    if(busy) return;
+    if(!grid[sx] || !grid[sx][sy]) return;
+    const start = grid[sx][sy];
+    if(!start) return;
+    // don't allow tapping enemy directly
+    if(start.type === 'enemy') return;
+
+    busy = true;
+    lastTappedColumn = sx;
+
+    const levels = computeChainLevels(sx, sy, start.type);
+    totalComboForLast = levels.length;
+    if(totalComboForLast > maxCombo){ maxCombo = totalComboForLast; updateStats(); }
+
+    (async ()=>{
+      for(let i=0;i<levels.length;i++){
+        const levelNodes = levels[i];
+        // determine highlight color by the center type of this level (use first node's type)
+        const centerType = levelNodes[0].type;
+        const highlightColor = HIGHLIGHT_BY_TYPE[centerType] || HIGHLIGHT_COLORS_CYCLE[i % HIGHLIGHT_COLORS_CYCLE.length];
+
+        // draw highlight (covers center + 4 neighbors for each node in level)
+        const hl = drawLevelHighlight(levelNodes, highlightColor);
+
+        // show combo text for this level
+        showComboText(i+1);
+
+        // Now remove the actual pieces in this level sequentially (enemies are NOT removed here)
+        for(const node of levelNodes){
+          const p = grid[node.x]?.[node.y];
+          if(p && p.type !== 'enemy'){
+            grid[node.x][node.y] = null;
+            totalRemoved++; updateStats();
+            // particle effect at pos
+            const pos = posToPixel(node.x, node.y);
+            particleBurst(pos.x, pos.y, COLORS[p.type] || 0xffffff);
+            await explodePiece(p);
+          }
+        }
+
+        // small pause so player can see the highlight while pieces vanish
+        await new Promise(r=>setTimeout(r,180));
+
+        // fade out the highlight just before next level
+        gsap.to(hl, { alpha:0, duration:0.18, onComplete: ()=>{ if(hl.parent) hl.parent.removeChild(hl); } });
+
+        // tiny delay to separate levels
+        await new Promise(r=>setTimeout(r,120));
+      }
+
+      // after all levels processed, collapse and fill
+      // before collapsing, check whether any level >=4 happened -> schedule special
+      if(totalComboForLast >= 4){
+        // choose special type based on combo size as requested (4->h, 6->v, 8+->cross)
+        let spType = 'h';
+        if(totalComboForLast >= 8) spType = 'cross';
+        else if(totalComboForLast >= 6) spType = 'v';
+        else spType = 'h';
+        // schedule a special to appear in the first tapped column on the next fill
+        pendingSpecial = { col: lastTappedColumn, type: spType };
+      }
+
+      // For enemy spawning: decrement counters and set pending flags for columns whose counter hits zero
+      for(let x=0;x<COLS;x++){
+        enemyCounters[x] = Math.max(0, enemyCounters[x]);
+        enemyCounters[x]--;
+        if(enemyCounters[x] <= 0){ enemyPending[x] = true; }
+      }
+
+      await collapseAndFill();
+
+      // Show TOTAL combo if applicable (short)
+      await showTotalCombo(totalComboForLast);
+
+      busy = false;
+    })();
+  }
+
+  // ----------------------
+  // 初回カウント表示更新と定期更新
+  // ----------------------
+  updateCountDisplays();
+  setInterval(()=>{ updateCountDisplays(); }, 500);
+
+  // retry button
+  retryBtn.addEventListener('click', ()=>{ gameOverEl.style.display='none'; initGrid(); positionCountCols();});
+
+  </script>
+</body>
+</html>

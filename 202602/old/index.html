@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ピッタリパワーでヤサイ抜き！</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202602/old/" />
+  <meta property="og:title" content="ピッタリパワーでヤサイ抜き！" />
+  <meta property="og:description" content="パワーゲージをタップで止めて、ヤサイを引っこ抜こう！数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_yasai.png" />
+  
+<style>
+html,body {
+    margin: 0;
+    width:100%;
+    height:100%;
+    background: #222;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: system-ui, sans-serif;
+    color: #fff;
+  }
+  canvas {
+    background: #333;
+    touch-action: manipulation;
+    width: min(100vw, 360px);
+    height: auto;
+  }
+</style>
+</head>
+<body>
+<canvas id="game" width="360" height="548"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  const W = 360;
+  const H = 548;
+
+  // ============================
+  // ゲームステート
+  // ============================
+  const STATE_COUNTDOWN = "countdown";
+  const STATE_PLAYING = "playing";
+  const STATE_ENDING = "ending";
+  const STATE_RESULT = "result";
+
+  let state = STATE_COUNTDOWN;
+
+  // ============================
+  // タイマー
+  // ============================
+  const GAME_TIME = 30;
+  let countdown = 3;
+  let lastTime = performance.now();
+  let gameTimeLeft = GAME_TIME;
+
+  // ============================
+  // パワーゲージ
+  // ============================
+  let powerValue = 0;
+  let powerDir = 1;
+  let powerSpeed = 4.5;
+  const gaugeX = 40;
+  const gaugeY = 80;
+  const gaugeW = 60;
+  const gaugeH = 280;
+  const maxVal = 3.5;
+  const numberX = gaugeX + gaugeW + 80;
+  const numberY = gaugeY + gaugeH / 2;
+  let powerPopups = [];  //タップ時の数字を表示させるための配列
+  let specialNextSize = null; // 必殺技終了後の先頭野菜サイズ
+  
+  // ============================
+  // 野菜キュー
+  // ============================
+  const MAX_VEG = 20;
+  const vegQueue = [];
+  const VEG_COLORS = {
+    1: "#4CAF50",
+    2: "#FF9800",
+    3: "#E91E63"
+  };
+
+  // ============================
+  // スコア・コンボ
+  // ============================
+  let score = 0;
+  let combo = 0;
+  let maxCombo = 0;
+  let totalPulledSize = 0;
+  let pitari = 0;
+
+  // ============================
+  // コンボ演出
+  // ============================
+  const comboPopups = []; // {text,x,y,alpha,vy}
+  let shakePower = 0;
+  let shakeTime = 0;
+  let comboBanner = null; // {text,timer}
+  let pitariTotal = 0;           // 累計ピタリ回数
+  const pitariPopups = [];       // {text,x,y,alpha,vy}
+  let pitariBanner = null;       // {text,timer}
+  const missPopups = []; // {text, x, y, alpha, life, shakeAmp}
+
+  // ============================
+  // 必殺技
+  // ============================
+  let specialGauge = 0;
+  const SPECIAL_THRESHOLD = 30;
+  let specialReady = false;
+  let specialMode = false;
+  let specialPowerLeft = 0;
+  let specialTimer = 0;
+  const SPECIAL_INTERVAL = 90;
+  const NORMAL_FLY_TIME = 400;
+  const SPECIAL_FLY_TIME = 300;
+
+  // ============================
+  // 飛んでいく野菜
+  // ============================
+  const flyingVeg = []; // {size,x,y,angle,vx,vy,angleSpeed,life,lifeTime}
+
+  // ============================
+  // 必殺技エフェクト
+  // ============================
+  const specialEffects = []; // {type,x,y,life,maxLife}
+
+  // ============================
+  // 終了演出
+  // ============================
+  let showSokode = false;
+  let sokodeTimer = 0;
+  const RANKS = [
+    { score: 5000, title: "フレッシュパワー" },
+    { score: 10000, title: "ナイスパワー" },
+    { score: 15000, title: "グレートパワー" },
+    { score: 17500, title: "マスターパワー" },
+    { score: 20000, title: "レジェンドパワー" },
+    { score: 22500, title: "アンリミテッドパワー" }
+  ];
+  
+  // ============================
+  // 初期化
+  // ============================
+  function resetGame() {
+    state = STATE_COUNTDOWN;
+    countdown = 3;
+    gameTimeLeft = GAME_TIME;
+
+    powerValue = 0;
+    powerDir = 1;
+    powerPopups.length = 0;
+
+    vegQueue.length = 0;
+    for (let i = 0; i < MAX_VEG; i++) {
+      vegQueue.push({ size: randInt(1, 3), yOffset: 0 });
+    }
+
+    score = 0;
+    combo = 0;
+    maxCombo = 0;
+    pitari = 0;
+    totalPulledSize = 0;
+
+    comboPopups.length = 0;
+    shakePower = 0;
+    shakeTime = 0;
+    comboBanner = null;
+
+    pitariTotal= 0;
+    pitariPopups.length=0;
+    pitariBanner= null;
+
+    missPopups.length=0;
+
+    specialGauge = 0;
+    specialReady = false;
+    specialMode = false;
+    specialPowerLeft = 0;
+    specialTimer = 0;
+
+    flyingVeg.length = 0;
+    specialEffects.length = 0;
+
+    showSokode = false;
+    sokodeTimer = 0;
+  }
+
+  function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  // ============================
+  // 入力処理
+  // ============================
+  canvas.addEventListener("click", onTap, { passive: true });
+  canvas.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    onTap(e.changedTouches[0]);
+  }, { passive: false });
+
+  function onTap(e) {
+    if (state === STATE_RESULT) {
+      handleRetryButton(e);
+      return;
+    }
+    if (state === STATE_COUNTDOWN || state === STATE_ENDING) return;
+    if (state !== STATE_PLAYING) return;
+
+    // 必殺技中はタップ無効
+    if (specialMode) return;
+
+    // 必殺技READY → 発動
+    if (specialReady) {
+      enterSpecialMode();
+      return;
+    }
+
+    const currentPower = Math.floor(powerValue);
+
+    // ★ タップした数字のポップアップを追加
+    powerPopups.push({
+      text: String(currentPower),
+      x: W/2-20,
+      y: numberY,
+      alpha: 1,
+      vy: -3.0   // 上に移動する速度
+    });
+
+    handleTapPower(currentPower, false);
+
+    powerValue = 0;
+    powerDir = 1;
+  }
+
+  function handleRetryButton(e) {
+    const rect = canvas.getBoundingClientRect();
+    const px = (e.clientX - rect.left) * (W / rect.width);
+    const py = (e.clientY - rect.top) * (H / rect.height);
+
+    const winW = 300;
+    const winH = 300;
+    const x = (W - winW) / 2;
+    const y = (H - winH) / 2;
+
+    const btnW = 140;
+    const btnH = 40;
+    const btnX = W / 2 - btnW / 2;
+    const btnY = y + winH - 60;
+
+    if (px >= btnX && px <= btnX + btnW && py >= btnY && py <= btnY + btnH) {
+      resetGame();
+    }
+  }
+
+  // ============================
+  // 必殺技モード突入
+  // ============================
+  function enterSpecialMode() {
+    specialMode = true;
+    specialReady = false;
+    specialGauge = 0;
+    specialPowerLeft = 15;
+    specialTimer = 0;
+
+    // 雷エフェクトを複数発生
+    for (let i = 0; i < 3; i++) {
+      specialEffects.push({
+        type: "lightning",
+        x: 260,
+        y: 220 - i * 40,
+        life: 0,
+        maxLife: 200
+      });
+    }
+
+    // 白フラッシュ
+    specialEffects.push({
+      type: "flash",
+      x: 0,
+      y: 0,
+      life: 0,
+      maxLife: 180
+    });
+
+    // スペシャル終了時の野菜の大きさをシミュレーション
+    specialNextSize = simulateNextVegSizeAfterSpecial();
+  }
+
+  // ============================
+  // 野菜の大きさをシミュレーション
+  // ============================
+  function simulateNextVegSizeAfterSpecial() {
+    let power = 15; // 必殺技の総パワー
+    const tempQueue = vegQueue.map(v => ({ size: v.size }));
+
+    while (power > 0 && tempQueue.length > 0) {
+      const veg = tempQueue[0];
+
+      if (veg.size <= power) {
+        // 完全に抜ける
+        power -= veg.size;
+        tempQueue.shift();
+      } else {
+        // 削って終了
+        veg.size -= power;
+        power = 0;
+      }
+    }
+    // 必殺技終了後の先頭野菜
+    if (tempQueue.length > 0) {
+      return tempQueue[0].size;
+    } else {
+      // キューが空なら新しい野菜が来る
+      return randInt(1, 3);
+    }
+  }
+
+  // ============================
+  // 野菜を飛ばす（強化版）
+  // ============================
+  function addFlyingVeg(veg, isFromSpecial) {
+    const size = veg.size || 1;
+
+    const baseX = 260;
+    const baseY = 220;
+
+    // コンボ補正
+    const comboBoost = Math.min(combo * 0.15, 4);
+
+    // 必殺技補正
+    const specialBoost = isFromSpecial ? 3 : 0;
+
+    // ランダム角度
+    const randAngle = (Math.random() - 0.5) * 1.0 * (specialBoost?1.5:1);
+
+    const speedBase = 50 + comboBoost * 10;
+
+    const vx = (-(speedBase + Math.random() * 100) * Math.cos(randAngle) - 100) * (specialBoost?1.5:1);
+    const vy = (-(speedBase + Math.random() * 100) * Math.sin(randAngle) - 250) * (specialBoost?1.5:1);
+
+    const lifeTime = isFromSpecial ? SPECIAL_FLY_TIME : NORMAL_FLY_TIME;
+
+    flyingVeg.push({
+      size,
+      x: baseX,
+      y: baseY,
+      angle: 0,
+      vx,
+      vy,
+      angleSpeed: 4 + comboBoost + specialBoost + Math.random() * 2,
+      life: 0,
+      lifeTime
+    });
+
+    // 爆発エフェクト
+    specialEffects.push({
+      type: "explosion",
+      x: baseX,
+      y: baseY,
+      life: 0,
+      maxLife: 250
+    });
+  }
+
+  // ============================
+  // パワー判定
+  // ============================
+  function handleTapPower(power, isFromSpecial) {
+    if (vegQueue.length === 0) return;
+    if (power <= 0) {
+      combo = 0;
+      missPopups.push({
+        text: "MISS",
+        x: numberX-15,
+        y: numberY-40,
+        vy: -0.2,
+        alpha: 1,
+        life: 30, // 生存フレーム数
+        shakeAmp: 6 // 揺れ幅
+      });
+      return;
+    }
+
+    let remainingPower = power;
+
+    while (remainingPower > 0 && vegQueue.length > 0) {
+      const veg = vegQueue[0];
+
+      if (veg.size >= remainingPower) {
+        const willBePulledOut = (veg.size - remainingPower) <= 0;
+        if (willBePulledOut) {
+          // 完全に引っこ抜き
+          const isPitari = (veg.size === remainingPower);
+          
+          addFlyingVeg(veg, isFromSpecial);
+          vegQueue.shift();
+          vegQueue.push({ size: randInt(1, 3), yOffset: 0 });
+
+          score += power;
+          totalPulledSize += power;
+          specialGauge += power;
+
+          // コンボ成功
+          combo++;
+          if (combo > maxCombo) maxCombo = combo;
+
+          // コンボポップアップ
+          comboPopups.push({
+            text: combo + " COMBO!",
+            x: 260,
+            y: 155,
+            alpha: 1,
+            vy: -0.6
+          });
+
+          // 画面シェイク
+          shakePower = Math.min(combo * 0.1 + 1.5, 6);
+          shakeTime = 300;
+
+          // コンボ帯
+          if (combo % 10 === 0) {
+            comboBanner = {
+              text: combo + " COMBO!!",
+              timer: 1000
+            };
+          }
+
+          // ★ ピタリ判定（ちょうどのときだけ）
+          if (isPitari) {
+            pitariTotal++;
+            // ピタリポップアップ
+            pitariPopups.push({
+              text: "JUST!",
+              x: numberX-15,
+              y: numberY-40,
+              alpha: 1,
+              vy: -0.2
+            });
+            // ピタリ帯（10の倍数）
+            if (pitariTotal % 10 === 0) {
+              pitariBanner = {
+                text: pitariTotal + " JUST!",
+                timer: 1000
+              };
+            }
+          }
+
+          if (specialGauge >= SPECIAL_THRESHOLD) {
+            specialReady = true;
+          }
+
+        } else {
+          // 削っただけ → ミス扱い
+          if (!isFromSpecial) {
+            combo = 0;
+
+            missPopups.push({
+              text: "MISS",
+              x: numberX-15,
+              y: numberY-40,
+              vy: -0.2,
+              alpha: 1,
+              life: 30, // 生存フレーム数
+              shakeAmp: 6 // 揺れ幅
+            });
+          }
+        }
+
+        veg.size -= remainingPower;
+        remainingPower = 0;
+
+      } else {
+        // パワーが大きい → 次へ
+        addFlyingVeg({ size: veg.size }, isFromSpecial);
+        remainingPower -= veg.size;
+        vegQueue.shift();
+        vegQueue.push({ size: randInt(1, 3), yOffset: 0 });
+
+        score += veg.size;
+        totalPulledSize += veg.size;
+        specialGauge += veg.size;
+
+        if (specialGauge >= SPECIAL_THRESHOLD) {
+          specialReady = true;
+        }
+
+        if (!isFromSpecial) {
+          combo++;
+          if (combo > maxCombo) maxCombo = combo;
+          comboPopups.push({
+            text: combo + " COMBO!",
+            x: 260,
+            y: 180,
+            alpha: 1,
+            vy: -0.6
+          });
+          // シェイクもここに入れるなら同様に
+          shakePower = Math.min(combo * 0.1 + 1.5, 6);
+          shakeTime = 150;
+          
+          if (combo % 10 === 0) {
+            comboBanner = { text: combo + " COMBO!!", timer: 1000 };
+          }
+          
+          remainingPower = 0;
+        }
+      }
+    }
+  }
+
+  // ============================
+  // update()
+  // ============================
+  function update(deltaMs) {
+    const deltaSec = deltaMs / 1000;
+
+    // ----------------------------
+    // カウントダウン
+    // ----------------------------
+    if (state === STATE_COUNTDOWN) {
+      countdown -= deltaSec;
+      if (countdown <= 0) {
+        countdown = 0;
+        state = STATE_PLAYING;
+      }
+    }
+
+    // ----------------------------
+    // プレイ中
+    // ----------------------------
+    else if (state === STATE_PLAYING) {
+
+      // タイマー
+      gameTimeLeft -= deltaSec;
+      if (gameTimeLeft <= 0) {
+        gameTimeLeft = 0;
+        state = STATE_ENDING;
+        showSokode = true;
+        sokodeTimer = 0;
+      }
+
+      // パワーゲージ（必殺技中は停止）
+      if (!specialMode) {
+        powerValue += powerDir * powerSpeed * deltaSec;
+        if (powerValue > 3.5) {
+          powerValue = 3.5;
+          powerDir = -1;
+        } else if (powerValue < 0) {
+          powerValue = 0;
+          powerDir = 1;
+        }
+      }
+
+      // 必殺技中
+      if (specialMode) {
+        specialTimer += deltaMs;
+
+        // 残像エフェクト
+        specialEffects.push({
+          type: "afterimage",
+          x: 260,
+          y: 220,
+          life: 0,
+          maxLife: 150
+        });
+
+        while (specialTimer >= SPECIAL_INTERVAL && specialPowerLeft > 0 && vegQueue.length > 0) {
+          specialTimer -= SPECIAL_INTERVAL;
+
+          const chunkPower = Math.min(3, specialPowerLeft);
+          specialPowerLeft -= chunkPower;
+
+          handleTapPower(chunkPower, true);
+        }
+
+        if (specialPowerLeft <= 0) {
+          specialMode = false;
+          powerValue = 0;
+          powerDir = 1;
+          specialNextSize = null;
+        }
+      }
+    }
+
+    // ----------------------------
+    // 終了演出
+    // ----------------------------
+    else if (state === STATE_ENDING) {
+      sokodeTimer += deltaMs;
+      if (sokodeTimer >= 1500) {
+        state = STATE_RESULT;
+      }
+    }
+
+    // ----------------------------
+    // タップした数字の移動
+    // ----------------------------
+    for (let i = powerPopups.length - 1; i >= 0; i--) {
+      const p = powerPopups[i];
+
+      p.y += p.vy;        // 上に移動
+      p.alpha -= 0.04;    // 徐々に透明に
+
+      if (p.alpha <= 0) {
+        powerPopups.splice(i, 1); // 消す
+      }
+    }
+
+    // ----------------------------
+    // 飛んでいく野菜
+    // ----------------------------
+    for (let i = flyingVeg.length - 1; i >= 0; i--) {
+      const f = flyingVeg[i];
+      f.life += deltaMs;
+      const t = f.life / f.lifeTime;
+
+      f.x += f.vx * deltaSec;
+      f.y += f.vy * deltaSec;
+      f.angle += f.angleSpeed * deltaSec;
+
+      if (t >= 1) flyingVeg.splice(i, 1);
+    }
+
+    // ----------------------------
+    // コンボポップアップ
+    // ----------------------------
+    for (let i = comboPopups.length - 1; i >= 0; i--) {
+      const p = comboPopups[i];
+      p.y += p.vy;
+      p.alpha -= 0.02;
+      if (p.alpha <= 0) comboPopups.splice(i, 1);
+    }
+
+    // ★ ピタリポップアップ
+    for (let i = pitariPopups.length - 1; i >= 0; i--) {
+      const p = pitariPopups[i];
+      p.y += p.vy;
+      p.alpha -= 0.03;
+      if (p.alpha <= 0) pitariPopups.splice(i, 1);
+    }
+
+    // ミスポップアップ
+    for (let i = missPopups.length - 1; i >= 0; i--) {
+      const p = missPopups[i];
+      p.life--;
+      p.y += p.vy;
+      p.alpha -= 0.03;
+      if (p.life <= 0 || p.alpha <= 0) {
+        missPopups.splice(i, 1);
+      }
+    }
+
+    // ----------------------------
+    // コンボ帯
+    // ----------------------------
+    if (comboBanner) {
+      comboBanner.timer -= deltaMs;
+      if (comboBanner.timer <= 0) comboBanner = null;
+    }
+
+    // ★ ピタリ帯
+    if (pitariBanner) {
+      pitariBanner.timer -= deltaMs;
+      if (pitariBanner.timer <= 0) pitariBanner = null;
+    }
+
+    // ----------------------------
+    // シェイク
+    // ----------------------------
+    if (shakeTime > 0) {
+      shakeTime -= deltaMs;
+      if (shakeTime < 0) shakeTime = 0;
+    }
+
+    // ----------------------------
+    // 必殺技エフェクト
+    // ----------------------------
+    for (let i = specialEffects.length - 1; i >= 0; i--) {
+      const e = specialEffects[i];
+      e.life += deltaMs;
+      if (e.life >= e.maxLife) specialEffects.splice(i, 1);
+    }
+  }
+
+  // ============================
+  // 描画処理
+  // ============================
+  function draw() {
+
+    // ----------------------------
+    // 画面シェイク
+    // ----------------------------
+    if (shakeTime > 0) {
+      const dx = (Math.random() - 0.5) * shakePower;
+      const dy = (Math.random() - 0.5) * shakePower;
+      ctx.save();
+      ctx.translate(dx, dy);
+    } else {
+      ctx.save();
+    }
+
+    // 背景
+    ctx.fillStyle = "#2b2b2b";
+    ctx.fillRect(0, 0, W, H);
+
+    drawTimer();
+    drawPowerGauge();
+    drawPowerPopups();
+    drawVegQueue();
+    drawSpecialGauge();
+    drawFlyingVeg();
+    drawComboPopups();
+    drawComboBanner();
+    drawPitariPopups();
+    drawPitariBanner();
+    drawMissPopups();
+    drawSpecialEffects();
+
+    if (state === STATE_COUNTDOWN) drawCountdown();
+    if (state === STATE_ENDING && showSokode) drawSokode();
+    if (state === STATE_RESULT) drawResult();
+
+    ctx.restore();
+  }
+
+  // ============================
+  // タイマー
+  // ============================
+  function drawTimer() {
+    const timerText = state === STATE_COUNTDOWN
+      ? "Ready"
+      : gameTimeLeft.toFixed(1);
+
+    ctx.save();
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 40px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(timerText, W / 2, 10);
+    ctx.restore();
+  }
+
+  // ============================
+  // パワーゲージ
+  // ============================
+  function drawPowerGauge() {
+    ctx.save();
+    ctx.strokeStyle = "#ddd";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(gaugeX, gaugeY, gaugeW, gaugeH);
+
+    // 目盛り
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+
+    for (let i = 0; i <= 3; i++) {
+      const t = i / maxVal;
+      const y = gaugeY + gaugeH - gaugeH * t;
+      ctx.strokeStyle = "#888";
+      ctx.beginPath();
+      ctx.moveTo(gaugeX, y);
+      ctx.lineTo(gaugeX + gaugeW, y);
+      ctx.stroke();
+
+      ctx.fillStyle = "#fff";
+      ctx.fillText(String(i), gaugeX + gaugeW + 8, y);
+    }
+
+    // ゲージ色
+    const intPower = Math.floor(powerValue);
+    let color = "#555";
+    if (intPower === 1) color = VEG_COLORS[1];
+    else if (intPower === 2) color = VEG_COLORS[2];
+    else if (intPower >= 3) color = VEG_COLORS[3];
+
+    const tVal = Math.min(powerValue / maxVal, 1);
+    const filledH = gaugeH * tVal;
+    ctx.fillStyle = color;
+    ctx.fillRect(gaugeX, gaugeY + gaugeH - filledH, gaugeW, filledH);
+
+    // 数値表示
+    ctx.font = "bold 60px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = color;
+    ctx.fillText(Math.floor(powerValue), W/2 -20 , numberY);
+
+    ctx.restore();
+  }
+
+
+  // ============================
+  // タップしたときのパワー
+  // ============================
+  function drawPowerPopups() {
+    ctx.save();
+    ctx.font = "bold 60px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    for (const p of powerPopups) {
+      ctx.fillStyle = `rgba(255,255,255,${p.alpha})`;
+      ctx.fillText(p.text, p.x, p.y);
+    }
+
+    ctx.restore();
+  }
+
+
+  // ============================
+  // 野菜キュー
+  // ============================
+  function drawVegQueue() {
+    const firstX = 260;
+    const firstY = 220;
+    const gapY = 70;
+
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 24px sans-serif";
+
+    for (let i = 0; i < vegQueue.length; i++) {
+      const veg = vegQueue[i];
+      const size = veg.size;
+      const heightScale = size / 3;
+      const w = 60 + 40 * heightScale;
+      const h = 60 + 40 * heightScale;
+      const x = firstX;
+      const y = firstY + i * gapY + veg.yOffset;
+
+      ctx.fillStyle = VEG_COLORS[size];
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 2;
+
+      if (i === 0) {
+        ctx.shadowColor = "rgba(0,0,0,0.6)";
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 4;
+      } else {
+        ctx.shadowColor = "transparent";
+      }
+
+      ctx.beginPath();
+      roundRect(ctx, x - w/2, y - h/2, w, h, 15);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#fff";
+      ctx.fillText(String(size), x, y);
+    }
+
+    ctx.restore();
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+  }
+
+  // ============================
+  // 必殺技ゲージ
+  // ============================
+  function drawSpecialGauge() {
+    const x = 20;
+    const y = 380;
+    const w = 320;
+    const h = 20;
+
+    ctx.save();
+
+    ctx.fillStyle = "#111";
+    ctx.fillRect(x, y, w, h);
+
+    const t = Math.min(specialGauge / SPECIAL_THRESHOLD, 1);
+    ctx.fillStyle = specialReady ? "#FFEB3B" : "#03A9F4";
+    ctx.fillRect(x, y, w * t, h);
+
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("必殺技ゲージ", x+2, y+18);
+
+    if (specialReady) {
+      ctx.fillStyle = "#FFEB3B";
+      ctx.font = "bold 18px sans-serif";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      ctx.fillText("タップで必殺技！", x + w, y + h + 4);
+    }
+
+    if (specialMode) {
+      ctx.strokeStyle = "#FFEB3B";
+      ctx.lineWidth = 4;
+      ctx.setLineDash([8, 4]);
+      ctx.strokeRect(10, 70, W - 20, H - 140);
+      ctx.setLineDash([]);
+
+      ctx.font = "bold 28px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "#FFEB3B";
+      ctx.fillText("必殺技！！", W / 2, 410);
+    }
+
+    if (specialMode && specialNextSize != null) {
+      ctx.save();
+      ctx.fillStyle = "#FFEB3B";
+      ctx.font = "bold 26px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+
+      ctx.fillText(
+        `次の野菜サイズ: ${specialNextSize}`,
+        W / 2 + 50,
+        250
+      );
+
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  // ============================
+  // 飛んでいく野菜
+  // ============================
+  function drawFlyingVeg() {
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    flyingVeg.forEach(f => {
+      ctx.save();
+      ctx.translate(f.x, f.y);
+      ctx.rotate(f.angle * -1);
+
+      const size = f.size;
+      const heightScale = size / 3;
+      const w = 50 + 40 * heightScale;
+      const h = 50 + 40 * heightScale;
+
+      ctx.fillStyle = VEG_COLORS[size];
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      roundRect(ctx, -w/2, -h/2, w, h, 15);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 24px sans-serif";
+      ctx.fillText(String(size), 0, 0);
+
+      ctx.restore();
+    });
+
+    ctx.restore();
+  }
+
+  // ============================
+  // コンボポップアップ
+  // ============================
+  function drawComboPopups() {
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 28px sans-serif";
+
+    comboPopups.forEach(p => {
+      ctx.globalAlpha = p.alpha;
+      ctx.fillStyle = "#FFEB3B";
+      ctx.fillText(p.text, p.x, p.y);
+    });
+
+    ctx.restore();
+  }
+
+  // ============================
+  // ピタリポップアップ
+  // ============================
+  function drawPitariPopups() {
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 28px sans-serif";
+
+    pitariPopups.forEach(p => {
+      ctx.globalAlpha = p.alpha;
+
+      // 黒背景に黄色枠線
+      ctx.strokeStyle = "#FFEB3B";
+      ctx.lineWidth = 3;
+      ctx.strokeText(p.text, p.x, p.y);
+
+      ctx.fillStyle = "#000";
+      ctx.fillText(p.text, p.x, p.y);
+    });
+
+    ctx.restore();
+  }
+
+  // ============================
+  // ミスポップアップ
+  // ============================
+  function drawMissPopups() {
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 36px sans-serif";
+
+    missPopups.forEach(p => {
+      const shake = Math.sin((30 - p.life) * 0.4) * p.shakeAmp;
+
+      ctx.globalAlpha = p.alpha;
+      ctx.fillStyle = "#fff"; // グレー系
+      ctx.fillText(p.text, p.x + shake, p.y);
+    });
+
+    ctx.restore();
+  }
+
+  // ============================
+  // コンボ帯
+  // ============================
+  function drawComboBanner() {
+    if (!comboBanner) return;
+
+    const t = comboBanner.timer / 1000;
+    let alpha = 1;
+    
+    // フェードイン（最初の0.3秒）
+    if (t > 0.7) {
+      alpha = 1 - (t - 0.7) / 0.3;// 0→1
+    }
+    // フェードアウト（最後の0.3秒）
+    else if (t < 0.3) {
+      alpha = t / 0.3; // 1→0
+    }
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    ctx.fillStyle = "rgba(255, 235, 59, 0.8)";
+    ctx.fillRect(0, 60, W, 50);
+
+    ctx.fillStyle = "#000";
+    ctx.font = "bold 32px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(comboBanner.text, W / 2, 85);
+
+    ctx.restore();
+  }
+
+  // ============================
+  // ピタリ帯
+  // ============================
+  function drawPitariBanner() {
+    if (!pitariBanner) return;
+
+    const t = pitariBanner.timer / 1000;
+    let alpha = 1;
+    
+    // フェードイン（最初の0.3秒）
+    if (t > 0.7) {
+      alpha = 1 - (t - 0.7) / 0.3;// 0→1
+    }
+    // フェードアウト（最後の0.3秒）
+    else if (t < 0.3) {
+      alpha = t / 0.3; // 1→0
+    }
+    
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // 黒帯
+    ctx.fillStyle = "rgba(0,0,0,0.85)";
+    ctx.fillRect(0, 100, W, 50);
+
+    // 黄色文字
+    ctx.fillStyle = "#FFEB3B";
+    ctx.font = "bold 32px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(pitariBanner.text, W / 2, 125);
+
+    ctx.restore();
+  }
+
+
+  // ============================
+  // 必殺技エフェクト
+  // ============================
+  function drawSpecialEffects() {
+    specialEffects.forEach(e => {
+      const t = e.life / e.maxLife;
+
+      if (e.type === "lightning") drawLightning(e.x, e.y, t);
+      if (e.type === "afterimage") drawAfterimage(e.x, e.y, t);
+      if (e.type === "explosion") drawExplosion(e.x, e.y, t);
+      if (e.type === "flash") drawFlash(t);
+    });
+  }
+
+  // 雷
+  function drawLightning(x, y, t) {
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,0,${1 - t})`;
+    ctx.lineWidth = 3 + Math.random() * 2;
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let i = 0; i < 5; i++) {
+      x += (Math.random() - 0.5) * 40;
+      y += 20 + Math.random() * 20;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 残像
+  function drawAfterimage(x, y, t) {
+    ctx.save();
+    ctx.globalAlpha = 0.4 * (1 - t);
+    ctx.fillStyle = "#FFEB3B";
+    ctx.beginPath();
+    ctx.arc(x, y, 40 + t * 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 爆発
+  function drawExplosion(x, y, t) {
+    ctx.save();
+    const r = 20 + t * 40;
+    ctx.globalAlpha = 1 - t;
+    ctx.fillStyle = "#FF5722";
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 白フラッシュ
+  function drawFlash(t) {
+    ctx.save();
+    ctx.globalAlpha = 0.8 * (1 - t);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  // ============================
+  // カウントダウン
+  // ============================
+  function drawCountdown() {
+    ctx.save();
+
+    // 帯（バナー）
+    const barH = 120;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(0, numberY - barH / 2, W, barH);
+
+    // テキスト
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 80px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    const c = Math.ceil(countdown);
+    const text = c > 0 ? String(c) : "スタート！";
+
+    ctx.fillText(text, W/2, numberY);
+
+    ctx.restore();
+  }
+
+  // ============================
+  // そこまで！
+  // ============================
+  function drawSokode() {
+    ctx.save();
+
+    // 背景を薄暗く
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(0, 0, W, H);
+
+    // 帯（バナー）
+    const barH = 140;
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.fillRect(0, numberY - barH / 2, W, barH);
+
+    // テキスト
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 60px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.fillText("そこまで！", W/2, numberY);
+
+    ctx.restore();
+  }
+
+
+  // ============================
+  // リザルト
+  // ============================
+  function drawResult() {
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(0, 0, W, H);
+
+    const winW = 300;
+    const winH = 330;
+    const x = (W - winW) / 2;
+    const y = (H - winH) / 2;
+
+ctx.globalAlpha = 0.8;
+    ctx.fillStyle = "#424242";
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    roundRect(ctx, x, y, winW, winH, 16);
+    ctx.fill();
+    ctx.stroke();
+ctx.globalAlpha = 1;
+
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.font = "bold 24px sans-serif";
+    ctx.fillText("結果発表", W / 2, y + 12);
+
+    ctx.font = "16px sans-serif";
+    ctx.textAlign = "right";
+
+    const tx = x + 20;
+    let ty = y + 60;
+
+    ctx.fillText(`引っこ抜いた合計:`, W / 2, ty);
+    ctx.fillText(`${totalPulledSize}×100pts`, x+winW-40, ty);
+    ty += 28;
+    
+    ctx.fillText(`COMBOボーナス :`, W / 2, ty);
+    ctx.fillText(`${maxCombo}×100pts`, x+winW-40, ty);
+    ty += 28;
+    
+    ctx.fillText(`　JUST ボーナス :`, W / 2, ty);
+    ctx.fillText(`${pitariTotal}×100pts`, x+winW-40, ty);
+    ty += 28;ty += 7;
+    
+    ctx.font = "bold 20px sans-serif";
+    
+    ctx.textAlign = "left";
+
+    const total = (score + maxCombo + pitariTotal) * 100;
+    ctx.fillText(`トータルスコア: ${total.toLocaleString()}pts`, tx, ty); ty += 36;
+
+
+const rank = getRankInfo(total);
+
+ctx.font = "bold 20px sans-serif";
+ctx.fillStyle = "#FFEB3B";
+ctx.fillText(`称号: ${rank.title}`, tx, ty);
+ty += 32;
+
+ctx.font = "16px sans-serif";
+ctx.fillStyle = "#fff";
+
+if (rank.remain != null) {
+  ctx.fillText(`次のランクまで: あと ${rank.remain} pts`, tx, ty);
+} else {
+  ctx.fillText(`なんと完全制覇！すごすぎる！！`, tx, ty);
+}
+ty += 50;
+
+ctx.textAlign = "center";
+
+    // リトライボタン
+    const btnW = 140;
+    const btnH = 40;
+    const btnX = W / 2 - btnW / 2;
+    const btnY = y + winH - 60;
+
+    ctx.fillStyle = "#03A9F4";
+    ctx.beginPath();
+    roundRect(ctx, btnX, btnY, btnW, btnH, 12);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 18px sans-serif";
+    ctx.fillText("リトライ", W / 2, btnY + btnH / 2);
+
+    ctx.restore();
+  }
+
+
+  //スコア取得
+function getRankInfo(score) {
+  let current = RANKS[0];
+  let next = null;
+
+  for (let i = 0; i < RANKS.length; i++) {
+    if (score >= RANKS[i].score) {
+      current = RANKS[i];
+    } else {
+      next = RANKS[i];
+      break;
+    }
+  }
+
+  return {
+    title: current.title,
+    nextScore: next ? next.score : null,
+    remain: next ? next.score - score : null
+  };
+}
+
+  // ============================
+  // メインループ
+  // ============================
+  function loop(now) {
+    const deltaMs = now - lastTime;
+    lastTime = now;
+
+    update(deltaMs);
+    draw();
+
+    requestAnimationFrame(loop);
+  }
+
+  resetGame();
+  requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

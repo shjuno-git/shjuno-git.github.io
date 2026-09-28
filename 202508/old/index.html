@@ -1,0 +1,54 @@
+<html lang="ja">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1.0">
+	<meta name="description" content="1/1024の当たりを引こう。経験値で当たりやすくできるよ。数分で遊べるフリーのブラウザゲーム。">
+	<link rel="icon" href="../../favicon/icon.ico" type="image/x-icon">
+	<title>豪運くじびき</title>
+	<!-- Google tag (gtag.js) -->
+	<script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+	<script>
+		window.dataLayer = window.dataLayer || [];
+		function gtag() { dataLayer.push(arguments); }
+		gtag('js', new Date());
+		gtag('config', 'G-X7H2CH0FBF');
+	</script>
+
+	<!-- Twitter向けOGP設定 -->
+	<meta name="twitter:site" content="@kshukshu777" />
+	<meta name="twitter:creator" content="@kshukshu777" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta property="og:url" content="https://shjuno-git.github.io/202508/old/" />
+	<meta property="og:title" content="豪運くじびき" />
+	<meta property="og:description" content="1/1024の当たりを引こう。経験値で当たりやすくできるよ。数分で遊べるフリーのブラウザゲーム。" />
+	<meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_kuji.png">
+
+	<!-- canvasを中央揃えするための親要素設定 -->
+	<style>
+		/* 親要素にFlexboxを設定 */
+		#canvas-container {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			display: flex;
+			justify-content: center;
+			/* 横方向中央揃え */
+			align-items: center;
+			/* 縦方向下揃え */
+		}
+	</style>
+</head>
+
+<body>
+	<!-- Pixi.jsのキャンバスを配置する親要素 -->
+	<div id="canvas-container"></div>
+	<!-- 読み込むjs -->
+	<script src="../../lib/pixi-4.5.5.min.js"></script>
+	<script src="../../lib/gsap-3.9.1.min.js"></script>
+	<script src="./script.js" type="module"></script>
+</body>
+
+</html>

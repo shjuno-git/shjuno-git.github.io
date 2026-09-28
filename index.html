@@ -2,276 +2,373 @@
 <html lang="ja">
 
 <head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width,initial-scale=1">
-	<title>shjuno ミニゲーム集</title>
-	<style>
-		* {
-			box-sizing: border-box;
-		}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>shjuno ミニゲーム集</title>
+    <meta name="description" content="shjuno（シュノ）が作った、1分で遊べるブラウザミニゲーム集。旧名義：シシノノ">
+    <link rel="icon" href="./favicon/icon.ico" type="image/x-icon">
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-X7H2CH0FBF');
+    </script>
+    <style>
+        :root {
+            --bg: #2b2d42;
+            --panel: #3a3d5c;
+            --panel-hi: #45496d;
+            --text: #f1f1f6;
+            --sub: #b9bbd0;
+            --accent: #4ea8ff;
+            --accent-2: #ffb347;
+            --radius: 12px;
+        }
 
-		body {
-			margin: 0;
-			padding: 24px 16px 48px;
-			background: #333344;
-			color: #eee;
-			font-family: -apple-system, "Hiragino Sans", "Yu Gothic", Meiryo, Arial, sans-serif;
-		}
+        * { box-sizing: border-box; }
 
-		h1 {
-			font-size: 1.3em;
-			text-align: center;
-			margin-bottom: 16px;
-		}
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif;
+            line-height: 1.6;
+        }
 
-		.filter-bar {
-			display: flex;
-			flex-wrap: wrap;
-			justify-content: center;
-			gap: 8px;
-			max-width: 480px;
-			margin: 0 auto 24px;
-		}
+        a { color: inherit; text-decoration: none; }
 
-		.filter-btn {
-			background: rgba(255,255,255,0.08);
-			color: #cdd3e0;
-			border: 1px solid rgba(255,255,255,0.2);
-			font: inherit;
-			font-size: 0.8em;
-			padding: 5px 14px;
-			border-radius: 14px;
-			cursor: pointer;
-		}
+        #games { scroll-margin-top: 64px; }
 
-		.filter-btn:hover {
-			background: rgba(255,255,255,0.16);
-		}
+        .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
 
-		.filter-btn.active {
-			background: #4a90d9;
-			border-color: #4a90d9;
-			color: #fff;
-			font-weight: bold;
-		}
+        /* ヘッダー */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: rgba(43, 45, 66, 0.92);
+            backdrop-filter: blur(6px);
+            border-bottom: 1px solid var(--panel);
+        }
 
-		ul {
-			list-style: none;
-			margin: 0 auto;
-			padding: 0;
-			max-width: 480px;
-		}
+        header .wrap {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 56px;
+        }
 
-		li {
-			background: #44445a;
-			border-radius: 8px;
-			padding: 14px 16px;
-			margin-bottom: 12px;
-		}
+        .logo { font-weight: bold; font-size: 1.2rem; }
+        .logo small { color: var(--sub); font-weight: normal; font-size: 0.8rem; margin-left: 6px; }
 
-		.card-link {
-			display: block;
-			color: inherit;
-			text-decoration: none;
-		}
+        header nav a { margin-left: 16px; color: var(--sub); font-size: 0.9rem; }
+        header nav a:hover { color: var(--text); }
 
-		.thumb {
-			display: block;
-			width: 100%;
-			height: auto;
-			border-radius: 6px;
-			margin-bottom: 10px;
-		}
+        /* ヒーロー（プロフィール＋最新作） */
+        .intro { color: var(--sub); font-size: 0.85rem; margin: 16px 0 10px; }
 
-		.title {
-			font-weight: bold;
-			margin-bottom: 4px;
-		}
+        .latest {
+            display: grid;
+            grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+            background: var(--panel);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
 
-		.card-link:hover .title {
-			color: #9fd3ff;
-			text-decoration: underline;
-		}
+        .latest { align-items: center; }
+        .latest img { width: 100%; display: block; aspect-ratio: 1200 / 630; object-fit: cover; }
+        .latest .body { padding: 16px 20px; display: flex; flex-direction: column; justify-content: center; }
+        .latest .tag-new { color: var(--accent-2); font-weight: bold; font-size: 0.8rem; }
+        .latest h2 { margin: 2px 0 4px; font-size: 1.3rem; }
+        .latest p { margin: 0 0 12px; color: var(--sub); font-size: 0.9rem; }
 
-		.desc {
-			font-size: 0.85em;
-			opacity: 0.85;
-		}
+        /* 絞り込みバー */
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            justify-content: space-between;
+            margin: 8px 0 16px;
+        }
 
-		.sub-links {
-			margin-top: 10px;
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 8px;
-		}
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
-		.tags {
-			display: flex;
-			flex-wrap: wrap;
-			gap: 6px;
-		}
+        .chip {
+            border: 1px solid var(--panel-hi);
+            background: transparent;
+            color: var(--sub);
+            border-radius: 999px;
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
 
-		.tag {
-			background: rgba(255,255,255,0.1);
-			color: #cdd3e0;
-			border: none;
-			font: inherit;
-			font-size: 0.7em;
-			padding: 3px 10px;
-			border-radius: 10px;
-			cursor: pointer;
-		}
+        .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .chip.remake { border-color: var(--accent-2); color: var(--accent-2); font-weight: bold; }
+        .chip.remake.active { background: var(--accent-2); color: #222; }
 
-		.tag:hover {
-			background: rgba(255,255,255,0.2);
-		}
+        select {
+            background: var(--panel);
+            color: var(--text);
+            border: 1px solid var(--panel-hi);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 0.85rem;
+        }
 
-		li.hidden {
-			display: none;
-		}
+        .count { color: var(--sub); font-size: 0.85rem; }
 
-		.original-link {
-			color: #9fd3ff;
-			opacity: 0.7;
-			text-decoration: none;
-			font-size: 0.7em;
-		}
+        /* ゲーム一覧 */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 16px;
+            padding-bottom: 40px;
+        }
 
-		.original-link:hover {
-			text-decoration: underline;
-		}
-	</style>
+        .card {
+            background: var(--panel);
+            border-radius: var(--radius);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.15s, background 0.15s;
+        }
+
+        .card:hover { transform: translateY(-3px); background: var(--panel-hi); }
+
+        .card .thumb { position: relative; }
+        .card img { width: 100%; display: block; aspect-ratio: 1200 / 630; object-fit: cover; background: #222; }
+
+        .badge {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: var(--accent-2);
+            color: #222;
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 999px;
+        }
+
+        .card .body { padding: 12px 14px 14px; display: flex; flex-direction: column; flex: 1; }
+        .card h3 { font-size: 1rem; margin: 0 0 4px; }
+        .card p { font-size: 0.85rem; color: var(--sub); margin: 0 0 10px; flex: 1; }
+
+        .meta { display: flex; flex-wrap: wrap; gap: 4px 6px; font-size: 0.7rem; color: var(--sub); margin-bottom: 10px; }
+        .meta span { background: var(--bg); padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+        .meta .remake-date { color: var(--accent-2); }
+        .engine { font-size: 0.75em; color: var(--sub); font-weight: normal; margin-left: 2px; }
+
+        .actions { display: flex; gap: 8px; align-items: center; }
+
+        .btn {
+            display: inline-block;
+            background: var(--accent);
+            color: #fff;
+            font-weight: bold;
+            font-size: 0.85rem;
+            padding: 6px 14px;
+            border-radius: 8px;
+        }
+
+        .btn.remake { background: var(--accent-2); color: #222; }
+
+        .btn:hover { filter: brightness(1.1); }
+        .btn-sub { font-size: 0.75rem; color: var(--sub); text-decoration: underline; }
+
+        /* フッター */
+        footer {
+            border-top: 1px solid var(--panel);
+            padding: 24px 0 32px;
+            color: var(--sub);
+            font-size: 0.85rem;
+        }
+
+        footer .links { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 8px; }
+        footer .links a:hover { color: var(--text); }
+
+        @media (max-width: 768px) {
+            .latest { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+            .latest .body { padding: 8px 10px; }
+            .latest h2 { font-size: 0.9rem; }
+            .latest p { font-size: 0.7rem; margin-bottom: 6px; }
+            .latest .btn { padding: 4px 10px; font-size: 0.75rem; }
+            .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .meta .remake-date { display: none; }
+            .card h3 { font-size: 0.85rem; }
+            .card p {
+                font-size: 0.7rem;
+                line-height: 1.4;
+                margin-bottom: 6px;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+            .card .body { padding: 8px 10px 10px; }
+            .actions { flex-wrap: wrap; gap: 4px 8px; }
+        }
+    </style>
 </head>
 
 <body>
-	<h1>shjuno ミニゲーム集</h1>
-	<div class="filter-bar" id="filterBar"></div>
-	<ul id="gameList">
-		<li data-genres="アクション">
-			<a class="card-link" href="202506/">
-				<img class="thumb" src="images/thumbnail/linkcard_yokerocket.png" alt="タッチ★よけロケ！">
-				<div class="title">タッチ★よけロケ！（202506）</div>
-				<div class="desc">タッチで避けてゴールを目指そう！</div>
-			</a>
-			<div class="sub-links">
-				<div class="tags">
-					<button type="button" class="tag" data-genre="アクション">アクション</button>
-				</div>
-				<a class="original-link" href="202506/original/">旧版で遊ぶ</a>
-			</div>
-		</li>
-		<li data-genres="アクション">
-			<a class="card-link" href="202505/">
-				<img class="thumb" src="images/thumbnail/linkcard_ogiyahagi.png" alt="荻や萩-OgiYaHagi-">
-				<div class="title">荻や萩-OgiYaHagi-（202505）</div>
-				<div class="desc">OGIやHAGIを仕分けよう。決めろOGIYAHAGI！</div>
-			</a>
-			<div class="sub-links">
-				<div class="tags">
-					<button type="button" class="tag" data-genre="アクション">アクション</button>
-				</div>
-				<a class="original-link" href="202505/original/">旧版で遊ぶ</a>
-			</div>
-		</li>
-		<li data-genres="パズル">
-			<a class="card-link" href="202504/">
-				<img class="thumb" src="images/thumbnail/linkcard_plus5.png" alt="足して５！～または同じ数字で消すパズル～">
-				<div class="title">足して５！～または同じ数字で消すパズル～（202504）</div>
-				<div class="desc">２つの数字を組み合わせて、全消しを狙おう！</div>
-			</a>
-			<div class="sub-links">
-				<div class="tags">
-					<button type="button" class="tag" data-genre="パズル">パズル</button>
-				</div>
-				<a class="original-link" href="202504/original/">旧版で遊ぶ</a>
-			</div>
-		</li>
-		<li data-genres="パズル">
-			<a class="card-link" href="202503/">
-				<img class="thumb" src="images/thumbnail/linkcard_nibungi.png" alt="二分木クイズ">
-				<div class="title">二分木クイズ（202503）</div>
-				<div class="desc">二分木の？に入る数字を当てよう！</div>
-			</a>
-			<div class="sub-links">
-				<div class="tags">
-					<button type="button" class="tag" data-genre="パズル">パズル</button>
-				</div>
-				<a class="original-link" href="202503/original/">旧版で遊ぶ</a>
-			</div>
-		</li>
-		<li data-genres="アクション">
-			<a class="card-link" href="202502/">
-				<img class="thumb" src="images/thumbnail/linkcard_fufukosho.png" alt="フーフーコショー">
-				<div class="title">フーフーコショー（202502）</div>
-				<div class="desc">プチプチ感覚でコショウをお掃除だ！</div>
-			</a>
-			<div class="sub-links">
-				<div class="tags">
-					<button type="button" class="tag" data-genre="アクション">アクション</button>
-				</div>
-				<a class="original-link" href="202502/original/">旧版で遊ぶ</a>
-			</div>
-		</li>
-		<li data-genres="アクション">
-			<a class="card-link" href="202501/">
-				<img class="thumb" src="images/thumbnail/linkcard_goen.png" alt="５円はスルー、ボールは打つ！">
-				<div class="title">５円はスルー、ボールは打つ（202501）</div>
-				<div class="desc">ボールを打ち返して５円玉を集めよう！</div>
-			</a>
-			<div class="sub-links">
-				<div class="tags">
-					<button type="button" class="tag" data-genre="アクション">アクション</button>
-				</div>
-				<a class="original-link" href="202501/original/">旧版で遊ぶ</a>
-			</div>
-		</li>
-	</ul>
-	<script>
-		(function () {
-			const list = document.getElementById("gameList");
-			const items = Array.from(list.querySelectorAll("li"));
-			const filterBar = document.getElementById("filterBar");
 
-			const genres = [];
-			items.forEach((li) => {
-				(li.dataset.genres || "").split(",").filter(Boolean).forEach((g) => {
-					if (!genres.includes(g)) genres.push(g);
-				});
-			});
+    <header>
+        <div class="wrap">
+            <a class="logo" href="./">shjuno<small>シュノ</small></a>
+            <nav>
+                <a href="#games">ゲーム</a>
+                <a href="https://x.com/kshukshu777" target="_blank" rel="noopener">X</a>
+            </nav>
+        </div>
+    </header>
 
-			function applyFilter(genre) {
-				items.forEach((li) => {
-					const list = (li.dataset.genres || "").split(",").filter(Boolean);
-					li.classList.toggle("hidden", !(genre === "all" || list.includes(genre)));
-				});
-				filterBar.querySelectorAll(".filter-btn").forEach((btn) => {
-					btn.classList.toggle("active", btn.dataset.genre === genre);
-				});
-			}
+    <main class="wrap">
+        <p class="intro">1分で遊べるブラウザミニゲーム集</p>
+        <div class="latest" id="latest"></div>
 
-			function makeFilterBtn(genre, label) {
-				const btn = document.createElement("button");
-				btn.type = "button";
-				btn.className = "filter-btn";
-				btn.dataset.genre = genre;
-				btn.textContent = label;
-				btn.addEventListener("click", () => applyFilter(genre));
-				return btn;
-			}
+        <!-- 一覧 -->
+        <section id="games">
+            <div class="toolbar">
+                <div class="chips" id="chips"></div>
+                <div>
+                    <span class="count" id="count"></span>
+                    <select id="sort" aria-label="並び替え">
+                        <option value="new">新しい順</option>
+                        <option value="old">古い順</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid" id="grid"></div>
+        </section>
+    </main>
 
-			filterBar.appendChild(makeFilterBtn("all", "すべて"));
-			genres.forEach((g) => filterBar.appendChild(makeFilterBtn(g, g)));
-			applyFilter("all");
+    <footer>
+        <div class="wrap">
+            <div class="links">
+                <a href="https://x.com/kshukshu777" target="_blank" rel="noopener">X</a>
+                <a href="https://www.freem.ne.jp/brand/17395" target="_blank" rel="noopener">ふりーむ！</a>
+                <a href="https://shjuno.itch.io/" target="_blank" rel="noopener">itch.io</a>
+                <a href="https://note.com/shjuno" target="_blank" rel="noopener">note</a>
+                <a href="https://shjuno-git.github.io/" target="_blank" rel="noopener">GitHub</a>
+            </div>
+            <div>© shjuno</div>
+        </div>
+    </footer>
 
-			list.querySelectorAll(".tag[data-genre]").forEach((tagEl) => {
-				tagEl.addEventListener("click", () => {
-					applyFilter(tagEl.dataset.genre);
-					filterBar.scrollIntoView({ behavior: "smooth", block: "start" });
-				});
-			});
-		})();
-	</script>
+    <script>
+        // ===== ゲームデータ =====
+        // id: kshukshu.comのフォルダ名／ date: 公開年月（GitHub Pagesのフォルダ名 YYYYMM にもなる）／ remake: リメイク版あり／ remakeDate: リメイク公開年月（PCのみ表示）／ engine: JavaScript以外の場合のみ記入
+        const GAMES = [
+            { id: "kurage", title: "バイバイクラゲ", desc: "水鉄砲で倍々に増えるクラゲを退治しよう！", genre: "アクション", date: "2026-10", img: "linkcard_kurage.png" },
+            { id: "kiki", title: "機器一発！", desc: "表裏を見極めて、機器を一発で接続しよう！", genre: "アクション", engine: "Godot", date: "2026-09", img: "linkcard_kiki.png" },
+            { id: "meteor", title: "受けとメテオ！", desc: "タップで隕石を操作、器で受け止めよう！", genre: "アクション", date: "2026-08", img: "linkcard_meteor.png" },
+            { id: "bunny", title: "逃げウサ囲み～Bunny Sweeper～", desc: "数字を頼りに移動して、ウサギを囲んで捕まえよう！", genre: "パズル", date: "2026-07", img: "linkcard_bunny.png" },
+            { id: "water", title: "ポンプでポップにボールイン", desc: "3つのポンプでボールを操作、ゴールにシュートだ！", genre: "その他", date: "2026-06", img: "linkcard_water.png" },
+            { id: "fruits", title: "ずらして ちぎって 大収穫！", desc: "果物を左右にずらして、端でちぎって、大収穫しよう！", genre: "パズル", date: "2026-05", img: "linkcard_fruits.png" },
+            { id: "himo", title: "囲って、ひも犬", desc: "スライドでひも犬を操作して敵やアイテムを囲おう！", genre: "アクション", date: "2026-04", img: "linkcard_himo.png" },
+            { id: "piyo", title: "ぴよこの飛行訓練", desc: "ぴよこは目を閉じて飛ぶ！ゴールまで導こう。", genre: "アクション", date: "2026-03", img: "linkcard_piyo.png" },
+            { id: "yasai", title: "ピッタリパワーでヤサイ抜き！", desc: "パワーゲージをタップで止めて、ヤサイを引っこ抜こう！", genre: "アクション", date: "2026-02", img: "linkcard_yasai.png" },
+            { id: "make21", title: "CHANGE & MAKE 21", desc: "-6～6のカードで手札と山札を交換して21を作ろう！", genre: "パズル", date: "2026-01", img: "linkcard_make21.png" },
+            { id: "ryote", title: "両手でディフェンス", desc: "両手で左右のバーを操作して敵にボールをぶつけよう！", genre: "アクション", date: "2025-12", img: "linkcard_ryote.png" },
+            { id: "gcp", title: "消して100ぐちぱ！", desc: "ぐちぱを繋げて目指せ100ぐちぱ！", genre: "パズル", date: "2025-11", img: "linkcard_gcp.png" },
+            { id: "nige", title: "１分逃げて！", desc: "迫りくる攻撃から１分間逃げ切って！", genre: "アクション", date: "2025-10", img: "linkcard_nige.png" },
+            { id: "fish", title: "Fish and Chips", desc: "マネキンを飛ばしてFishとChipをGetしよう", genre: "アクション", engine: "Unity", date: "2025-09", img: "linkcard_fish.png" },
+            { id: "kuji", title: "豪運くじびき", desc: "1/1024の当たりを引こう。経験値で強化だ！", genre: "その他", date: "2025-08", img: "linkcard_kuji.png" },
+            { id: "sansu", title: "いい加減さんすう", desc: "数字を計算してゴールと同じ数字をつくろう！", genre: "パズル", date: "2025-07", img: "linkcard_sansu.png" },
+            { id: "yokeroke", title: "タッチ★よけロケ！", desc: "タッチで避けてゴールを目指そう！", genre: "アクション", date: "2025-06", img: "linkcard_yokerocket.png", remakeImg: "linkcard_yokerocket_remake.png", remake: true, remakeDate: "2026-09" },
+            { id: "ogiyahagi", title: "荻や萩-OgiYaHagi-", desc: "OGIやHAGIを仕分けよう。決めろOGIYAHAGI！", genre: "アクション", date: "2025-05", img: "linkcard_ogiyahagi.png", remake: true, remakeDate: "2026-09" },
+            { id: "plus5", title: "足して５！～または同じ数字で消すパズル～", desc: "２つの数字を組み合わせて、全消しを狙おう！", genre: "パズル", date: "2025-04", img: "linkcard_plus5.png", remakeImg: "linkcard_plus5_remake.png", remake: true, remakeDate: "2026-09" },
+            { id: "nibungi", title: "二分木クイズ", desc: "二分木の？に入る数字を当てよう！", genre: "パズル", date: "2025-03", img: "linkcard_nibungi.png", remakeImg: "linkcard_nibungi_remake.png", remake: true, remakeDate: "2026-08" },
+            { id: "fufukosho", title: "フーフーコショー", desc: "プチプチ感覚でコショウをお掃除だ！", genre: "アクション", date: "2025-02", img: "linkcard_fufukosho.png", remake: true, remakeDate: "2026-08" },
+            { id: "goenball", title: "５円はスルー、ボールは打つ！", desc: "ボールを打ち返して５円玉を集めよう！", genre: "アクション", date: "2025-01", img: "linkcard_goen.png", remake: true, remakeDate: "2026-08" },
+        ];
+
+        // リメイク版専用の画像があればそちらを優先（旧画像は残す）
+        const imgOf = g => `./images/thumbnail/${g.remakeImg || g.img}`;
+
+        // ===== 公開先 =====
+        // 同じindex.htmlをkshukshu.comとGitHub Pagesの両方に置く。開いているサイトに応じてリンク先を切り替える
+        // GitHub Pagesは公開年月のフォルダに置く：リメイク版は YYYYMM/、旧版（リメイクなし作品も）は YYYYMM/old/
+        // （動作確認用に ?site=gh を付けるとGitHub Pagesとして表示する）
+        const KS = "https://kshukshu.com/";
+        const GH = "https://shjuno-git.github.io/";
+        const ON_GH = location.hostname.endsWith("github.io") || new URLSearchParams(location.search).get("site") === "gh";
+        const dirOf = g => g.date.replace("-", "");
+        const remakeUrl = g => g.remake ? (ON_GH ? `./${dirOf(g)}/` : `${GH}${dirOf(g)}/`) : null;
+        const urlOf = g => ON_GH ? `./${dirOf(g)}/old/` : `${KS}${g.id}/`; // 旧版（リメイクがなければ通常版）
+        const playOf = g => remakeUrl(g) || urlOf(g);
+        const fmtDate = d => d.replace("-", ".");
+        const titleOf = g => g.title + (g.engine ? `<span class="engine">（${g.engine}）</span>` : "");
+
+        let genre = "すべて";
+        let sort = "new";
+
+        // 最新作
+        function renderLatest() {
+            const g = [...GAMES].sort((a, b) => b.date.localeCompare(a.date))[0];
+            document.getElementById("latest").innerHTML = `
+                <a href="${playOf(g)}"><img src="${imgOf(g)}" alt="${g.title}"></a>
+                <div class="body">
+                    <div class="tag-new">NEW 最新作</div>
+                    <h2>${titleOf(g)}</h2>
+                    <p>${g.desc}</p>
+                    <div class="actions">
+                        <a class="btn${g.remake ? " remake" : ""}" href="${playOf(g)}">遊ぶ</a>
+                        ${g.remake ? `<a class="btn-sub" href="${urlOf(g)}">旧版で遊ぶ</a>` : ""}
+                    </div>
+                </div>`;
+        }
+
+        // ジャンルボタン
+        function renderChips() {
+            const genres = ["すべて", "リメイク", "アクション", "パズル", "その他"];
+            const el = document.getElementById("chips");
+            el.innerHTML = genres.map(x =>
+                `<button class="chip${x === "リメイク" ? " remake" : ""}${x === genre ? " active" : ""}" data-genre="${x}">${x}</button>`).join("");
+            el.querySelectorAll(".chip").forEach(b => b.onclick = () => {
+                genre = b.dataset.genre;
+                renderChips();
+                renderGrid();
+            });
+        }
+
+        // 一覧
+        function renderGrid() {
+            const list = GAMES
+                .filter(g => genre === "すべて" || g.genre === genre || (genre === "リメイク" && g.remake))
+                .sort((a, b) => sort === "new" ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date));
+            document.getElementById("count").textContent = `${list.length}作品　`;
+            document.getElementById("grid").innerHTML = list.map(g => `
+                <article class="card">
+                    <a class="thumb" href="${playOf(g)}">
+                        <img src="${imgOf(g)}" alt="${g.title}" loading="lazy">
+                        ${g.remake ? `<span class="badge">リメイク</span>` : ""}
+                    </a>
+                    <div class="body">
+                        <h3>${titleOf(g)}</h3>
+                        <p>${g.desc}</p>
+                        <div class="meta"><span>${g.genre}</span><span>${fmtDate(g.date)}</span>${g.remakeDate ? `<span class="remake-date" title="リメイク公開年月">${fmtDate(g.remakeDate)}</span>` : ""}</div>
+                        <div class="actions">
+                            <a class="btn${g.remake ? " remake" : ""}" href="${playOf(g)}">遊ぶ</a>
+                            ${g.remake ? `<a class="btn-sub" href="${urlOf(g)}">旧版</a>` : ""}
+                        </div>
+                    </div>
+                </article>`).join("");
+        }
+
+        document.getElementById("sort").onchange = e => { sort = e.target.value; renderGrid(); };
+
+        renderLatest();
+        renderChips();
+        renderGrid();
+    </script>
 </body>
 
 </html>

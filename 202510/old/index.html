@@ -1,0 +1,1043 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link rel="icon" href="../../favicon/icon.ico" type="image/x-icon">
+  <title>一分逃げて！</title>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202510/old/" />
+  <meta property="og:title" content="一分逃げて！" />
+  <meta property="og:description" content="一分間逃げ切って！タッチを離すとその方向に移動する。数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_nige.png">
+
+<style>
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: #111;
+    color: #fff;
+    font-family: system-ui, Segoe UI, Roboto, 'ヒラギノ角ゴ ProN', sans-serif;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    touch-action: manipulation;
+  }
+
+  #game-wrap {
+    /* 基本サイズ */
+    width: 360px;
+    height: 548px;
+
+    /* 中身のcanvasがはみ出さないように */
+    overflow: hidden;
+
+    /* アスペクト比維持のための比率 */
+    aspect-ratio: 360 / 548;
+
+    position: relative;
+  }
+
+  #game {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    /* 横方向中央揃え */
+    align-items: center;
+    /* 縦方向下揃え */
+  }
+
+  #errorBox {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 14px;
+    z-index: 999;
+    display: none;
+    white-space: pre-wrap;
+    padding: 10px;
+    box-sizing: border-box;
+  }
+</style>
+</head>
+<body>
+  <div id="game-wrap">
+    <canvas id="game"></canvas>
+    <div id="errorBox"></div>
+  </div>
+  <!-- 読み込むjs -->
+  <script src="../../lib/pixi-7.2.4.min.js"></script>
+  <script src="../../lib/gsap-3.12.2.min.js"></script>
+
+<script>
+start();
+function start(){
+  // --- constants ---
+  const WIDTH = 360, HEIGHT = 548;
+  const PLAY_X = 20, PLAY_Y = 48, PLAY_W = 320, PLAY_H = 420;
+  const PLAYER_RADIUS = 16;
+  const PLAYER_ANGLE = Math.PI/6; // 扇形の半角
+  const MAX_TIME = 60000;
+
+  // create PIXI app once
+  const canvas = document.getElementById('game');
+  const app = new PIXI.Application({ view: canvas, width: WIDTH, height: HEIGHT, background: 0x222222, resolution: devicePixelRatio || 1 });
+
+  // layers
+  const playLayer = new PIXI.Container(); // game world
+  const warningLayer = new PIXI.Container(); // 予告エフェクト用
+  const enemyLayer = new PIXI.Container(); // enemies
+  const powerLayer = new PIXI.Container(); // powerups
+  const bulletLayer = new PIXI.Container();  // attack
+  const defenseLayer = new PIXI.Container(); // defense
+  const uiLayer = new PIXI.Container(); // timer, buttons, overlays
+  const effectTextLayer = new PIXI.Container(); // パワーアップエフェクト用テキスト
+  app.stage.addChild(playLayer);
+  app.stage.addChild(uiLayer);
+
+  // timer text
+  const timerStyle = new PIXI.TextStyle({ fontSize:80, fill:'#ffffff', align: 'center'});
+  const timerText = new PIXI.Text('00.00', timerStyle); timerText.x = WIDTH/2; timerText.y = HEIGHT/2; uiLayer.addChild(timerText);
+  timerText.anchor.set(0.5);
+  timerText.alpha = 0.5;
+  let elapsedTime;
+
+  // ロゴの表示
+  let topBannerContainer;
+  let topBannerText;
+  initTopBanner();
+  
+  // play box (slightly lighter so black bullets show)
+  const playBox = new PIXI.Graphics(); playBox.lineStyle(4,0x444444);
+  playBox.beginFill(0x303030);
+  playBox.drawRect(PLAY_X,PLAY_Y,PLAY_W,PLAY_H);
+  playBox.endFill();
+  playLayer.addChild(playBox);
+  playLayer.addChild(warningLayer);
+  playLayer.addChild(enemyLayer);
+  playLayer.addChild(powerLayer);
+  playLayer.addChild(bulletLayer);
+  playLayer.addChild(defenseLayer);
+  uiLayer.addChild(effectTextLayer);
+
+  // player
+  const player = new PIXI.Container(); player.x = PLAY_X + PLAY_W/2; player.y = PLAY_Y + PLAY_H/2; playLayer.addChild(player);
+  const playerBody = new PIXI.Graphics(); player.addChild(playerBody);
+  const circleRadius = 6;
+
+function initTopBanner() {
+  topBannerContainer = new PIXI.Container();
+  uiLayer.addChild(topBannerContainer);
+
+  // カプセル背景
+  const bg = new PIXI.Graphics();
+  bg.beginFill(0x444444); // 濃い背景色
+  bg.drawRoundedRect(-100, -20, 200, 40, 20); // 幅200, 高さ40
+  bg.endFill();
+  topBannerContainer.addChild(bg);
+
+  // テキスト
+  topBannerText = new PIXI.Text('一分逃げて！', {
+    fontSize: 18,
+    fill: '#ffffff',
+    fontWeight: 'bold'
+  });
+  topBannerText.anchor.set(0.5);
+  topBannerContainer.addChild(topBannerText);
+
+  // 位置（画面上部中央）
+  topBannerContainer.x = WIDTH / 2;
+  topBannerContainer.y = 24;
+}
+
+function drawPlayer(){
+  playerBody.clear();
+
+  // 本体扇形
+  const bodyRadius = PLAYER_RADIUS + 4;
+  const baseAngle = playerAngle + Math.PI;
+
+  playerBody.beginFill(0x22bbff);
+  playerBody.moveTo(0, 0);
+
+  for (let a = -PLAYER_ANGLE; a <= PLAYER_ANGLE; a += 0.04) {
+    const rad = baseAngle + a;
+    playerBody.lineTo(Math.cos(rad) * bodyRadius, Math.sin(rad) * bodyRadius);
+  }
+
+  playerBody.lineTo(0, 0);
+  playerBody.endFill();
+
+  // 先端の当たり判定円
+  const tip = getPlayerTipPos();
+  playerBody.beginFill(0xff4466, 0.3);
+  playerBody.drawCircle(tip.x - player.x, tip.y - player.y, circleRadius);
+  playerBody.endFill();
+
+}
+
+  // UI buttons drawn inside PIXI (bottom)
+  //const btnHeight = 80;
+  const btnHeight = 548;
+  const leftBtn = new PIXI.Graphics(); 
+  leftBtn.beginFill(0x333333).drawRect(0,0,WIDTH/2,btnHeight).endFill();
+  leftBtn.alpha=0;
+  leftBtn.y = HEIGHT - btnHeight; leftBtn.interactive = true; leftBtn.buttonMode = true; uiLayer.addChild(leftBtn);
+  const rightBtn = new PIXI.Graphics(); 
+  rightBtn.beginFill(0x333333).drawRect(0,0,WIDTH/2,btnHeight).endFill();
+  rightBtn.alpha=0;
+  rightBtn.x = WIDTH/2; rightBtn.y = HEIGHT - btnHeight; rightBtn.interactive = true; rightBtn.buttonMode = true; uiLayer.addChild(rightBtn);
+  const leftLabel = new PIXI.Text('◀︎ 左回り',{fontSize:18,fill:'#fff'}); leftLabel.anchor.set(0.5); leftLabel.x = WIDTH/6; leftLabel.y = HEIGHT - 80/2; uiLayer.addChild(leftLabel);
+  const rightLabel = new PIXI.Text('右回り ▶︎',{fontSize:18,fill:'#fff'}); rightLabel.anchor.set(0.5); rightLabel.x = WIDTH*5/6; rightLabel.y = HEIGHT - 80/2; uiLayer.addChild(rightLabel);
+
+  // guide arrow
+  const guide = new PIXI.Graphics(); guide.visible = false; playLayer.addChild(guide);
+
+  // game state variables
+  let vx = 1.8, vy = 0; // initial velocity to the right
+  let playerAngle = 0; // プレイヤーの向き（ラジアン）
+  let playerType = null; // アイテム効果状態
+  let itemFlg = false; // レベルが上限になってないか
+  let speedBase = 1.8;
+  let speedStacks = 0, attackStacks = 0, defenseStacks = 0;
+  let attackTimer = 0;
+  const attackProjectiles = [];
+  const defenseBarriers = [];
+
+  const enemies = [];
+  let lastEnemySpawn = performance.now(); let enemySpawnInterval = 3000;
+  let enemySpawnCount = 1; let baseEnemySpeed = 1.2; let lastDifficultyIncrease = performance.now();
+
+  let lastPowerSpawn = performance.now(); let powerSpawnInterval = 3000;
+
+  let startTime = performance.now(); let running = true;
+
+  // helper functions for velocity
+function setVelocityFromAngle(angle){
+  const sp = speedBase*(12-speedStacks*2)/12;
+  vx = Math.cos(angle) * sp;
+  vy = Math.sin(angle) * sp;
+  playerAngle = angle;
+}
+  
+  function normalizeVelocityToSpeed(){ const speed = speedBase*(12-speedStacks*2)/12; const n = Math.hypot(vx,vy) || 1e-6; vx = vx / n * speed; vy = vy / n * speed; }
+
+    // 初期化
+    setVelocityFromAngle(0);
+    drawPlayer();
+
+    // spawn functions
+    function spawnEnemyAtWithWarning(side) {
+    const gap = 36;
+    let ex, ey, angle, wx, wy;
+
+    if (side === 0) { // 上
+      ex = PLAY_X + Math.random() * PLAY_W;
+      ey = PLAY_Y - gap;
+      angle = Math.PI / 2;
+      wx = ex; wy = PLAY_Y;
+    }
+    if (side === 1) { // 右
+      ex = PLAY_X + PLAY_W + gap;
+      ey = PLAY_Y + Math.random() * PLAY_H;
+      angle = Math.PI;
+      wx = PLAY_X + PLAY_W; wy = ey;
+    }
+    if (side === 2) { // 下
+      ex = PLAY_X + Math.random() * PLAY_W;
+      ey = PLAY_Y + PLAY_H + gap;
+      angle = -Math.PI / 2;
+      wx = ex; wy = PLAY_Y + PLAY_H;
+    }
+    if (side === 3) { // 左
+      ex = PLAY_X - gap;
+      ey = PLAY_Y + Math.random() * PLAY_H;
+      angle = 0;
+      wx = PLAY_X; wy = ey;
+    }
+
+    // 予告の赤い円を表示
+    const w = new PIXI.Graphics();
+    w.beginFill(0xff0000, 0.6);
+    w.drawCircle(0, 0, 10);
+    w.endFill();
+    w.x = wx;
+    w.y = wy;
+    warningLayer.addChild(w);
+
+    // 点滅アニメーション（GSAP使用）
+    gsap.to(w, {
+      alpha: 0.1,
+      duration: 0.4,
+      yoyo: true,
+      repeat: 1,
+      onComplete: () => {
+        // エフェクトを削除
+        if (w.parent) w.parent.removeChild(w);
+
+        // 実際に敵をスポーン
+        const g = new PIXI.Graphics();
+        g.beginFill(0xff4466);
+        g.drawCircle(0, 0, 8);
+        g.endFill();
+        g.x = ex;
+        g.y = ey;
+        g.v = baseEnemySpeed + Math.random() * 0.6;
+        g._angle = angle;
+        g.t = 0;
+        enemyLayer.addChild(g);
+        enemies.push(g);
+      }
+    });
+  }
+    function spawnEnemyAt(side){
+      const gap = 36; let ex,ey,angle;
+      if(side===0){ ex = PLAY_X + Math.random()*PLAY_W; ey = PLAY_Y - gap; angle = Math.PI/2; }
+      if(side===1){ ex = PLAY_X + PLAY_W + gap; ey = PLAY_Y + Math.random()*PLAY_H; angle = Math.PI; }
+      if(side===2){ ex = PLAY_X + Math.random()*PLAY_W; ey = PLAY_Y + PLAY_H + gap; angle = -Math.PI/2; }
+      if(side===3){ ex = PLAY_X - gap; ey = PLAY_Y + Math.random()*PLAY_H; angle = 0; }
+      const g = new PIXI.Graphics(); g.beginFill(0xff4466); g.drawCircle(0,0,8); g.endFill();
+      g.x = ex; g.y = ey; g.v = baseEnemySpeed + Math.random()*0.6; g._angle = angle; g.t = 0; enemyLayer.addChild(g); enemies.push(g);
+    }
+  function spawnEnemyBatch(count) {
+    for (let i = 0; i < count; i++) {
+      spawnEnemyAtWithWarning(Math.floor(Math.random() * 4));
+    }
+  }
+  
+  function spawnPower() {
+    const types = ['speed', 'attack', 'defense'];
+    const type = types[Math.floor(Math.random() * types.length)];
+
+    // 同じタイプが既に存在していたら出さない
+    for (let i = 0; i < powerLayer.children.length; i++) {
+      const p = powerLayer.children[i];
+      if (p.type === type) {
+        return;
+      }
+    }
+
+    const container = new PIXI.Container();
+    container.type = type;
+
+    // 色とラベルの定義
+    const colorMap = {
+      speed: 0xaee8ff,
+      attack: 0xffd8a8,
+      defense: 0xc8facc,
+    };
+    const labelMap = {
+      speed: 'S',
+      attack: 'A',
+      defense: 'D',
+    };
+
+    // カプセル型の背景
+    const bg = new PIXI.Graphics();
+    bg.beginFill(colorMap[type]);
+    bg.drawRoundedRect(-14, -8, 28, 16, 6);
+    bg.endFill();
+    container.addChild(bg);
+
+    // テキストラベル
+    const label = new PIXI.Text(labelMap[type], {
+      fontFamily: 'Arial',
+      fontSize: 12,
+      fill: 0x333333,
+      align: 'center'
+    });
+    label.anchor.set(0.5);
+    container.addChild(label);
+
+    // 位置
+    container.x = PLAY_X + 30 + Math.random() * (PLAY_W - 60);
+    container.y = PLAY_Y + 30 + Math.random() * (PLAY_H - 60);
+
+    powerLayer.addChild(container);
+  }
+
+  // アイテム取得時のロゴの変化
+function updateTopBanner() {
+  let label = '一分逃げて！';
+  let color = 0xffffff; // デフォルト色
+
+  if (playerType === 'speed') {
+    label = `スロー Lv${speedStacks}`;
+    color = 0xaee8ff;
+  } else if (playerType === 'attack') {
+    label = `アタック Lv${attackStacks}`;
+    color = 0xffd8a8;
+  } else if (playerType === 'defense') {
+    label = `ディフェンス Lv${defenseStacks}`;
+    color = 0xc8facc;
+  }
+
+  // 状態が変わったときだけアニメーション＆色更新
+  if (itemFlg) {
+    // テキスト更新
+    topBannerText.text = label;
+    topBannerText.style.fill = color;
+
+    // アニメーション（スケールとアルファ）
+    topBannerText.scale.set(1.5);
+    topBannerText.alpha = 0;
+
+    // フェードインとスケールダウン
+    gsap.to(topBannerText.scale, { x: 1, y: 1, duration: 0.3, ease: "back.out(1.7)" });
+    gsap.to(topBannerText, { alpha: 1, duration: 0.3 });
+
+    itemFlg = false;
+  }
+}
+
+  // collision & power
+  function applyPower(type) {
+    itemFlg = true;
+    playerType = type;
+    defenseLayer.removeChildren();
+    defenseBarriers.length = 0;
+    // 同じアイテムならスタック+1（最大3）、他はリセット
+    if (type === 'speed') {
+      attackStacks = 0;
+      defenseStacks = 0;
+      bulletLayer.removeChildren();
+      attackProjectiles.length = 0;
+
+      speedStacks = Math.min(3, speedStacks + 1);
+    }
+
+    else if (type === 'attack') {
+      speedStacks = 0;
+      defenseStacks = 0;
+      
+      attackStacks = Math.min(3, attackStacks + 1);
+    }
+
+    else if (type === 'defense') {
+      speedStacks = 0;
+      attackStacks = 0;
+      bulletLayer.removeChildren();
+      attackProjectiles.length = 0;
+      
+      defenseStacks = Math.min(3, defenseStacks + 1);
+      makeDefenseBarriers();
+    }
+    // 速度の変化を適用
+    normalizeVelocityToSpeed();
+    
+
+// エフェクト表示
+const tip = getPlayerTipPos();
+const labelMap = { speed: 'スロー', attack: 'アタック', defense: 'ディフェンス' };
+const colorMap = { speed: 0xaee8ff, attack: 0xffd8a8, defense: 0xc8facc };
+const levelMap = { speed: speedStacks, attack: attackStacks, defense: defenseStacks };
+
+const effectText = new PIXI.Text(`${labelMap[type]}Lv${levelMap[type]}`, {
+  fontSize: 16 + levelMap[type] * 2,
+  fill: colorMap[type],
+  fontWeight: 'bold',
+  align: 'center'
+});
+effectText.anchor.set(0.5);
+effectText.x = tip.x;
+effectText.y = tip.y;
+uiLayer.addChild(effectText);
+
+// GSAP アニメーション（浮いて消える）
+gsap.to(effectText, {
+  y: tip.y - 40, // レベルごとに高く浮かせる
+  alpha: 0,
+  duration: 1.2 + levelMap[type] * 0.3,
+  ease: "power1.out",
+  onComplete: () => {
+    if (effectText.parent) effectText.parent.removeChild(effectText);
+  }
+});
+
+// パーティクルを派手にする（レベルによって数や速度を変更）
+const particleCount = levelMap[type] * 6; // Lv1:6個, Lv2:12個, Lv3:18個など
+for (let i = 0; i < particleCount; i++) {
+  const p = new PIXI.Graphics();
+  p.beginFill(colorMap[type]);
+  p.drawCircle(0, 0, 2 + Math.random() * 2);
+  p.endFill();
+  p.x = tip.x;
+  p.y = tip.y;
+  uiLayer.addChild(p);
+
+  const angle = Math.random() * Math.PI * 2;
+  const speed = 1 + levelMap[type] * 1.5 + Math.random(); // レベルごとに速く
+  const dx = Math.cos(angle) * speed * 12;
+  const dy = Math.sin(angle) * speed * 12;
+
+  gsap.to(p, {
+    x: p.x + dx,
+    y: p.y + dy,
+    alpha: 0,
+    duration: 0.5 + Math.random() * 0.5,
+    ease: "power2.out",
+    onComplete: () => {
+      if (p.parent) p.parent.removeChild(p);
+    }
+  });
+}
+
+  }
+
+  // バリア作成
+  function makeDefenseBarriers(){
+    defenseLayer.removeChildren();
+    defenseBarriers.length = 0;
+
+    const count = defenseStacks; // 取得数だけ生成
+    for (let i = 0; i < count; i++) {
+      const g = new PIXI.Graphics();
+      g.beginFill(0x66ff66);
+      g.drawCircle(0, 0, 5); // 小さい円
+      g.endFill();
+      defenseLayer.addChild(g);
+
+      defenseBarriers.push({
+        gfx: g,
+        angle: (i / count) * Math.PI * 2, // 等間隔に配置
+        speed: 0.08  // 周回速度（調整可）
+      });
+    }
+  }
+
+  // 自機の周囲を周回
+  function updateDefenseBarriers() {
+    const radius = 24; // tip円からの距離
+    const tip = getPlayerTipPos(); // ← tipの中心を取得
+    for (let b of defenseBarriers) {
+      b.angle += b.speed; // 常に一定速度で回す
+      b.gfx.x = tip.x + Math.cos(b.angle) * radius;
+      b.gfx.y = tip.y + Math.sin(b.angle) * radius;
+    }
+  }
+  
+  function normalizeAngle(a){ while(a>Math.PI) a-=2*Math.PI; while(a<-Math.PI) a+=2*Math.PI; return a; }
+
+  function pointInPlayerSector(px,py){
+    const dx = px - player.x;
+    const dy = py - player.y;
+    const dist = Math.hypot(dx,dy);
+    if(dist > PLAYER_RADIUS+10) return false;
+    const angToPoint = Math.atan2(dy,dx);
+    const facing = Math.atan2(vy,vx);
+    const diff = normalizeAngle(angToPoint - playerAngle);
+    return Math.abs(diff) <= PLAYER_ANGLE;
+  }
+
+  function checkCollisions(){
+    // パワーアップアイテムと自機の比較
+    for (let i = powerLayer.children.length - 1; i >= 0; i--) {
+      const p = powerLayer.children[i];
+      const dx = p.x - player.x;
+      const dy = p.y - player.y;
+      const dist = Math.hypot(dx, dy);
+  
+      if (dist < 20) {
+        applyPower(p.type);
+        if (p.parent) p.parent.removeChild(p);
+      }
+    }
+    
+    // 自機の攻撃と敵の攻撃の比較
+    for (let i = attackProjectiles.length - 1; i >= 0; i--) {
+      const a = attackProjectiles[i];
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        const e = enemies[j];
+        const dx = a.x - e.x;
+        const dy = a.y - e.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < 12) { // 当たり判定半径（調整可能）
+          // 白い球を消す
+          if (a.parent) a.parent.removeChild(a);
+          attackProjectiles.splice(i,1);
+
+          // 敵の攻撃も消す
+          if (e.parent) e.parent.removeChild(e);
+          enemies.splice(j,1);
+
+          break; // この白い球は消えたので次へ
+        }
+      }
+    }
+    
+    // 自機のバリアと敵の攻撃の比較
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      for (let b of defenseBarriers) {
+        const dx = e.x - b.gfx.x;
+        const dy = e.y - b.gfx.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 10) { // 当たり判定半径（調整可）
+          // 敵の攻撃を消す
+          if (e.parent) e.parent.removeChild(e);
+          enemies.splice(i, 1);
+
+          // バリアも消す
+          if (b.gfx.parent) b.gfx.parent.removeChild(b.gfx);
+          const bIndex = defenseBarriers.indexOf(b);
+          if (bIndex !== -1) defenseBarriers.splice(bIndex, 1);
+
+          break; // このバリアは消えたので次へ
+        }
+      }
+    }
+    
+    // 敵の攻撃と自機の比較
+    for(let i = enemies.length - 1; i >= 0; i--){
+      const e = enemies[i];
+      if (isEnemyHitPlayerTip(e.x, e.y)) {
+        doGameOver();
+        return;
+      }
+    }
+  
+  }
+
+  // 当たり判定円の座標を取得する関数
+function getPlayerTipPos() {
+  const tipOffset = PLAYER_RADIUS-23;
+  return {
+    x: player.x + Math.cos(playerAngle) * tipOffset,
+    y: player.y + Math.sin(playerAngle) * tipOffset
+  };
+}
+  
+  // 先端の円との判定
+  function isEnemyHitPlayerTip(enemyX, enemyY) {
+  const tip = getPlayerTipPos();
+  const dx = enemyX - tip.x;
+  const dy = enemyY - tip.y;
+  const dist = Math.hypot(dx, dy);
+  return dist <= circleRadius; // 判定円の半径を 8 に設定（調整可）
+}
+  
+  // 扇形と敵との判定（廃止）
+  function isEnemyInPlayerFan(enemyX, enemyY) {
+    const dx = enemyX - player.x;
+    const dy = enemyY - player.y;
+    const dist = Math.hypot(dx, dy);
+  
+    const fanRadius = PLAYER_RADIUS + 12;
+    if (dist > fanRadius) return false; // 半径外
+  
+    const angleToEnemy = Math.atan2(dy, dx); // 敵への角度
+    const angleDiff = Math.atan2(
+      Math.sin(angleToEnemy - playerAngle),
+      Math.cos(angleToEnemy - playerAngle)
+    );
+  
+    return Math.abs(angleDiff) <= PLAYER_ANGLE;
+  }
+  
+  // game over handling
+  let gameOverContainer = null;
+  function doGameOver() {
+  running = false;
+
+  if (gameOverContainer && gameOverContainer.parent)
+    gameOverContainer.parent.removeChild(gameOverContainer);
+
+  gameOverContainer = new PIXI.Container();
+  uiLayer.addChild(gameOverContainer);
+
+  const title = new PIXI.Text('RESULT', {
+    fontSize: 40,
+    fill: '#ff4466',
+    stroke: '#ffffff',
+    strokeThickness: 4,
+    fontWeight: 'bold'
+  });
+  title.anchor.set(0.5);
+  title.x = WIDTH / 2;
+  title.y = HEIGHT / 2 - 140;
+  gameOverContainer.addChild(title);
+
+  // 時間の表示（秒）
+  const survivedSeconds = Math.floor(elapsedTime / 1000);
+  const survivedMiliSeconds = Math.floor(elapsedTime%1000/10)
+
+  const timeText = new PIXI.Text(`生存時間: ${survivedSeconds}秒${survivedMiliSeconds}`, {
+    fontSize: 22,
+    fill: '#aee8ff',
+    fontWeight: 'bold'
+  });
+  timeText.anchor.set(0.5);
+  timeText.x = WIDTH / 2;
+  timeText.y = HEIGHT / 2 - 90;
+  gameOverContainer.addChild(timeText);
+
+  // 称号の決定
+  const titles = [
+    "駆け出しの逃げリスト",   // 0〜9秒
+    "逃走について本気出して考えてみた", // 10〜19秒
+    "ｵﾌｨｼｬﾙ逃げﾀﾞﾝﾃﾞｨｽﾞﾑ", // 20〜29秒
+    "鋼の逃走術師",     // 30〜39秒
+    "逃走の王子様",   // 40〜49秒
+    "逃走王者 逃げキング"    // 50〜59秒
+  ];
+  const titleIndex = Math.min(Math.floor(survivedSeconds / 10), titles.length - 1);
+  const titleLabel = titles[titleIndex];
+
+  const titleText = new PIXI.Text(`${titleLabel}`, {
+    fontSize: 22,
+    fill: '#aee8ff',
+    fontWeight: 'bold'
+  });
+  titleText.anchor.set(0.5);
+  titleText.x = WIDTH / 2;
+  titleText.y = (HEIGHT / 2) - 55;
+  gameOverContainer.addChild(titleText);
+
+// リトライボタン（カプセル型）
+const retryButton = new PIXI.Container();
+retryButton.interactive = true;
+retryButton.buttonMode = true;
+
+// カプセル背景（大きめ）
+const buttonBg = new PIXI.Graphics();
+buttonBg.beginFill(0xaee8ff); // colorMap.speed と同じ色
+buttonBg.drawRoundedRect(-100, -30, 200, 60, 30); // 幅200, 高さ60, 角丸30
+buttonBg.endFill();
+retryButton.addChild(buttonBg);
+
+// テキスト（大きめ）
+const buttonText = new PIXI.Text('▶ リトライ', {
+  fontSize: 28,
+  fill: '#003344',
+  fontWeight: 'bold'
+});
+buttonText.anchor.set(0.5);
+retryButton.addChild(buttonText);
+
+// 配置
+retryButton.x = WIDTH / 2;
+retryButton.y = HEIGHT / 2 + 80;
+retryButton.on('pointertap', () => {
+  resetGame();
+});
+retryButton.alpha = 0.8;
+
+gameOverContainer.addChild(retryButton);
+}
+
+
+// クリア時の演出
+function doGameClear() {
+  running = false;
+
+  if (gameOverContainer && gameOverContainer.parent)
+    gameOverContainer.parent.removeChild(gameOverContainer);
+
+  gameOverContainer = new PIXI.Container();
+  uiLayer.addChild(gameOverContainer);
+
+  // ★ 縁取り付きテキスト（Congratulations!）
+  const congrats = new PIXI.Text('Congratulations!', {
+    fontSize: 40,
+    fill: '#ffffff',
+    fontWeight: 'bold',
+    stroke: '#ff66cc',
+    strokeThickness: 6,
+    dropShadow: true,
+    dropShadowColor: '#ffccff',
+    dropShadowBlur: 4,
+    dropShadowDistance: 2
+  });
+  congrats.anchor.set(0.5);
+  congrats.x = WIDTH / 2;
+  congrats.y = HEIGHT / 2 - 160;
+  congrats.alpha = 0;
+  congrats.scale.set(2); // 拡大状態で開始
+  gameOverContainer.addChild(congrats);
+
+  // アニメーション（GSAP）
+gsap.to(congrats.scale, {
+  x: 1,
+  y: 1,
+  duration: 0.6,
+  ease: 'back.out(1.7)'
+});
+
+gsap.to(congrats, {
+  alpha: 1,
+  duration: 0.3
+});
+
+  // パーティクル生成
+  for (let i = 0; i < 100; i++) {
+    const particle = new PIXI.Graphics();
+    const colors = [0xffc0cb, 0x99ccff, 0xffcc99, 0xccffcc, 0xffff99];
+    particle.beginFill(colors[Math.floor(Math.random() * colors.length)]);
+    particle.drawCircle(0, 0, 4);
+    particle.endFill();
+
+    particle.x = WIDTH / 2;
+    particle.y = HEIGHT / 2 - 160;
+
+    gameOverContainer.addChild(particle);
+
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 100 + Math.random() * 200;
+    const duration = 1 + Math.random() * 1.5;
+
+    gsap.to(particle, {
+      x: particle.x + Math.cos(angle) * distance,
+      y: particle.y + Math.sin(angle) * distance,
+      alpha: 0,
+      duration: duration,
+      ease: 'power2.out',
+      onComplete: () => {
+        gameOverContainer.removeChild(particle);
+      }
+    });
+  }
+
+  // 生存時間
+  const survivedSeconds = Math.floor(elapsedTime / 1000);
+
+  const timeText = new PIXI.Text(`生存時間: ${survivedSeconds}秒！`, {
+    fontSize: 22,
+    fill: '#aee8ff',
+    fontWeight: 'bold'
+  });
+  timeText.anchor.set(0.5);
+  timeText.x = WIDTH / 2;
+  timeText.y = HEIGHT / 2 - 90;
+  gameOverContainer.addChild(timeText);
+
+  // 称号判定
+  let titleLabel = "現代最強の超常現象・能力未使用者";
+  if (playerType === 'attack') {
+    titleLabel = "現代最強のシューティングスター";
+  } else if (playerType === 'defense') {
+    titleLabel = "現代最強の完全無欠鉄壁要塞";
+  } else if (playerType === 'speed') {
+    titleLabel = "現代最強のﾀｲﾑストレッチパワ～！";
+  }
+
+  const titleText = new PIXI.Text(`${titleLabel}`, {
+    fontSize: 22,
+    fill: '#aee8ff',
+    fontWeight: 'bold'
+  });
+  titleText.anchor.set(0.5);
+  titleText.x = WIDTH / 2;
+  titleText.y = HEIGHT / 2 - 55;
+  gameOverContainer.addChild(titleText);
+
+  // リトライボタン
+  const retryButton = new PIXI.Container();
+  retryButton.interactive = true;
+  retryButton.buttonMode = true;
+
+  const buttonBg = new PIXI.Graphics();
+  buttonBg.beginFill(0xaee8ff); // colorMap.speed
+  buttonBg.drawRoundedRect(-100, -30, 200, 60, 30);
+  buttonBg.endFill();
+  retryButton.addChild(buttonBg);
+
+  const buttonText = new PIXI.Text('▶ リトライ', {
+    fontSize: 28,
+    fill: '#003344',
+    fontWeight: 'bold'
+  });
+  buttonText.anchor.set(0.5);
+  retryButton.addChild(buttonText);
+
+  retryButton.x = WIDTH / 2;
+  retryButton.y = HEIGHT / 2 + 80;
+  retryButton.on('pointertap', () => {
+    resetGame();
+  });
+  retryButton.alpha = 0.8;
+
+  gameOverContainer.addChild(retryButton);
+}
+
+
+
+  function resetGame(){
+    // clear enemies
+    for(let i=enemies.length-1;i>=0;i--){ const e = enemies[i]; if(e.parent) e.parent.removeChild(e); enemies.splice(i,1); }
+    // clear powers
+    while(powerLayer.children.length) powerLayer.removeChildAt(0);
+    // remove game over UI
+    if(gameOverContainer && gameOverContainer.parent) gameOverContainer.parent.removeChild(gameOverContainer); gameOverContainer = null;
+    // reset variables
+    startTime = performance.now(); lastEnemySpawn = performance.now(); lastPowerSpawn = performance.now(); lastDifficultyIncrease = performance.now();
+    enemySpawnInterval = 3000; enemySpawnCount = 1; baseEnemySpeed = 1.2;
+    speedStacks = 0; attackStacks = 0; defenseStacks = 0; running = true;
+    // reset player
+    player.x = PLAY_X + PLAY_W/2; player.y = PLAY_Y + PLAY_H/2; setVelocityFromAngle(0); drawPlayer(Math.atan2(vy,vx));
+    // reset power
+    playerType = null;
+    defenseLayer.removeChildren();
+    defenseBarriers.length = 0;
+    speedStacks = 0;
+    attackStacks = 0;
+    defenseStacks = 0;
+    bulletLayer.removeChildren();
+    attackProjectiles.length = 0;
+    // logo
+    topBannerText.text = '一分逃げて！';
+    topBannerText.style.fill = 0xffffff;
+  }
+
+  // guide interaction state
+  let leftHeld = false, rightHeld = false; let guideAngle = 0; const rotateSpeed = 0.06;
+
+  function updateGuide(){ if(!guide.visible) return; guide.clear(); guide.lineStyle(4,0xffff66,0.95); const len = 4; const ax = Math.cos(guideAngle); const ay = Math.sin(guideAngle); const bx = Math.cos(guideAngle)*(PLAYER_RADIUS+6+len); const by = Math.sin(guideAngle)*(PLAYER_RADIUS+6+len); guide.moveTo(player.x + ax, player.y + ay); guide.lineTo(player.x + bx, player.y + by); const hh = 8; const ha1 = guideAngle + Math.PI*0.75; const ha2 = guideAngle - Math.PI*0.75; guide.moveTo(player.x + bx, player.y + by); guide.lineTo(player.x + bx + Math.cos(ha1)*hh, player.y + by + Math.sin(ha1)*hh); guide.moveTo(player.x + bx, player.y + by); guide.lineTo(player.x + bx + Math.cos(ha2)*hh, player.y + by + Math.sin(ha2)*hh); }
+
+  function onLeftDown(){ leftHeld = true; guide.visible = true; guideAngle = Math.atan2(vy, vx); updateGuide(); }
+  function onLeftUp(){ if(!leftHeld) return; leftHeld = false; guide.visible = false; setVelocityFromAngle(guideAngle); drawPlayer(); }
+  function onRightDown(){ rightHeld = true; guide.visible = true; guideAngle = Math.atan2(vy, vx); updateGuide(); }
+  function onRightUp(){ if(!rightHeld) return; rightHeld = false; guide.visible = false; setVelocityFromAngle(guideAngle); drawPlayer(); }
+
+  leftBtn.on('pointerdown', onLeftDown); leftBtn.on('pointerup', onLeftUp); leftBtn.on('pointerupoutside', onLeftUp); leftBtn.on('pointercancel', onLeftUp);
+  rightBtn.on('pointerdown', onRightDown); rightBtn.on('pointerup', onRightUp); rightBtn.on('pointerupoutside', onRightUp); rightBtn.on('pointercancel', onRightUp);
+
+  // prevent pointer events from hitting canvas default behavior
+  app.view.addEventListener('touchstart', e=>{ e.preventDefault(); }, {passive:false});
+
+  // main loop
+  app.ticker.add((delta)=>{
+    if(!running) return;
+    const now = performance.now();
+    elapsedTime = now - startTime;
+
+    // update timer
+    timerText.text = (function(ms){ const mm = Math.floor(ms/60000), ss = Math.floor(ms%60000/1000), cs = Math.floor(ms%1000/10); return `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}.${String(cs).padStart(2,'0')}`; })(elapsedTime);
+
+    // difficulty increase every 10s
+    if(now - lastDifficultyIncrease > 10000){ lastDifficultyIncrease = now; if(enemySpawnInterval > 400) enemySpawnInterval = Math.max(400, enemySpawnInterval - 75); enemySpawnCount = Math.min(6, enemySpawnCount + 1); baseEnemySpeed += 0.10; }
+
+    if(now - lastEnemySpawn > enemySpawnInterval){ lastEnemySpawn = now; spawnEnemyBatch(enemySpawnCount); }
+    if(now - lastPowerSpawn > powerSpawnInterval){ lastPowerSpawn = now; spawnPower(); }
+
+    // update enemies
+    for(let i = enemies.length - 1; i >= 0; i--){ const e = enemies[i]; e.t += delta; // straight movement for now
+      e.x += Math.cos(e._angle) * e.v * delta * (4-speedStacks)/4; e.y += Math.sin(e._angle) * e.v * delta * (4-speedStacks)/4;
+      if(e.x < PLAY_X - 60 || e.x > PLAY_X + PLAY_W + 60 || e.y < PLAY_Y - 60 || e.y > PLAY_Y + PLAY_H + 60){ if(e.parent) e.parent.removeChild(e); enemies.splice(i,1); }
+    }
+
+    // rotate guide while held
+    if(leftHeld){ guideAngle -= rotateSpeed * delta; }
+    if(rightHeld){ guideAngle += rotateSpeed * delta; }
+    updateGuide();
+
+    // move player by velocity vector
+    player.x += vx * delta; player.y += vy * delta;
+
+    // wall reflection using vector reflection formula
+const tip = getPlayerTipPos();
+const hitRadius = 10; // 先端の判定円の半径
+let reflected = false;
+
+// 左
+if(tip.x - hitRadius < PLAY_X){
+  player.x = PLAY_X + hitRadius - Math.cos(playerAngle) * (PLAYER_RADIUS + circleRadius);
+  const nx = 1, ny = 0;
+  const dot = vx*nx + vy*ny;
+  vx = vx - 2*dot*nx; vy = vy - 2*dot*ny;
+  reflected = true;
+}
+// 右
+if(tip.x + hitRadius > PLAY_X + PLAY_W){
+  player.x = PLAY_X + PLAY_W - hitRadius - Math.cos(playerAngle) * (PLAYER_RADIUS + circleRadius);
+  const nx = -1, ny = 0;
+  const dot = vx*nx + vy*ny;
+  vx = vx - 2*dot*nx; vy = vy - 2*dot*ny;
+  reflected = true;
+}
+// 上
+if(tip.y - hitRadius < PLAY_Y){
+  player.y = PLAY_Y + hitRadius - Math.sin(playerAngle) * (PLAYER_RADIUS + circleRadius);
+  const nx = 0, ny = 1;
+  const dot = vx*nx + vy*ny;
+  vx = vx - 2*dot*nx; vy = vy - 2*dot*ny;
+  reflected = true;
+}
+// 下
+if(tip.y + hitRadius > PLAY_Y + PLAY_H){
+  player.y = PLAY_Y + PLAY_H - hitRadius - Math.sin(playerAngle) * (PLAYER_RADIUS + circleRadius);
+  const nx = 0, ny = -1;
+  const dot = vx*nx + vy*ny;
+  vx = vx - 2*dot*nx; vy = vy - 2*dot*ny;
+  reflected = true;
+}
+    
+if(reflected){
+  normalizeVelocityToSpeed();
+  playerAngle = Math.atan2(vy, vx);
+  drawPlayer();
+}
+
+    // check collisions
+    checkCollisions();
+
+    // ロゴ更新
+    updateTopBanner();
+    
+    // 攻撃
+    attackTimer += delta;
+    if(attackStacks>0){
+      const interval = [0,60,40,25][attackStacks]; // レベルごとに短縮
+      if(attackTimer>=interval){
+        attackTimer=0;
+        const b = new PIXI.Graphics();
+        b.beginFill(0xffffff); b.drawCircle(0,0,4); b.endFill();
+        b.x = player.x; b.y = player.y; b.vx=Math.cos(playerAngle)*4; b.vy=Math.sin(playerAngle)*4;
+        bulletLayer.addChild(b);
+        attackProjectiles.push(b);
+      }
+    }
+    // 弾移動
+    for(let i=attackProjectiles.length-1;i>=0;i--){
+      const b=attackProjectiles[i]; b.x+=b.vx*delta; b.y+=b.vy*delta;
+      if(b.x<0||b.x>WIDTH||b.y<0||b.y>HEIGHT){ bulletLayer.removeChild(b); attackProjectiles.splice(i,1); }
+    }
+    
+    // バリア更新
+    updateDefenseBarriers();
+
+    // check win
+    if(elapsedTime >= MAX_TIME){ doGameClear();}
+  });
+
+  // start initial enemy
+  spawnEnemyBatch(enemySpawnCount);
+}
+</script>
+</body>
+</html>

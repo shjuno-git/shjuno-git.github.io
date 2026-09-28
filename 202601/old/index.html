@@ -1,0 +1,1199 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>CHANGE & MAKE 21</title>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202601/old/" />
+  <meta property="og:title" content="CHANGE AND MAKE21" />
+  <meta property="og:description" content="-6～6のカードで手札と山札を交換して21を作ろう！数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_make21.png">
+<style>
+html,body{
+  margin:0;
+  width:100%;
+  height:100%;
+  background:#000;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+canvas{ background:#143a2a; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+/* ================= 基本設定 ================= */
+const BASE_W = 360, BASE_H = 548;
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+  const s = Math.min(innerWidth/BASE_W, innerHeight/BASE_H);
+  canvas.width = BASE_W * s;
+  canvas.height = BASE_H * s;
+  ctx.setTransform(s,0,0,s,0,0);
+}
+addEventListener("resize", resize);
+resize();
+
+/* ================= 定数 ================= */
+const CARD_W=44, CARD_H=60;
+const FIELD_GAP=56;
+const HAND_GAP=96;
+const FIELD_Y = 245;
+const FIELD_ROW_GAP = 75;
+const HAND_Y = 457;
+const centerX=BASE_W/2;
+const startX=centerX-HAND_GAP-22;
+const fieldStartX=(BASE_W-(FIELD_GAP*5))/2+6;
+const RESULT_TOP_Y   = 85;
+const HEADER_H       = 25;
+const ROW_H          = 22;
+
+/* ================= 状態 ================= */
+let stage=1;
+const MAX_STAGE=5;
+const tolerances=[10,7,5,3,2];  // 許容誤差
+const swapLimits = [5,4,4,3,3]; // 交換上限
+const initialOpenTotal = [2,2,1,2,1]; // 山札の表数
+let endingWait = 0;
+let deck, hand, fields;
+let revealed=new Set();
+let swapsLeft=swapLimits[stage-1];
+let selectedHand=null;
+let gameState="play"; // play,result,ending
+let resultType = "fail"; // perfect / near / fail
+let usedSwaps = 0;      // 何回使ったか
+
+// お祝い用
+let flashAlpha = 0;
+let particles = [];
+let fireworks = [];
+ 
+// クリア用アニメ
+let clearAnimFrame = 0;
+const CLEAR_ANIM_MAX = 30; // アニメーション全体のフレーム数
+
+/* カード用アニメ */
+let handOffset=[0,0,0];
+let flipAnim=null;
+let endingAlpha=0;
+
+// 交換アニメーション用
+let swapAnim = null;
+/*
+{
+  t: 0,
+  field: { value, from:{x,y}, to:{x,y} },
+  hand:  { value, from:{x,y}, to:{x,y} },
+  flip: true,
+  r, i, handIndex
+}
+*/
+// 並び替えアニメーション用
+let reorderAnim = null;
+/*
+{
+  r,            // 山札の段（0 or 1）
+  phase: 0|1,   // 0: 集合, 1: 整列
+  t: 0,
+  cards: [
+    { value, fromX, fromY, toX, toY }
+  ]
+}
+*/
+
+/* 交換履歴ログ */
+let swapCount = 0;
+let swapLog = ['手札-1 ⇄ 場札0','手札6 ⇄ 場札3','手札3 ⇄ 場札-5','手札-1 ⇄ 場札-2','手札-3 ⇄ 場札-4'];
+
+//ステージ結果ログ
+let stageResults = [];
+//let stageResults = [
+//  { stage: 1, a: 3, b: 5,  c: 6,  result: 21,   swapsLeft: 3 },
+//  { stage: 2, a: 5, b: 2, c: 4,  result: 14, swapsLeft: 3 },
+//  { stage: 3, a: -4, b: -6, c: -2,  result: 22,    swapsLeft: 3 },
+//  { stage: 4, a: 4, b: 6, c: -6, result: 18,   swapsLeft: 1 },
+//  { stage: 5, a: -3, b: -5, c: 6, result: 21, swapsLeft: 2 }
+//];
+// { stage, a, b, c, result, swapsLeft }
+
+/* メッセージ */
+let msgTimer=0;
+let msgIndex=0;
+const idleMessages=[
+  "交換したい手札をタップしよう",
+  "山札は上下それぞれで昇順に並んでいる",
+  "山札にある表のカードは交換できない",
+  "交換回数が0になるとゲームオーバー"
+];
+
+/* ================= 初期化 ================= */
+function shuffle(a){
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+}
+
+function startStage(){
+  const tol = tolerances[stage-1];
+
+  while(true){
+    deck=[];
+    for(let i=-6;i<=6;i++) deck.push(i);
+    shuffle(deck);
+
+    hand = deck.splice(0,3);
+    fields = [
+      deck.splice(0,5).sort((a,b)=>a-b).map(v=>({value:v,open:false})),
+      deck.splice(0,5).sort((a,b)=>a-b).map(v=>({value:v,open:false}))
+    ];
+
+    const val = hand[0]*hand[1] + hand[2];
+    if(Math.abs(val - 21) > tol) break; // 条件を満たしたら確定
+  }
+
+  swapCount = 0;
+  swapLog = [];
+  swapsLeft = swapLimits[stage-1];
+  selectedHand = null;
+  handOffset = [0,0,0];
+  gameState = "play";
+  //gameState = "ending"
+  particles = [];
+
+  openInitialFieldCards();
+}
+
+function openInitialFieldCards(){
+  const total = initialOpenTotal[stage-1];
+  if(total <= 0) return;
+
+  // 山札1組につき「中央以外」の候補
+  const candidates = [0,1,2,3,4];
+
+  if(total === 2){
+    // 各山札で1枚ずつ
+    fields.forEach(f=>{
+      const idx = candidates[Math.floor(Math.random()*candidates.length)];
+      f[idx].open = true;
+    });
+  }
+
+  if(total === 1){
+    // どちらか一方の山札だけ
+    const fieldIndex = Math.floor(Math.random()*fields.length);
+    const f = fields[fieldIndex];
+    const idx = candidates[Math.floor(Math.random()*candidates.length)];
+    f[idx].open = true;
+  }
+}
+
+startStage();
+
+/* ================= 入力座標補正 ================= */
+function getPos(e){
+  const r=canvas.getBoundingClientRect();
+  const s=r.width/BASE_W;
+  return {x:(e.clientX-r.left)/s, y:(e.clientY-r.top)/s};
+}
+
+canvas.addEventListener("mousedown",e=>{
+  const p=getPos(e); tap(p.x,p.y);
+});
+canvas.addEventListener("touchstart",e=>{
+  const p=getPos(e.touches[0]); tap(p.x,p.y);
+});
+
+/* ================= 描画 ================= */
+function drawCard(x,y,v,face=true,scaleX=1){
+  ctx.save();
+  ctx.translate(x+CARD_W/2,y+CARD_H/2);
+  ctx.scale(scaleX,1);
+  ctx.translate(-CARD_W/2,-CARD_H/2);
+  ctx.fillStyle=face?"#fff":"#222";
+  ctx.fillRect(0,0,CARD_W,CARD_H);
+  ctx.strokeStyle="#000";
+  ctx.strokeRect(0,0,CARD_W,CARD_H);
+  if(face){
+    ctx.fillStyle="#000";
+    ctx.font="20px sans-serif";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.fillText(v,CARD_W/2,CARD_H/2);
+  }
+  ctx.restore();
+}
+
+function easeOut(t){
+  // 0→1 を「最初速く、最後ゆっくり」にする
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function lerp(a, b, t){
+  return a + (b - a) * t;
+}
+
+function draw(){
+  ctx.clearRect(0,0,BASE_W,BASE_H);
+
+// ===== 状態保存（ここからロゴ）=====
+/* タイトル */
+ctx.save();
+
+// グラデーション（ゴールド）
+const gradient = ctx.createLinearGradient(0, 0, 0, 40);
+gradient.addColorStop(0, "#fff3b0");
+gradient.addColorStop(0.5, "#ffd700");
+gradient.addColorStop(1, "#c9a000");
+
+// フォント
+ctx.font = "bold 26px 'serif'";
+ctx.textAlign = "center";
+
+// 影（ネオンっぽさ）
+ctx.shadowColor = "rgba(255, 215, 0, 0.6)";
+ctx.shadowBlur = 8;
+ctx.shadowOffsetX = 0;
+ctx.shadowOffsetY = 2;
+
+// 縁取り
+ctx.lineWidth = 3;
+ctx.strokeStyle = "#3a2f00";
+//ctx.strokeText("MAKE 21", 180, 32);
+
+// 塗り
+ctx.fillStyle = gradient;
+//ctx.fillText("MAKE 21", 180, 32);
+
+ctx.font = "bold 22px serif";
+ctx.fillText("♠♣  CHANGE&MAKE 21  ♦♥", 180, 26);
+
+// 下線（装飾ライン
+const textWidth = ctx.measureText("♠♣  CHANGE&MAKE 21  ♦♥").width;
+const lineY = 35;
+
+// メインライン
+ctx.shadowBlur = 0;
+ctx.lineWidth = 2;
+ctx.strokeStyle = "#ffd700";
+ctx.beginPath();
+ctx.moveTo(180 - textWidth / 2, lineY);
+ctx.lineTo(180 + textWidth / 2, lineY);
+ctx.stroke();
+
+ctx.restore();
+// ===== 状態復元（ここまでがロゴ）=====
+
+
+/* ルール説明（クリア時は非表示） */
+if(gameState != "result" && gameState != "ending"){
+  ctx.font="10px sans-serif";
+  ctx.fillStyle="#ddd";
+  ctx.textAlign="left";
+  ctx.fillText("目標：手札を山札と交換して、合計21にしよう(カード:-6～6の値)",15,lineY+18);
+  ctx.fillText("操作：①交換したい手札をタップ　⇒　②入れ替えたい山札をタップ",15,lineY+33);
+  ctx.fillText("　　　交換回数が0になるまでに、21 or 近い数字ならクリア！",15,lineY+48);
+}
+
+if(gameState != "ending"){
+  /* ステージ進捗 */
+  ctx.fillStyle="#ffd700";
+  ctx.textAlign="center";
+  ctx.font="14px sans-serif";
+  ctx.fillText(`STAGE ${stage}/${MAX_STAGE}`,180,107);
+  
+  const dotY = 120;
+  const dotGap = 22;
+  const startDotX = BASE_W/2 - dotGap*2;
+
+  for(let i=1;i<=MAX_STAGE;i++){
+    ctx.beginPath();
+    const r = (i===stage)?6:4;
+    ctx.fillStyle =
+      i < stage ? "#ffd700" :
+      i === stage ? "#fff" :
+      "#555";
+    ctx.arc(startDotX + (i-1)*dotGap, dotY, r, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  /* ノルマ */
+  const tol=tolerances[stage-1];
+  const val=hand[0]*hand[1]+hand[2];
+  const ok=Math.abs(val-21)<=tol;
+
+  ctx.fillStyle="#ffd700";
+  ctx.textAlign="left";
+  ctx.font="18px sans-serif";
+  ctx.fillText(`GOAL :`,10,157);
+  ctx.font="14px sans-serif";
+  ctx.fillText(`(21±${tol})`,7,175);
+  
+  ctx.font="24px sans-serif";
+  ctx.textAlign="left";
+  ctx.fillText(`${21-tol}  ≦`,85,158);
+  ctx.textAlign="right";
+  ctx.fillText(`≦  ${21+tol}`,275,158);
+
+  ctx.font="bold 32px sans-serif";
+  ctx.textAlign="center";
+  ctx.fillStyle=ok?"#ffd700":"#777";
+  ctx.fillText(val,180,161);
+
+
+  /* 交換回数 */
+  ctx.fillStyle="#ffd700";
+  ctx.font="18px sans-serif";
+  ctx.fillText(`交換：あと ${swapsLeft} 回`,180,185);
+
+
+  /* 交換履歴ログ */
+  ctx.font="10px sans-serif";
+  ctx.fillStyle="#ddd";
+  ctx.textAlign="left";
+  ctx.fillText(swapLog,0,200);
+
+}
+
+  /* 山札エリア */
+  // 枠線
+  ctx.fillStyle="#0b4d2a";
+  ctx.fillRect(10,210,340,180);
+  ctx.textAlign="center";
+  ctx.strokeStyle="#fff";
+  ctx.strokeRect(10,210,340,180);
+
+  // ラベル
+  ctx.fillStyle="#fff";
+  ctx.textAlign="left";
+  
+  ctx.font="18px sans-serif";
+  ctx.fillText(`山札(昇順 2組)`,14,232);
+  
+  ctx.font="14px sans-serif";
+  ctx.fillText("小",18,317);
+  ctx.textAlign="right";
+  ctx.fillText("大",342,317);
+  ctx.textAlign="center";
+  // メインライン
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";;
+  ctx.beginPath();
+  ctx.moveTo(18 + 30 / 2, 312);
+  ctx.lineTo(342 - 30 / 2, 312);
+  ctx.stroke();
+
+
+  // カード
+  fields.forEach((f,r)=>{
+    f.forEach((card,i)=>{
+      let sx=1;
+      if(flipAnim && flipAnim.r===r && flipAnim.i===i) sx=flipAnim.s;
+      
+      if(reorderAnim && reorderAnim.r === r){
+        return; // この段はアニメで描く
+      }
+      
+      if(
+        swapAnim &&
+        swapAnim.r === r &&
+        swapAnim.i === i
+      ){
+        return; // ★ このカードはアニメで描く
+      }
+      drawCard(
+        fieldStartX+i*FIELD_GAP,
+        FIELD_Y+r*FIELD_ROW_GAP,
+        card.value,
+        card.open,
+        sx
+      );
+    });
+  });
+
+
+  /* メッセージ（クリア時は非表示） */
+if(gameState != "result" && gameState != "ending"){
+  msgTimer++;
+  if(msgTimer>300){
+    msgTimer=0;
+    msgIndex=(msgIndex+1)%idleMessages.length;
+  }
+  ctx.font="14px sans-serif";
+  ctx.fillStyle="#fff";
+  let msg = selectedHand===null
+    ? idleMessages[msgIndex]
+    : "入れ替えたい場札をタップしよう";
+  ctx.fillText(msg,180,410);
+}
+
+  /* 手札エリア */
+  // 枠線
+  ctx.fillStyle="#1b3b5a";
+  ctx.fillRect(10,420,340,120);
+  ctx.strokeRect(10,420,340,120);
+
+  // ラベル
+  ctx.fillStyle="#fff";
+  ctx.textAlign="left";
+  
+  ctx.font="18px sans-serif";
+  ctx.fillText(`手札(a × b ＋ c)`,14,442);
+  
+  hand.forEach((v,i)=>{
+    if(
+      swapAnim &&
+      swapAnim.handIndex === i
+    ){
+      handOffset[i] = 0;
+      return; // ★ アニメ中は描かない
+    }
+    if(gameState != "ending"){
+      handOffset[i]+=(((selectedHand===i)?-12:0)-handOffset[i])*0.2;
+    }
+    drawCard(startX+i*HAND_GAP,HAND_Y+handOffset[i],v,true);
+  });
+
+  ctx.fillStyle="#fff";
+  ctx.font="24px sans-serif";
+  ctx.textAlign="center";
+  ctx.fillText("×",centerX-HAND_GAP/2,496);
+  ctx.fillText("＋",centerX+HAND_GAP/2,496);
+
+
+// 交換アニメ用カード
+if(swapAnim){
+  const p = easeOut(swapAnim.t);
+
+  // 山札 → 手札
+  const fx = lerp(swapAnim.field.from.x, swapAnim.field.to.x, p);
+  const fy = lerp(swapAnim.field.from.y, swapAnim.field.to.y, p);
+
+  // 手札 → 山札
+  const hx = lerp(swapAnim.hand.from.x, swapAnim.hand.to.x, p);
+  const hy = lerp(swapAnim.hand.from.y-12, swapAnim.hand.to.y, p);
+
+  drawCard(fx, fy, swapAnim.field.value, true, 1);
+  drawCard(hx, hy, swapAnim.hand.value, true, 1);
+
+  swapAnim.t += 0.03;
+
+  if(swapAnim.t >= 1){
+    finalizeSwap(swapAnim);
+    swapAnim = null;
+    // ⑥クリア判定
+    if(checkClear()) return;
+    if(swapsLeft === 0){
+      gameState = "result";
+      resultType = "fail";
+      gameOverAnimFrame = 0;
+    }
+  }
+}
+
+// 並び替え描画
+if(reorderAnim){
+  const a = reorderAnim;
+  const p = easeOut(a.t);
+  const centerX = BASE_W / 2 - CARD_W / 2;
+
+  a.cards.forEach(c=>{
+    let x;
+
+    if(a.phase === 0){
+      // 中央に集まる
+      x = lerp(c.fromX, centerX, p);
+    }else{
+      // 昇順位置へ
+      x = lerp(centerX, c.toX, p);
+    }
+
+    drawCard(x, c.fromY, c.value, c.open);
+  });
+
+  reorderAnim.t += 0.12;
+
+  if(reorderAnim.t >= 1){
+    reorderAnim.t = 0;
+    reorderAnim.phase++;
+
+    if(reorderAnim.phase > 1){
+      reorderAnim = null;
+    }
+  }
+}
+
+  /* エンディング */
+  if(gameState === "ending"){
+    endingAlpha = Math.min(endingAlpha + 0.03, 0.5);
+
+    // 背景
+    ctx.fillStyle = `rgba(10,30,20,${endingAlpha})`;
+    ctx.fillRect(0,0,BASE_W,BASE_H);
+
+    // ゴールド枠
+    ctx.strokeStyle = "#d4af37";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(10,40,340,165);
+
+    // タイトル
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "bold 22px sans-serif";
+    ctx.fillText("🎰 ALL CLEAR 🎰", 180, 65);
+
+    // ステージ結果
+    ctx.font = "14px sans-serif";
+    ctx.fillStyle = "#fff";
+
+//ヘッダ行
+const headerY = RESULT_TOP_Y;
+
+ctx.font = "14px sans-serif";
+ctx.fillStyle = "#ffd700";
+ctx.textAlign = "left";
+ctx.fillText("STAGE", 32, headerY);
+
+ctx.fillText("SCORE", 160, headerY);
+ctx.textAlign = "right";
+ctx.fillText("残", 325, headerY);
+
+// 下線
+ctx.strokeStyle = "rgba(255,215,0,0.4)";
+ctx.beginPath();
+ctx.moveTo(30, headerY + 6);
+ctx.lineTo(330, headerY + 6);
+ctx.stroke();
+
+//各ステージ行
+stageResults.forEach((r, i) => {
+  const y = RESULT_TOP_Y + HEADER_H + i * ROW_H;
+
+  // STAGE番号
+  ctx.font = "16px sans-serif";
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.fillText(r.stage, 50, y);
+
+  // カード
+  const cardY = y - 6;
+  ctx.textAlign = "left";
+  //ctx.fillText(`${r.a} × ${r.b} ＋ ${r.c} = `, 120, y);
+  ctx.textAlign = "center";
+  ctx.fillText(`${r.a}`, 110, y);
+  ctx.textAlign = "left";
+  ctx.fillText(` × `, 122, y);
+  ctx.textAlign = "center";
+  ctx.fillText(`${r.b}`, 158, y);
+  ctx.textAlign = "left";
+  ctx.fillText(` ＋ `, 170, y);
+  ctx.textAlign = "center";
+  ctx.fillText(`${r.c}`, 206, y);
+  ctx.textAlign = "left";
+  ctx.fillText(` = `, 222, y);
+ 
+  // = 結果
+  ctx.textAlign = "center";
+  if(r.result!=21){
+    ctx.fillText(`${r.result}`, 260, y);
+  }else{
+    ctx.font = "bold 16px sans-serif";
+    ctx.fillStyle = "#ffd700";
+    ctx.fillText(`${r.result}`, 260, y);
+    ctx.font = "16px sans-serif";
+    ctx.fillStyle = "#fff";
+  }
+
+  // 残り交換数
+  ctx.textAlign = "right";
+  ctx.fillText(`${r.swapsLeft}回`, 330, y);
+});
+
+    // 再スタート
+    ctx.textAlign = "center";
+    ctx.font = "bold 22px sans-serif";
+    ctx.fillStyle = "#ffd700";
+    ctx.fillText("TAP TO RESTART", 180, 412);
+  }
+  
+  // フラッシュ
+if(flashAlpha > 0){
+  ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
+  ctx.fillRect(0,0,BASE_W,BASE_H);
+  flashAlpha *= 0.85;
+}
+
+// 紙吹雪
+particles.forEach(p => {
+  // 揺れ
+  p.swing += p.swingSpeed;
+  p.x += Math.sin(p.swing) * p.swingRange;
+
+  // 移動
+  p.vy += p.gravity;
+  p.x += p.vx;
+  p.y += p.vy;
+
+  // 回転
+  p.rot += p.rotSpeed;
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.rot);
+
+  ctx.fillStyle = p.color;
+
+  // 紙吹雪は「円より短冊」がそれっぽい
+  ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+
+  ctx.restore();
+});
+}
+
+//失敗表示
+function drawGameOverOverlay() {
+  gameOverAnimFrame++;
+
+  // フェードイン（0 → 1）
+  const alpha = Math.min(gameOverAnimFrame / 40, 1);
+
+  // 落下アニメ（最初は -40px 上から）
+  const offsetY = (1 - alpha) * -30;
+
+  // 黒フィルター（フェードイン）
+  ctx.fillStyle = `rgba(0,0,0,${0.45 * alpha})`;
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // ===== ここからアニメ対象 =====
+  ctx.save();
+
+  // 全体を少し下にずらす
+  ctx.translate(0, offsetY);
+
+  // GAME OVER テキスト
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.font = "bold 30px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("GAME OVER", 180, 75);
+
+  // ボタン（フェードイン）
+  ctx.globalAlpha = alpha;
+  drawGameOverButton(90, 380, 180, 44, "RETRY");
+
+  ctx.restore();
+  // ===== ここまで =====
+}
+
+// 交換アニメ、手札⇒山札
+function startHandToFieldMove(prev){
+  movingCard = {
+    value: hand[prev.handIndex],
+    from: {
+      x: prev.to.x,
+      y: prev.to.y
+    },
+    to: {
+      x: prev.from.x,
+      y: prev.from.y
+    },
+    t: 0,
+    rotate: false,
+    phase: "handToField",
+    r: prev.r,
+    i: prev.i,
+    handIndex: prev.handIndex,
+    fieldValue: prev.value
+  };
+}
+
+//実データ入れ替え
+function finalizeSwap(a){
+  const fieldCard = fields[a.r][a.i];
+
+  // データ交換（ここで初めて）
+  fields[a.r][a.i].value = a.hand.value;
+  hand[a.handIndex] = a.field.value;
+
+  // 表状態
+  fieldCard.open = true;
+
+  swapsLeft--;
+  usedSwaps++;
+  selectedHand = null;
+
+  // 並び替え（演出は後で足せる）
+  fields[a.r].sort((x,y)=>x.value-y.value);
+
+  // ログ
+  swapCount++;
+  swapLog.push(
+    `　手${a.hand.value} ⇄ ${a.r===0?"上":"下"} ${a.field.value}`
+  );
+  
+  startReorderAnimation(a.r);
+}
+
+function startReorderAnimation(r){
+  const row = fields[r];
+
+  // 現在位置を保持
+  const cards = row.map((card,i)=>({
+    value: card.value,
+    open: card.open,
+    fromX: fieldStartX + i * FIELD_GAP,
+    fromY: FIELD_Y + r * FIELD_ROW_GAP,
+    toX: 0,
+    toY: FIELD_Y + r * FIELD_ROW_GAP
+  }));
+
+  // 昇順ソート（データはここで確定）
+  const sorted = [...cards].sort((a,b)=>a.value-b.value);
+
+  sorted.forEach((c,i)=>{
+    c.toX = fieldStartX + i * FIELD_GAP;
+  });
+
+  reorderAnim = {
+    r,
+    phase: 0,
+    t: 0,
+    cards: sorted
+  };
+}
+
+//クリア表示
+function drawClearOverlay() {
+  clearAnimFrame++;
+
+  // スケール取得
+  const scale = getClearScale();
+
+  // うっすら金色フィルター
+  ctx.fillStyle = "rgba(255,215,0,0.08)";
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // ===== ここから拡大対象 =====
+  ctx.save();
+
+  // 中央基準でスケール
+  ctx.translate(BASE_W / 2, BASE_H / 2);
+  ctx.scale(scale, scale);
+  ctx.translate(-BASE_W / 2, -BASE_H / 2);
+
+  // CLEAR バナー
+  ctx.textAlign = "center";
+  if(resultType === "perfect"){
+    ctx.fillStyle = "#ffd700";
+    ctx.font = "bold 30px sans-serif";
+    ctx.font = "bold 30px sans-serif";
+    ctx.textAlign = "center";
+    
+    // ① アウトライン（白）
+    ctx.lineWidth = 6;              // 縁取りの太さ
+    ctx.strokeStyle = "#ffffff";    // 縁取りの色
+    ctx.strokeText("🎯 STAGE PERFECT !! 🎯", 180, 75);
+    
+    // ② 塗りつぶし（元の金色）
+    ctx.fillStyle = "#ffd700";
+    ctx.fillText("🎯 STAGE PERFECT !! 🎯", 180, 75);
+  }else{
+    // テキスト
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 26px sans-serif";
+    ctx.fillText("🌸 STAGE CLEAR 🌸",180, 75);
+  }
+
+
+  // NEXTボタン
+  if(stage===MAX_STAGE){
+    drawEllipseButton(90, 380, 180, 44, "RESULT");
+  }else{
+    drawEllipseButton(90, 380, 180, 44, "NEXT STAGE");
+  }
+
+  ctx.restore();
+  // ===== ここまで =====
+}
+
+// NEXT Button
+function drawEllipseButton(x, y, w, h, text) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+
+  ctx.save();
+
+  // 楕円パス
+  ctx.beginPath();
+  ctx.ellipse(
+    cx, cy,
+    w / 2, h / 2,
+    0, 0, Math.PI * 2
+  );
+
+  // 塗り（中身）
+  ctx.fillStyle = "#143a2a";
+  ctx.fill();
+
+  // 枠線
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "rgba(255,255,255,0.3)";
+  ctx.stroke();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  
+  // 内側に薄い光
+  ctx.shadowColor = "rgba(255,255,255,0.3)";
+  ctx.shadowBlur = 6;
+
+  // 押せそう感（少し立体）
+  ctx.shadowColor = "rgba(0,0,0,0.6)";
+  ctx.shadowOffsetY = 2;
+
+  // テキスト
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 18px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, cx, cy);
+
+  ctx.restore();
+}
+
+//RETRY Button
+function drawGameOverButton(x, y, w, h, text) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+
+  ctx.save();
+
+  // 楕円パス
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
+
+  // 塗り（黒）
+  ctx.fillStyle = "#222";
+  ctx.fill();
+
+  // 枠線（白の薄いライン）
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+  ctx.stroke();
+
+  // テキスト（白）
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 18px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, cx, cy);
+
+  ctx.restore();
+}
+
+
+function getClearScale() {
+  const t = Math.min(clearAnimFrame / CLEAR_ANIM_MAX, 1);
+
+  // 前半：0.5 → 1.1
+  if (t < 0.6) {
+    return 0.5 + (1.1 - 0.5) * (t / 0.6);
+  }
+
+  // 後半：1.1 → 1.0
+  return 1.1 - (1.1 - 1.0) * ((t - 0.6) / 0.4);
+}
+
+/* ================= 操作 ================= */
+function tap(x,y){
+  if(gameState==="ending"){
+    if(endingWait > 0) return;
+    if(x>75&&x<285&&y>380&&y<425){
+      stageResults = [];
+      stage=1; endingAlpha=0; startStage(); return;
+    }
+    return
+  }
+
+  if(gameState==="result"){
+    const val=hand[0]*hand[1]+hand[2];
+    if(x>90&&x<270&&y>380&&y<425){
+      if(Math.abs(val-21)<=tolerances[stage-1]){
+        if(stage===MAX_STAGE){
+          triggerFlash();
+          spawnCelebrate();
+          for (let i = 0; i < 15; i++) { setTimeout(() => spawnFirework(), i * 200); }
+          gameState="ending"; endingWait = 30; return;
+        }
+        stage++;
+      }
+      startStage();
+    }
+    return;
+  }
+
+  hand.forEach((v,i)=>{
+    if(x>startX+i*HAND_GAP&&x<startX+i*HAND_GAP+CARD_W&&y>HAND_Y && y<HAND_Y+CARD_H){
+      selectedHand=i;
+    }
+  });
+
+  if(selectedHand!==null&&swapsLeft>0&&!flipAnim){
+    fields.forEach((f,r)=>{
+      f.forEach((v,i)=>{
+        const key=`${r}-${i}`;
+        if(revealed.has(key)) return;
+        if(
+          x>fieldStartX+i*FIELD_GAP &&
+          x<fieldStartX+i*FIELD_GAP+CARD_W &&
+          y>FIELD_Y+r*FIELD_ROW_GAP &&
+          y<FIELD_Y+r*FIELD_ROW_GAP+CARD_H
+        ){
+          flipAnim={r,i,s:1};
+          let t=0;
+          const iv=setInterval(()=>{
+            t+=0.08;
+            flipAnim.s=Math.abs(Math.cos(t*Math.PI));
+            if(t>=1){
+              clearInterval(iv);
+              flipAnim=null;
+              
+              //交換処理
+              // フリップ完了後（t>=1 の中）
+              const card = f[i];          // 山札のカードオブジェクト
+              // ★ 交換前の値を保存
+              const handValueBefore = hand[selectedHand];
+              const fieldValueBefore = card.value;
+              
+              // 新②山札→手札
+              startSwapAnimation(r, i, selectedHand);
+              
+            }
+          },16);
+        }
+      });
+    });
+  }
+}
+
+function startSwapAnimation(r, i, handIndex){
+  const fieldCard = fields[r][i];
+  const handValue = hand[handIndex];
+
+  swapAnim = {
+    t: 0,
+    flip: true,
+    r, i, handIndex,
+
+    field: {
+      value: fieldCard.value,
+      from: {
+        x: fieldStartX + i * FIELD_GAP,
+        y: FIELD_Y + r * FIELD_ROW_GAP
+      },
+      to: {
+        x: startX + handIndex * HAND_GAP,
+        y: HAND_Y
+      }
+    },
+
+    hand: {
+      value: handValue,
+      from: {
+        x: startX + handIndex * HAND_GAP,
+        y: HAND_Y
+      },
+      to: {
+        x: fieldStartX + i * FIELD_GAP,
+        y: FIELD_Y + r * FIELD_ROW_GAP
+      }
+    }
+  };
+}
+
+function checkClear(){
+  const val = hand[0]*hand[1] + hand[2];
+  const tol = tolerances[stage-1];
+
+  if(Math.abs(val - 21) <= tol){
+    gameState = "result";
+    resultType = (val === 21) ? "perfect" : "near";
+    clearAnimFrame = 0;
+    triggerFlash();
+    spawnCelebrate();
+    //記録
+    stageResults.push({
+      stage,
+      a: hand[0],
+      b: hand[1],
+      c: hand[2],
+      result: hand[0] * hand[1] + hand[2],
+      swapsLeft
+    });
+    if(resultType === "perfect"){
+      for (let i = 0; i < 13; i++) { setTimeout(() => spawnFirework(), i * 200); }
+    }
+    return true;
+  }
+  return false;
+}
+
+// クリア時のお祝い演出
+//フラッシュ
+function triggerFlash(){
+  flashAlpha = 1;
+}
+
+//紙吹雪
+function spawnCelebrate() {
+  for (let i = 0; i < 100; i++) {
+    particles.push({
+      x: Math.random() * BASE_W,
+      y: -30,
+
+      vx: (Math.random() - 0.5) * 1.2, // 横流れ
+      vy: 0.5 + Math.random() * 2,       // 初速
+
+      gravity: 0.03 + Math.random() * 0.05,
+
+      swing: Math.random() * Math.PI * 2, // 揺れ位相
+      swingSpeed: 0.05 + Math.random() * 0.05,
+      swingRange: 1 + Math.random() * 2,
+
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.2,
+
+      size: 4 + Math.random() * 4,
+      color: Math.random() < 0.5 ? "#ffd700" : "#ffffff"
+    });
+  }
+}
+
+//打上花火
+function drawFireworks() {
+  fireworks.forEach(f => {
+    if (!f.exploded) {
+      // ===== 打ち上げフェーズ =====
+      f.y += f.vy;
+      f.vy += f.gravity;
+
+      // 爆発条件
+      if (f.vy >= 0) {
+        explodeFirework(f);
+        f.exploded = true;
+      }
+
+      // 打ち上げの光
+      ctx.fillStyle = f.color;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+    } else {
+      // ===== 爆発フェーズ =====
+      f.particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.02; // 重力
+
+        p.life -= 1;
+
+        ctx.globalAlpha = Math.max(p.life / p.maxLife, 0);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 寿命が尽きたら削除
+      f.particles = f.particles.filter(p => p.life > 0);
+    }
+  });
+
+  // 爆発後に全て消えた花火を削除
+  fireworks = fireworks.filter(f => f.exploded === false || f.particles.length > 0);
+  ctx.globalAlpha = 1;
+}
+
+function explodeFirework(f) {
+  const count = 40 + Math.random() * 40;
+  f.particles = [];
+
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 3;
+
+    f.particles.push({
+      x: f.x,
+      y: f.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      color: randomFireworkColor(),
+      life: 40 + Math.random() * 20,
+      maxLife: 60
+    });
+  }
+}
+
+function randomFireworkColor() {
+  const colors = [
+    "#ff4d4d", // 赤
+    "#ffd700", // 金
+    "#7df9ff", // 水色
+    "#ff69b4", // ピンク
+    "#ffffff", // 白
+    "#adff2f"  // 黄緑
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+function spawnFirework() {
+  fireworks.push({
+    x: Math.random() * BASE_W,
+    y: BASE_H + 20, // 下から
+    vy: -7 - Math.random() * 4, // 上昇速度
+    gravity: 0.12,
+    color: randomFireworkColor(),
+    exploded: false,
+    particles: []
+  });
+}
+
+
+/* ================= ループ ================= */
+function loop(){
+  draw();
+  if(endingWait > 0) endingWait--;
+  if(gameState === "result"){
+    if(resultType === "fail"){
+      drawGameOverOverlay();
+    }else{
+      drawClearOverlay();
+      drawFireworks();
+    }
+  }else if(gameState==="ending"){
+    drawFireworks();
+  }
+  particles = particles.filter(p => p.y < BASE_H + 20);
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

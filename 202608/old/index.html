@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <title>受けとメテオ！</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X7H2CH0FBF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-X7H2CH0FBF');
+  </script>
+  <!-- Twitter向けOGP設定 -->
+  <meta name="twitter:site" content="@kshukshu777" />
+  <meta name="twitter:creator" content="@kshukshu777" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta property="og:url" content="https://shjuno-git.github.io/202608/old/" />
+  <meta property="og:title" content="受けとメテオ！" />
+  <meta property="og:description" content="タップで隕石を操作、器で受け止めよう！数分で遊べるフリーのブラウザゲーム。" />
+  <meta property="og:image" content="https://shjuno-git.github.io/images/thumbnail/linkcard_meteor.png" />
+  <style>
+    body {
+      margin: 0;
+      background: #222;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      height: 100vh;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    canvas {
+      background: #000;
+      touch-action: none;
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+  </style>
+</head>
+
+<body>
+
+  <canvas id="gameCanvas" width="360" height="548"></canvas>
+
+  <script>
+    /* ============================================================
+       Canvas セットアップ（アドレスバーを避けて中央配置）
+    ============================================================ */
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width;
+    const H = canvas.height;
+
+    function adjustCanvasPosition() {
+      const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      const top = (viewportHeight - H) / 2;
+      canvas.style.top = top + "px";
+    }
+    adjustCanvasPosition();
+    window.addEventListener("resize", adjustCanvasPosition);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", adjustCanvasPosition);
+    }
+
+    /* ============================================================
+       ゲーム状態
+    ============================================================ */
+    let meteor = null;
+    let score = 0;
+    let gameOver = false;
+    let effects = [];
+    let sparks = [];
+    let pulse = 0;
+    let ripples = [];
+    let successBeams = [];
+    let stars = [];
+    let totalTaps = 0;
+    let bgMeteors = [];
+    let bgSparks = [];
+    let popups = [];
+
+    const TITLES = [
+      "初星のメテ子",        // 0
+      "流星のメテ乙女",      // 1–4
+      "彗星のメテ大人",      // 5–8
+      "星雲のメテ翁",      // 9–12
+      "銀河のメテ豪",      // 13–16
+      "星海のメテ妖精",      // 17–20
+      "天界のメテ総理",        // 21–24
+      "超新星のメテ将軍",      // 25–28
+      "創成のメテ大君",      // 29–32
+      "無限大メテ王"     // 30以上の最高称号
+    ];
+
+    let safeWidth = 120;     // 安全エリアの幅（徐々に縮む）
+    let safeX = (W - safeWidth) / 2; // 初期位置は中央
+    const safeMinWidth = 80; // 最小幅
+
+    let meteorSpeed = 120;   // 隕石の速度（徐々に速くなる）
+    const meteorMaxSpeed = 620;
+
+    function spawnMeteor() {
+      const startX = Math.random() * W;
+
+      let angle;
+      while (true) {
+        angle = (Math.random() * 0.6 + 0.2) * Math.PI;
+        const deg = angle * 180 / Math.PI;
+        if (deg < 60 || deg > 120) break;
+      }
+
+      const baseVx = Math.cos(angle) * meteorSpeed;
+      const baseVy = Math.sin(angle) * meteorSpeed;
+
+      // 種類をランダム選択
+      const types = Object.keys(METEOR_TYPES);
+      const type = types[Math.floor(Math.random() * types.length)];
+      const t = METEOR_TYPES[type];
+
+      meteor = {
+        x: startX,
+        y: -40,
+
+        // 種類ごとの倍率を掛ける
+        vx: baseVx * t.vxMul,
+        vy: baseVy * t.vyMul,
+        vxTarget: baseVx * t.vxMul,
+        r: 22 * t.sizeMul,
+
+        type: type,
+        shape: generateRockShape(22 * t.sizeMul)
+      };
+    }
+
+    function generateRockShape(r) {
+      const points = [];
+      const count = 8 + Math.floor(Math.random() * 4); // 8〜12角形
+
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 / count) * i;
+        const radius = r * (0.8 + Math.random() * 0.4); // ランダムに凹凸
+        points.push({
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius
+        });
+      }
+      return points;
+    }
+
+    const METEOR_TYPES = {
+      magma: {
+        base: "#ff4a2a",
+        shadow: "rgba(120,0,0,0.55)",
+        highlight: "rgba(255,200,150,0.35)",
+        crackColor: "rgba(80,0,0,0.7)",
+        sizeMul: 1.2,
+        vxMul: 1.1,
+        vyMul: 1.0,
+      },
+      ice: {
+        base: "#4ac8ff",
+        shadow: "rgba(0,60,120,0.45)",
+        highlight: "rgba(255,255,255,0.5)",
+        crackColor: "rgba(0,40,80,0.6)",
+        sizeMul: 0.9,
+        vxMul: 1.2,
+        vyMul: 1.2
+      },
+      cosmic: {
+        base: "#b44aff",
+        shadow: "rgba(60,0,120,0.55)",
+        highlight: "rgba(255,200,255,0.4)",
+        crackColor: "rgba(40,0,80,0.7)",
+        sizeMul: 1.0,
+        vxMul: 1.4,
+        vyMul: 0.9
+      },
+      toxic: {
+        base: "#7aff4a",
+        shadow: "rgba(0,80,0,0.45)",
+        highlight: "rgba(200,255,200,0.35)",
+        crackColor: "rgba(0,60,0,0.6)",
+        sizeMul: 1.3,
+        vxMul: 0.8,
+        vyMul: 1.1
+      },
+      gold: {
+        base: "#ffdd55",
+        shadow: "rgba(120,80,0,0.45)",
+        highlight: "rgba(255,255,200,0.6)",
+        crackColor: "rgba(100,60,0,0.7)",
+        sizeMul: 1.4,
+        vxMul: 1.0,
+        vyMul: 0.7
+      }
+    };
+
+    function spawnBgMeteor() {
+      const startX = Math.random() * W;
+
+      let angle;
+      while (true) {
+        angle = (Math.random() * 0.6 + 0.2) * Math.PI;
+        const deg = angle * 180 / Math.PI;
+        if (deg < 60 || deg > 120) break;
+      }
+
+      const ram = 320 + (Math.random()*300);
+      const baseVx = Math.cos(angle) * ram;
+      const baseVy = Math.sin(angle) * ram;
+
+      const types = Object.keys(METEOR_TYPES);
+      const type = types[Math.floor(Math.random() * types.length)];
+      const t = METEOR_TYPES[type];
+
+      const m = {
+        x: startX,
+        y: -40,
+        vx: baseVx * t.vxMul,
+        vy: baseVy * t.vyMul,
+        vxTarget: baseVx * t.vxMul,
+        r: 22 * t.sizeMul,
+        type: type,
+        shape: generateRockShape(22 * t.sizeMul),
+        life: 3.0
+      };
+
+      bgMeteors.push(m);
+    }
+
+    function resetGame() {
+      score = 0;
+      effects = [];
+      sparks = [];
+      pulse = 0;
+      ripples = [];
+      stars = [];
+      totalTaps = 0;
+      bgMeteors = [];
+      bgSparks = [];
+
+      safeWidth = 120;
+      safeX = (W - safeWidth) / 2;
+      meteorSpeed = 320;
+      gameOver = false;
+      spawnMeteor();
+    }
+
+    resetGame();
+
+    /* ============================================================
+       入力（pointer）
+    ============================================================ */
+    canvas.addEventListener("pointerdown", () => {
+      if (gameOver) {
+        resetGame();
+        return;
+      }
+
+      totalTaps++;
+      meteor.vxTarget *= -1;
+
+      // エフェクト追加
+      effects.push({
+        x: meteor.x,
+        y: meteor.y,
+        life: 0.4
+      });
+    });
+
+
+    /* ============================================================
+       更新処理
+    ============================================================ */
+    let lastTime = performance.now();
+
+    function update() {
+      const now = performance.now();
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      meteor.vx = meteor.vx * 0.85 + meteor.vxTarget * 0.15;
+
+      // 器の光
+      pulse += dt * 4; // ゆっくり脈動
+      const glow = (Math.sin(pulse) * 0.5 + 0.5); // 0〜1で変化
+
+      if (!gameOver) {
+        effects = effects.filter(e => {
+          e.life -= dt;
+          return e.life > 0;
+        });
+
+        // 隕石移動
+        meteor.x += meteor.vx * dt;
+        meteor.y += meteor.vy * dt;
+
+        // 左右ループ
+        if (meteor.x < -meteor.r) meteor.x = W + meteor.r;
+        if (meteor.x > W + meteor.r) meteor.x = -meteor.r;
+
+        addSparks();
+        updateSparks(dt);
+        updateRipples(dt);
+        updateStars(dt);
+        updatePopups(dt);
+
+        // 落下判定
+        if (meteor.y > H - 40) {
+
+          const safeLeft = safeX;
+          const safeRight = safeX + safeWidth;
+          const safeBuffer = 6;
+
+          // 隕石の左右端
+          const meteorLeft = meteor.x - meteor.r - safeBuffer;
+          const meteorRight = meteor.x + meteor.r + safeBuffer;
+
+          // 隕石が安全エリアに触れたら成功
+          if (meteorRight >= safeLeft - safeBuffer && meteorLeft <= safeRight + safeBuffer) {
+
+            score++;
+            // 成功エフェクト
+            ripples.push({
+              x: meteor.x,
+              y: H - 20,        // 器の中央付近
+              r: meteor.r * 0.5,
+              life: 0.6,
+              maxR: meteor.r * 3
+            });
+            successBeams.push({
+              x: meteor.x,
+              y: H - 20,
+              r: meteor.r,
+              life: 0.5,
+              angle: Math.random() * Math.PI * 2,   // ランダム角度
+              color: lightenColor(METEOR_TYPES[meteor.type].base, 0.7)
+            });
+            popups.push({
+              x: meteor.x,
+              y: H - 60,        // 器の少し上に表示
+              life: 0.7,        // 表示時間
+              scale: 0,         // 拡大アニメ用
+            });
+
+
+            spawnStars(meteor.x, H - 20, meteor);
+
+            // 隕石速度アップ
+            meteorSpeed = Math.min(meteorSpeed + 8, meteorMaxSpeed);
+
+            // 安全エリアは小さくなる
+            safeWidth = Math.max(safeWidth - 2, safeMinWidth);
+
+            // ランダム移動
+            moveSafeArea();
+
+            spawnMeteor();
+
+          } else {
+            // 初期安全エリアに触れずに画面外へ落ちたらゲームオーバー
+            if (meteor.y > H + meteor.r) {
+              gameOver = true;
+              spawnBgMeteor();
+              spawnBgMeteor();
+            }
+          }
+        }
+
+      } else {
+        updateBgMeteors(dt);
+      }
+
+      draw();
+      requestAnimationFrame(update);
+    }
+
+    function moveSafeArea() {
+      const margin = 20;
+      safeX = margin + (Math.random() * (W - safeWidth - margin * 2));
+    }
+
+    function updateRipples(dt) {
+      ripples = ripples.filter(r => {
+        r.life -= dt;
+        r.r += dt * 120;   // 波紋が広がる速度
+        return r.life > 0;
+      });
+      successBeams = successBeams.filter(b => {
+        b.life -= dt;
+        b.angle += dt * 10;   // 回転速度（調整可）
+        return b.life > 0;
+      });
+    }
+
+    function updatePopups(dt) {
+      popups = popups.filter(p => {
+        p.life -= dt;
+
+        // 拡大アニメ（0 → 1）
+        if (p.scale < 1.0)
+          p.scale += dt * 4;
+
+        return p.life > 0;
+      });
+    }
+
+    function spawnStars(x, y, meteor) {
+      const baseColor = METEOR_TYPES[meteor.type].base;
+      const brightColor = lightenColor(baseColor, 0.5);
+
+      const count = Math.floor(6 + meteor.r * 0.4); // 大きい隕石ほど多い
+
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 80 + Math.random() * 120;
+
+        stars.push({
+          x: x,
+          y: y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0.5 + Math.random() * 0.3,
+          size: meteor.r * (0.3 + Math.random() * 0.5), // 隕石の大きさに比例
+          color: brightColor
+        });
+      }
+    }
+
+    function lightenColor(hex, amount = 0.4) {
+      const num = parseInt(hex.slice(1), 16);
+      let r = (num >> 16) & 255;
+      let g = (num >> 8) & 255;
+      let b = num & 255;
+
+      r = Math.min(255, Math.floor(r + (255 - r) * amount));
+      g = Math.min(255, Math.floor(g + (255 - g) * amount));
+      b = Math.min(255, Math.floor(b + (255 - b) * amount));
+
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function updateStars(dt) {
+      stars = stars.filter(s => {
+        s.life -= dt;
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        return s.life > 0;
+      });
+    }
+
+    function addSparks() {
+      const angle = Math.atan2(meteor.vy, meteor.vx);
+
+      // 隕石の後方（進行方向の逆）
+      const backX = meteor.x - Math.cos(angle) * meteor.r * 1.5;
+      const backY = meteor.y - Math.sin(angle) * meteor.r * 1.5;
+
+      // 速度に応じて火花の量を増やす
+      const count = Math.min(8, Math.abs(meteor.vx) / 40 + Math.abs(meteor.vy) / 40);
+
+      for (let i = 0; i < count; i++) {
+        sparks.push({
+          x: backX,
+          y: backY,
+          vx: (Math.random() - 0.5) * 60 - Math.cos(angle) * 80,
+          vy: (Math.random() - 0.5) * 60 - Math.sin(angle) * 80,
+          life: 0.3 + Math.random() * 0.2,
+          size: meteor.r * (0.25 + Math.random() * 0.1),
+          color: Math.random() < 0.5 ? "#ffffff" : "#ffdd88"
+        });
+      }
+    }
+
+    function addBgSparks(m) {
+      const angle = Math.atan2(m.vy, m.vx);
+
+      const backX = m.x - Math.cos(angle) * m.r * 1.5;
+      const backY = m.y - Math.sin(angle) * m.r * 1.5;
+
+      const count = Math.min(8, Math.abs(m.vx) / 40 + Math.abs(m.vy) / 40);
+
+      for (let i = 0; i < count; i++) {
+        bgSparks.push({
+          x: backX,
+          y: backY,
+          vx: (Math.random() - 0.5) * 60 - Math.cos(angle) * 80,
+          vy: (Math.random() - 0.5) * 60 - Math.sin(angle) * 80,
+          life: 0.3 + Math.random() * 0.2,
+          size: m.r * (0.25 + Math.random() * 0.1),
+          color: Math.random() < 0.5 ? "#ffffff" : "#ffdd88"
+        });
+      }
+    }
+
+    function addBgSmoke(m) {
+      bgSmoke.push({
+        x: m.x,
+        y: m.y,
+        size: m.r * 0.8,
+        life: 0.5
+      });
+    }
+
+    function updateSparks(dt) {
+      sparks = sparks.filter(s => {
+        s.life -= dt;
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        return s.life > 0;
+      });
+    }
+
+    function updateBgMeteors(dt) {
+      let needSpawn = 0;
+
+      bgMeteors = bgMeteors.filter(m => {
+        m.x += m.vx * dt;
+        m.y += m.vy * dt;
+        m.life -= dt;
+
+        // 左右ループ
+        if (m.x < -m.r) m.x = W + m.r;
+        if (m.x > W + m.r) m.x = -m.r;
+
+        addBgSparks(m);
+
+        // 画面下に行ったら削除フラグだけ立てる
+        if (m.y > H + m.r) {
+          needSpawn++;
+          return false;   // ここでは消すだけ
+        }
+        return true;
+      });
+
+      // filter が終わってから、新しい隕石を spawn
+      for (let i = 0; i < needSpawn; i++) {
+        spawnBgMeteor();
+      }
+    }
+
+    /* ============================================================
+       描画処理
+    ============================================================ */
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // 背景
+      drawBackground();
+
+      // 安全エリア
+      drawSafeArea();
+
+      // 隕石
+      drawSparks();
+      drawMeteor();
+
+      // エフェクト
+      drawStars();
+      drawRipples();
+      drawSuccessBeams();
+      drawEffects();
+      drawPopups();
+
+      // スコア
+      ctx.fillStyle = "#fff";
+      ctx.font = "24px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Meteor: " + score, W / 2, 40);
+
+      // 説明
+      ctx.font = "16px sans-serif";
+      ctx.fillText("Tap to flip and Catch 30 Meteors!", W / 2, 70);
+
+      // ゲームオーバー
+      if (gameOver) {
+        const title = getTitle(score);
+        const nextInfo = getNextTitleInfo(score);
+
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "center";
+        ctx.save();
+        ctx.globalAlpha = 0.6;
+        drawBgSparks();
+        drawBgMeteors();
+        ctx.restore();
+        // メインタイトル
+        ctx.fillStyle = "#fff";
+        ctx.font = "38px sans-serif";
+        const titleText = "受けとメテオ！";
+        const titleY = H / 2 - 140;
+        ctx.fillText(titleText, W / 2, titleY);
+
+        // --- 下線（光るライン） ---
+        ctx.save();
+        ctx.strokeStyle = "rgba(180,200,255,0.8)";  // 青白い光
+        ctx.lineWidth = 3;
+
+        const textWidth = ctx.measureText(titleText).width + 20;
+        const underlineY = titleY + 10;
+
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - textWidth / 2, underlineY);
+        ctx.lineTo(W / 2 + textWidth / 2, underlineY);
+        ctx.stroke();
+        ctx.restore();
+
+        // 称号
+        ctx.font = "32px sans-serif";
+        ctx.fillStyle = "#ffe8a0";
+        ctx.fillText("称号: " + title, W / 2, H / 2 - 70);
+
+        // スコア（世界観化）
+        ctx.font = "28px sans-serif";
+        ctx.fillStyle = "#fff";
+        ctx.fillText("Meteor: " + score, W / 2, H / 2 - 20);
+
+        ctx.textAlign = "left";
+        // タップ統計
+        avgTaps = score === 0 ? 0 : totalTaps / score;
+        ctx.font = "20px sans-serif";
+        ctx.fillText("Total Taps: " + totalTaps, W / 2 - 62, H / 2 + 30);
+        ctx.fillText(" (Avg Taps: " + avgTaps.toFixed(1) + ")", W / 2 - 62, H / 2 + 60);
+        ctx.textAlign = "center";
+        // 次の称号まで
+        ctx.font = "18px sans-serif";
+        ctx.fillStyle = "#cce0ff";
+        if (nextInfo.remain === 0) {
+          ctx.fillText(nextInfo.next, W / 2, H / 2 + 110);
+        } else {
+          ctx.fillText(
+            "次の称号まであと " + nextInfo.remain + " Meteor",
+            W / 2,
+            H / 2 + 100
+          );
+        }
+
+        // 再スタート
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px sans-serif";
+        ctx.fillText("Tap to restart", W / 2, H / 2 + 155);
+      }
+
+    }
+
+    function getTitle(score) {
+      if (score >= 30) {
+        return TITLES[TITLES.length - 1];
+      } else if (score <= 0) {
+        return TITLES[0];
+      }
+      const index = Math.floor(score / 4) + 1;
+      return TITLES[index];
+    }
+
+    function getNextTitleInfo(score) {
+      if (score >= 30) {
+        return {
+          next: "最高称号だ！銀河系制覇おめでとう！",
+          remain: 0
+        };
+      } else if (score >= 28) {
+        return {
+          next: "",
+          remain: 30 - score
+        };
+      } else if (score <= 0) {
+        return {
+          next: "",
+          remain: 1
+        };
+      }
+
+      const nextIndex = Math.floor(score / 4) + 1;
+      const nextScore = nextIndex * 4;
+
+      return {
+        next: TITLES[nextIndex],
+        remain: nextScore - score
+      };
+    }
+
+    function drawBackground() {
+      // グラデーション
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, "#0a0f2c");
+      g.addColorStop(1, "#000000");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+
+      // 星
+      for (let i = 0; i < 40; i++) {
+        const x = (i * 97) % W;
+        const y = (i * 53) % H;
+        const twinkle = Math.sin(Date.now() * 0.002 + i) * 0.5 + 0.5;
+
+        ctx.fillStyle = `rgba(255,255,255,${0.2 + twinkle * 0.8})`;
+        ctx.fillRect(x, y, 2, 2);
+      }
+    }
+
+    function drawSafeArea() {
+      const x = safeX;
+      const y = H - 40;
+      const w = safeWidth;
+      const h = 40;
+
+      ctx.save();
+
+      // 光の脈動
+      const glow = (Math.sin(pulse) * 0.5 + 0.5); // 0〜1
+      const glowAlpha = 0.4 + glow * 0.4;         // 0.4〜0.8
+
+      // --- 外枠（光る縁） ---
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(180,200,255,${glowAlpha})`; // 青白い光
+      ctx.lineWidth = 6;
+      ctx.roundRect(x - 3, y - 3, w + 6, h + 6, 18);
+      ctx.stroke();
+
+      // --- 本体（暗めの金属） ---
+      const g = ctx.createLinearGradient(x, y, x, y + h);
+      g.addColorStop(0, "#ffeef8");
+      g.addColorStop(1, "#e8f6ff");
+
+      ctx.beginPath();
+      ctx.fillStyle = g;
+      ctx.roundRect(x, y, w, h, 16);
+      ctx.fill();
+
+      // --- 内側の影（器の深さ） ---
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(120,180,220,0.35)";
+      ctx.roundRect(x + 4, y + 10, w - 8, h - 14, 12);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function drawRipples() {
+      ripples.forEach(r => {
+        const alpha = r.life / 0.6;
+
+        ctx.save();
+        //ctx.globalAlpha = alpha * 0.8;
+        //ctx.strokeStyle = `rgba(180,200,255,${alpha})`;
+        ctx.strokeStyle = `rgba(232,246,255,${alpha})`;
+        //ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+        ctx.lineWidth = 4 * alpha;
+
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.restore();
+      });
+    }
+
+    function drawSuccessBeams() {
+      successBeams.forEach(b => {
+        const alpha = b.life / 0.5;
+
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.fillStyle = b.color;
+
+        ctx.translate(b.x, b.y);   // 中心へ移動
+        ctx.rotate(b.angle);       // 回転
+
+        // 回転四角形（光柱）
+        //ctx.fillRect(-30, -30, 60, 60);
+        ctx.fillRect(-1 * b.r - 5, -1 * b.r - 5, 2 * b.r + 10, 2 * b.r + 10);
+        ctx.restore();
+      });
+    }
+
+
+    function drawStars() {
+      stars.forEach(s => {
+        const alpha = s.life / 0.8;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      });
+    }
+
+    function drawPopups() {
+      popups.forEach(p => {
+        const alpha = p.life / 0.5;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        ctx.translate(p.x, p.y);
+        ctx.scale(p.scale, p.scale);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 32px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Catch!", 0, 0);
+
+        ctx.restore();
+      });
+    }
+
+    function drawMeteor() {
+      const angle = Math.atan2(meteor.vy, meteor.vx);
+      const style = METEOR_TYPES[meteor.type];
+
+      ctx.save();
+      ctx.translate(meteor.x, meteor.y);
+      ctx.rotate(angle);
+
+      // --- 本体（多角形） ---
+      ctx.beginPath();
+      ctx.fillStyle = style.base;
+      meteor.shape.forEach((p, i) => {
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+
+      // --- 影 ---
+      ctx.beginPath();
+      ctx.fillStyle = style.shadow;
+      ctx.ellipse(5, 5, meteor.r * 1.1, meteor.r * 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // --- ハイライト ---
+      ctx.beginPath();
+      ctx.fillStyle = style.highlight;
+      ctx.ellipse(-6, -6, meteor.r * 0.6, meteor.r * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // --- 割れ目 ---
+      ctx.strokeStyle = "#ffff00";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const x1 = (Math.random() - 0.5) * meteor.r * 1.2;
+        const y1 = (Math.random() - 0.5) * meteor.r * 1.2;
+        const x2 = x1 + (Math.random() - 0.5) * meteor.r * 0.8;
+        const y2 = y1 + (Math.random() - 0.5) * meteor.r * 0.8;
+
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+
+    function drawSparks() {
+      sparks.forEach(s => {
+        const alpha = s.life / 0.5;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    function drawSmoke() {
+      smoke.forEach(s => {
+        const alpha = s.life / 0.5;
+
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.6;
+        ctx.fillStyle = "#ffffff";
+
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      });
+    }
+
+    function drawEffects() {
+      effects.forEach(e => {
+        const alpha = e.life / 0.4;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        ctx.beginPath();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 4 * alpha;
+        ctx.arc(e.x, e.y, 20 * (1 - alpha), 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.restore();
+      });
+    }
+
+    function drawBgMeteors() {
+      bgMeteors.forEach(m => {
+        const angle = Math.atan2(m.vy, m.vx);
+        const style = METEOR_TYPES[m.type];
+
+        ctx.save();
+        ctx.translate(m.x, m.y);
+        ctx.rotate(angle);
+
+        // 本体
+        ctx.beginPath();
+        ctx.fillStyle = style.base;
+        m.shape.forEach((p, i) => {
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+
+        // 影
+        ctx.beginPath();
+        ctx.fillStyle = style.shadow;
+        ctx.ellipse(5, 5, m.r * 1.1, m.r * 0.9, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // ハイライト
+        ctx.beginPath();
+        ctx.fillStyle = style.highlight;
+        ctx.ellipse(-6, -6, m.r * 0.6, m.r * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      });
+    }
+    function drawBgSparks() {
+      bgSparks = bgSparks.filter(s => {
+        const alpha = s.life / 0.5;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        s.life -= 0.016;
+        s.x += s.vx * 0.016;
+        s.y += s.vy * 0.016;
+
+        return s.life > 0;
+      });
+    }
+
+    requestAnimationFrame(update);
+  </script>
+
+</body>
+
+</html>
