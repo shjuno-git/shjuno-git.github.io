@@ -817,6 +817,33 @@ function drawSoundButton() {
 	});
 }
 
+// プレイ中の音のON/OFFボタン（左上の小さな♪。OFFのときは斜線）。指で押しやすいよう判定は見た目より広く取る
+const BTN_SOUND_GAME = { x: 8, y: 5, w: 32, h: 18 };
+const BTN_SOUND_GAME_HIT = { x: 0, y: 0, w: 48, h: 30 };
+function drawGameSoundButton() {
+	const b = BTN_SOUND_GAME;
+	fillRoundRect(b.x, b.y, b.w, b.h, 6, "rgba(0,0,0,0.55)");
+	strokeRoundRect(b.x, b.y, b.w, b.h, 6, COL_SUB, 1);
+	drawText("♪", b.x + b.w / 2, b.y + b.h / 2 + 1, { size: 12, weight: "bold", align: "center", baseline: "middle", color: soundOn ? "#ffffff" : COL_SUB });
+	if (!soundOn) {
+		ctx.save();
+		ctx.strokeStyle = COL_DANGER;
+		ctx.lineWidth = 1.5;
+		ctx.lineCap = "round";
+		ctx.beginPath();
+		ctx.moveTo(b.x + 9, b.y + b.h - 4);
+		ctx.lineTo(b.x + b.w - 9, b.y + 4);
+		ctx.stroke();
+		ctx.restore();
+	}
+}
+// ゲーム中に音を切り替える（OFFにしたら長押しの音など鳴り続けている音も止める）
+function toggleSoundInGame() {
+	setSound(!soundOn);
+	if (soundOn) sfxUiConfirm();
+	else sfxHoldStop();
+}
+
 /* ==================== ベストスコア保存 ==================== */
 const BEST_KEY = "nige_best_score";
 function loadBest() {
@@ -2454,7 +2481,9 @@ function drawHud(s) {
 	ctx.scale(1 + 0.3 * pk, 1 + 0.3 * pk);
 	drawText(Math.floor(s.displayScore).toLocaleString(), 0, 0, { size: 22, weight: "bold", align: "right", baseline: "middle", color: pk > 0 ? COL_GRAZE : "#ffffff" });
 	ctx.restore();
-	drawText(t("bestFmt")(bestScore.toLocaleString()), 16, 14, { size: 11, align: "left", baseline: "middle", color: COL_SUB });
+	// 左上：プレイ中の音のON/OFF（小さな♪ボタン）と、その右にBEST
+	drawGameSoundButton();
+	drawText(t("bestFmt")(bestScore.toLocaleString()), BTN_SOUND_GAME.x + BTN_SOUND_GAME.w + 7, 14, { size: 11, align: "left", baseline: "middle", color: COL_SUB });
 	if (cleared) return;
 	drawComboHud(s);
 	drawPowerHud(s);
@@ -3186,6 +3215,11 @@ canvas.addEventListener("pointerdown", (e) => {
 		else requestStart(e.pointerType !== "mouse"); // ボタン以外のどこをタップしても開始（スマホの初回はサウンド確認を挟む）
 		return;
 	}
+	// プレイ中（カウントダウン・クリア演出も含む）は左上の♪で音を切り替え。長押しの操作にはしない
+	if (!resultUiVisible(game) && hitTestBtn(BTN_SOUND_GAME_HIT, x, y)) {
+		toggleSoundInGame();
+		return;
+	}
 	if (appScene === "countdown") return;
 	if (resultUiVisible(game)) {
 		if (hitTestBtn(BTN_LANG, x, y)) { setLang(lang === "ja" ? "en" : "ja"); sfxUiButton(); }
@@ -3245,6 +3279,13 @@ document.addEventListener("visibilitychange", () => {
 // パソコン用：←→キーで画面の左右タップと同じ操作。タイトルやリザルトではEnter/スペースでも進める
 const KEY_SIDES = { ArrowLeft: "left", ArrowRight: "right" };
 window.addEventListener("keydown", (e) => {
+	// Mキーで音のON/OFF（どの画面でも。サウンド確認ダイアログ中は除く）
+	if ((e.key === "m" || e.key === "M") && !e.repeat && !soundAsk) {
+		ensureAudio();
+		if (appScene === "game" && !resultUiVisible(game)) toggleSoundInGame();
+		else { setSound(!soundOn); sfxUiButton(); }
+		return;
+	}
 	const side = KEY_SIDES[e.key];
 	const confirmKey = e.key === "Enter" || e.key === " ";
 	if (!side && !confirmKey) return;
