@@ -4,7 +4,7 @@
 公開先ごとのコピーにだけ、その公開先の URL で OGP を付ける。_tools/ は Jekyll の公開対象外。
 
 使い方（このリポジトリのルートで）:
-    python _tools/sync_game.py kurage        # GitHub Pages: <dest>/index.html を更新
+    python _tools/sync_game.py kurage        # GitHub Pages: 各 <dest>/index.html を更新
     python _tools/sync_game.py kurage --ks   # kshukshu.com: kshukshu/_upload/<id>/index.html を作成
                                              #   （中身をサーバーの /<id>/ へアップロードする）
 """
@@ -20,7 +20,9 @@ KS_SITE = "https://kshukshu.com"
 GAMES = {
     "kurage": {
         "src": KSHUKSHU / "kurage" / "index.html",
-        "dest": "202610/old",  # GitHub Pages 上のフォルダ（kshukshu.com 側はキー名 = フォルダ名）
+        # GitHub Pages 上の置き場所（複数可）。リメイク予定のない新しめの作品は old/ と直下の両方に置く
+        # （kshukshu.com 側はキー名 = フォルダ名）
+        "dest": ["202610/old", "202610"],
         "title": "バイバイクラゲ",
         "desc": "水鉄砲で倍々に増えるクラゲを退治しよう！数分で遊べるフリーのブラウザゲーム。",
         "image": "linkcard_kurage.png",
@@ -43,22 +45,23 @@ def main(name, target):
     if "og:image" in html:
         sys.exit(f"{g['src']} に既に OGP があります（本体は OGP なしで管理する前提）")
     if target == "ks":
-        site, page, dest = KS_SITE, f"{KS_SITE}/{name}/", KSHUKSHU / "_upload" / name / "index.html"
+        outputs = [(KS_SITE, f"{KS_SITE}/{name}/", KSHUKSHU / "_upload" / name / "index.html")]
     else:
-        site, page, dest = GH_SITE, f"{GH_SITE}/{g['dest']}/", ROOT / g["dest"] / "index.html"
-    ogp = OGP_TEMPLATE.format(
-        url=page,
-        title=g["title"],
-        desc=g["desc"],
-        image=f"{site}/images/thumbnail/{g['image']}",
-    )
-    html, n = re.subn(r"(</title>\r?\n)", lambda m: m.group(1) + ogp, html, count=1)
-    if n != 1:
-        sys.exit("</title> が見つかりません")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with open(dest, "w", encoding="utf-8", newline="") as f:
-        f.write(html)
-    print(f"{g['src']} -> {dest} (with OGP)")
+        outputs = [(GH_SITE, f"{GH_SITE}/{d}/", ROOT / d / "index.html") for d in g["dest"]]
+    for site, page, dest in outputs:
+        ogp = OGP_TEMPLATE.format(
+            url=page,
+            title=g["title"],
+            desc=g["desc"],
+            image=f"{site}/images/thumbnail/{g['image']}",
+        )
+        out, n = re.subn(r"(</title>\r?\n)", lambda m: m.group(1) + ogp, html, count=1)
+        if n != 1:
+            sys.exit("</title> が見つかりません")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "w", encoding="utf-8", newline="") as f:
+            f.write(out)
+        print(f"{g['src']} -> {dest} (with OGP)")
 
 
 if __name__ == "__main__":
