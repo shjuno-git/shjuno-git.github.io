@@ -39,6 +39,12 @@
     background:rgba(11,14,20,0.3); box-shadow:0 0 22px rgba(77,227,255,0.3);
   }
   #overlay.mascot #celebrateCanvas{ display:block; }
+  #overlay.perfect #celebrateCanvas{ border-color:#ffd54a; box-shadow:0 0 26px rgba(255,213,74,0.55); }
+  #overlay.perfect h2{ color:#ffd54a; text-shadow:0 0 14px rgba(255,213,74,0.6); }
+  .perfectBadge{
+    display:inline-block; background:#ffd54a; color:#12161f; font-weight:bold; font-size:12px;
+    letter-spacing:2px; padding:3px 12px; margin-bottom:4px;
+  }
   #overlay.show{ display:flex; }
   #overlay h2{ margin:0; font-size:29px; letter-spacing:2px; line-height:1.4; }
   #overlay p{ margin:0; color:var(--dim); font-size:16px; line-height:1.7; }
@@ -52,7 +58,31 @@
     background:none; border:1px solid var(--dim); color:var(--dim); font-family:inherit;
     letter-spacing:1px; cursor:pointer; margin-top:0; opacity:0.72;
   }
+  #overlay button.sub{
+    margin-top:22px; background:none; color:var(--dim); border:1px solid var(--dim); font-size:13px; padding:8px 18px; /* extra gap from RETRY to avoid mis-taps */
+  }
   #overlay table{ font-family:inherit; }
+  #soundAsk{
+    position:absolute; inset:0; z-index:30; display:none; align-items:center; justify-content:center;
+    background:rgba(11,14,20,0.6); padding:20px;
+  }
+  #soundAsk.show{ display:flex; }
+  #soundAskPanel{
+    background:#12161f; border:1px solid var(--accent); padding:22px 20px 20px; text-align:center;
+    max-width:320px; width:100%; box-shadow:0 0 22px rgba(77,227,255,0.25);
+  }
+  #soundAskTitle{ margin:0 0 8px; font-size:19px; font-weight:bold; color:#eaf6ff; }
+  #soundAskSub{ margin:0 0 4px; font-size:13px; color:var(--dim); }
+  #soundAskNote{ margin:0 0 16px; font-size:12px; color:var(--dim); opacity:0.8; }
+  #soundAskBtns{ display:flex; gap:12px; justify-content:center; }
+  #soundAskBtns button{
+    min-width:110px; padding:12px 0; font-size:16px; font-weight:bold; letter-spacing:1px;
+    font-family:inherit; cursor:pointer; background:none; color:var(--ink); border:1px solid var(--dim);
+    transition:transform 0.12s, opacity 0.12s;
+  }
+  #soundAskBtns button.on{ background:var(--accent); color:#12161f; border-color:var(--accent); }
+  #soundAskBtns button.picked{ transform:scale(1.08); box-shadow:0 0 16px rgba(77,227,255,0.6); }
+  #soundAskBtns.chosen button:not(.picked){ opacity:0.35; }
   #overlay th, #overlay td{ padding:2px 6px; text-align:right; }
   #overlay th:first-child, #overlay td:first-child{ text-align:left; }
   #joyBase{
@@ -113,9 +143,21 @@
       <canvas id="celebrateCanvas" width="150" height="150"></canvas>
       <p id="overlayText"></p>
       <button id="overlayBtn">START</button>
+      <button id="overlayBtn2" class="sub" style="display:none;"></button>
     </div>
     <div id="topRightControls">
       <button id="pauseToggle" aria-label="一時停止"><span class="icon">❚❚</span><span id="pauseToggleLabel">STOP</span></button>
+    </div>
+    <div id="soundAsk">
+      <div id="soundAskPanel">
+        <p id="soundAskTitle"></p>
+        <p id="soundAskSub"></p>
+        <p id="soundAskNote"></p>
+        <div id="soundAskBtns">
+          <button id="soundAskOn" class="on"></button>
+          <button id="soundAskOff"></button>
+        </div>
+      </div>
     </div>
     <div id="waveTransition">
       <canvas id="loadingCanvas"></canvas>
@@ -163,8 +205,11 @@ const I18N = {
     next_stage_btn: 'NEXT STAGE',
 
     milestone_title: () => '全ての縄張りを<br>奪還した！',
+    perfect_title: '完全制覇！',
+    perfect_text: '全ての縄張りを奪還した！',
     stats_table_headers: ['ステージ', 'クリアタイム', 'やられた数', 'ボーナス回数'],
     back_to_title_btn: 'タイトルへ戻る',
+    retry_btn: 'RETRY',
 
     result_title: 'RESULT',
     result_message: (stageNum, clearedCount) => {
@@ -173,6 +218,12 @@ const I18N = {
     },
     paused_title: 'PAUSED',
     paused_hint: '右上のボタンで再開',
+
+    sound_ask_title: 'サウンドを鳴らしますか？',
+    sound_ask_sub: 'あとから左上のボタンで変えられます',
+    sound_ask_note: '※iPhoneはマナーモードだと鳴りません',
+    sound_on: '♪ ON',
+    sound_off: '♪ OFF',
 
     bonus_label: (secs) => `BONUS ${secs}s`,
     bonus_popup: (n) => `BONUS! ×${n}`,
@@ -210,8 +261,11 @@ const I18N = {
     next_stage_btn: 'NEXT STAGE',
 
     milestone_title: () => 'All territories reclaimed!',
+    perfect_title: 'Perfect Clear!',
+    perfect_text: 'All territories reclaimed!',
     stats_table_headers: ['Stage', 'Time', 'Deaths', 'Bonus'],
     back_to_title_btn: 'BACK TO TITLE',
+    retry_btn: 'RETRY',
 
     result_title: 'RESULT',
     result_message: (stageNum, clearedCount) => {
@@ -220,6 +274,12 @@ const I18N = {
     },
     paused_title: 'PAUSED',
     paused_hint: 'Tap the button top-right to resume',
+
+    sound_ask_title: 'Play with sound?',
+    sound_ask_sub: 'You can change this later with the top-left button',
+    sound_ask_note: 'On iPhone, turn off Silent Mode to hear it',
+    sound_on: '♪ ON',
+    sound_off: '♪ OFF',
 
     bonus_label: (secs) => `BONUS ${secs}s`,
     bonus_popup: (n) => `BONUS! x${n}`,
@@ -652,6 +712,13 @@ const I18N = {
       { freq: 2093, dur: 550, delay: 0.74 },
     ], 'triangle', 0.3);
   }
+  // perfect (no-retry) clear: the full milestone fanfare, then a sparkling run of FM bell chimes
+  // on top - same landing, just a grander tail reserved for the perfect run
+  function sfxPerfect() {
+    sfxMilestone();
+    [1568, 2093, 2637, 3136].forEach((f, i) => playFMBell(f, 2.0, 5, 700, 0.12, 1.15 + i * 0.09));
+    playFMBell(2093, 2.0, 6, 1600, 0.2, 1.55);
+  }
   // RESULT (game-over) confirm sound - a small melodic arc (down, then lifting slightly at the
   // end) rather than a plain scale run, and a slower tempo than the clear jingles. Meant to read
   // as "run complete" rather than a penalty - not sad, just a gentler, calmer landing
@@ -748,6 +815,7 @@ const I18N = {
   const overlayTitle = document.getElementById('overlayTitle');
   const overlayText = document.getElementById('overlayText');
   const overlayBtn = document.getElementById('overlayBtn');
+  const overlayBtn2 = document.getElementById('overlayBtn2');
   const langToggle = document.getElementById('langToggle');
 
   // ---------- i18n (text lives in i18n.js / the I18N global) ----------
@@ -790,10 +858,13 @@ const I18N = {
   function renderOverlayContext() {
     const c = overlayContext;
     if (!c || !c.kind) return;
+    overlayTitle.style.fontSize = ''; // only the milestone screen enlarges the title; reset for every other screen
     overlay.classList.toggle('celebrate', c.kind === 'clear' || c.kind === 'milestone' || c.kind === 'over');
     overlay.classList.toggle('mascot', c.kind === 'clear' || c.kind === 'milestone');
+    overlay.classList.toggle('perfect', c.kind === 'milestone' && !!c.perfect);
     langToggle.style.display = (c.kind === 'ready') ? '' : 'none';
-    overlayBtn.style.minWidth = (c.kind === 'ready') ? '220px' : ''; // START gets extra width on the title screen for an easier tap target
+    overlayBtn.style.minWidth = (c.kind === 'ready' || c.kind === 'over') ? '220px' : ''; // START/RETRY get extra width for an easier tap target
+    overlayBtn2.style.display = (c.kind === 'over') ? '' : 'none'; // secondary "back to title" button, game-over screen only
     if (c.kind === 'ready') {
       overlayTitle.textContent = t('ready_title');
       overlayText.innerHTML = t('howto_html');
@@ -806,9 +877,20 @@ const I18N = {
         ${statsBlockHtml(c.statRecord)}`;
       overlayBtn.textContent = t('next_stage_btn');
     } else if (c.kind === 'milestone') {
-      overlayTitle.innerHTML = t('milestone_title', c.stage);
-      overlayTitle.style.fontSize = '30px';
-      overlayText.innerHTML = statsTableHtml(c.stats);
+      if (c.perfect) {
+        // no-retry clear: gold "perfect" version. A clear that used RETRY keeps the normal screen
+        // as-is (no retry count shown) so retrying never feels penalized - only the perfect run is extra
+        overlayTitle.textContent = t('perfect_title');
+        overlayTitle.style.fontSize = '34px';
+        overlayText.innerHTML = `
+          <span class="perfectBadge">NO RETRY</span>
+          <div style="font-size:15px; line-height:1.6; color:#f3e7b8;">${t('perfect_text')}</div>
+          ${statsTableHtml(c.stats)}`;
+      } else {
+        overlayTitle.innerHTML = t('milestone_title', c.stage);
+        overlayTitle.style.fontSize = '30px';
+        overlayText.innerHTML = statsTableHtml(c.stats);
+      }
       overlayBtn.textContent = t('back_to_title_btn');
     } else if (c.kind === 'over') {
       overlayTitle.style.fontSize = '';
@@ -816,7 +898,8 @@ const I18N = {
       overlayText.innerHTML = `
         <div style="font-size:17px; line-height:1.7; margin-bottom:8px;">${t('result_message', c.stage, c.clearedCount)}</div>
         ${c.stats.length ? statsTableHtml(c.stats) : ''}`;
-      overlayBtn.textContent = t('back_to_title_btn');
+      overlayBtn.textContent = t('retry_btn');
+      overlayBtn2.textContent = t('back_to_title_btn');
     }
   }
   function applyLanguage() {
@@ -901,6 +984,7 @@ const I18N = {
   const MILESTONE_STAGE = 5;
   let runStats = []; // [{stage, clearTimeMs, deaths, bonusCount}, ...]
   let stageDeathCount = 0, stageBonusCount = 0, stageElapsedMs = 0;
+  let stageRetryCount = 0; // game-over RETRYs used on the current stage (carried into its runStats record)
   // rhythmic "heartbeat" bass pulse: fires on a fixed interval like a downbeat, getting faster
   // each stage to build tension. The movement sound is quantized to land on the same beat,
   // rather than firing independently, so the two lock into a groove instead of clashing.
@@ -947,7 +1031,7 @@ const I18N = {
     stage = freshRun ? 1 : n;
     kills = 0;
     if (freshRun) runStats = [];
-    if (!isSameStageRetry) { stageDeathCount = 0; stageBonusCount = 0; }
+    if (!isSameStageRetry) { stageDeathCount = 0; stageBonusCount = 0; stageRetryCount = 0; }
     stageElapsedMs = 0;
     const keepLives = (!freshRun && player) ? player.lives : (instaKill ? 1 : 3);
     player = makePlayer();
@@ -1290,23 +1374,25 @@ const I18N = {
   // A big, colorful confetti burst for stage-clear/milestone celebrations. intensity scales
   // the particle count (1 for a normal stage clear, higher for the 5-territory milestone).
   const SPARKLE_COLORS = ['#ffe93a', '#4de3ff', '#ff6b4a', '#a89bd6', '#8fd9ff', '#ffb3ec', '#ffffff'];
-  function spawnSparkle() {
+  const PERFECT_SPARKLE_COLORS = ['#ffd54a', '#ffe93a', '#fff3b0', '#ffffff', '#ffd54a', '#4de3ff'];
+  function spawnSparkle(gold) {
     const life = 700 + Math.random() * 900;
+    const palette = gold ? PERFECT_SPARKLE_COLORS : SPARKLE_COLORS;
     effects.push({
       type: 'sparkle',
       x: Math.random() * CFG.arenaW,
       y: Math.random() * CFG.arenaH,
       timer: life, maxTimer: life,
-      color: SPARKLE_COLORS[Math.floor(Math.random() * SPARKLE_COLORS.length)],
-      size: 3 + Math.random() * 4,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      size: gold ? 4 + Math.random() * 5 : 3 + Math.random() * 4,
     });
   }
   // A burst of little twinkling lights popping up all over the screen for stage-clear/milestone
   // celebrations. intensity scales how many spawn immediately (continuous spawning while the
   // celebration screen is up is handled separately, in the main loop).
-  function spawnCelebration(intensity) {
+  function spawnCelebration(intensity, gold) {
     const count = Math.round(14 * intensity);
-    for (let i = 0; i < count; i++) spawnSparkle();
+    for (let i = 0; i < count; i++) spawnSparkle(gold);
   }
 
   function spawnPopEffect(x, y, size, color, particleCount, duration) {
@@ -1357,9 +1443,15 @@ const I18N = {
 
   function showMilestoneScreen() {
     gameState = 'milestone';
-    overlayContext = { kind: 'milestone', stage: MILESTONE_STAGE, stats: runStats.slice() };
-    spawnCelebration(3); // the grandest celebration in the game
-    sfxMilestone();
+    const perfect = runStats.every(r => !r.retries);
+    overlayContext = { kind: 'milestone', stage: MILESTONE_STAGE, stats: runStats.slice(), perfect };
+    if (perfect) {
+      spawnCelebration(5, true); // gold-heavy, even bigger burst reserved for the no-retry clear
+      sfxPerfect();
+    } else {
+      spawnCelebration(3); // the grandest celebration in the game
+      sfxMilestone();
+    }
     renderOverlayContext();
     overlay.classList.add('show');
   }
@@ -1594,7 +1686,7 @@ const I18N = {
           stagePendingClear = false;
           nextOffbeatAt = Infinity; // stop any pending offbeat accent going into the clear/milestone screen
           wasBonusActive = false;
-          runStats.push({ stage, clearTimeMs: pendingClearTimeMs, deaths: stageDeathCount, bonusCount: stageBonusCount });
+          runStats.push({ stage, clearTimeMs: pendingClearTimeMs, deaths: stageDeathCount, bonusCount: stageBonusCount, retries: stageRetryCount });
           if (stage === MILESTONE_STAGE) {
             showMilestoneScreen();
           } else {
@@ -1632,7 +1724,9 @@ const I18N = {
     }
     if (flashTimer > 0) flashTimer = Math.max(0, flashTimer - 16.67 * dt);
     // while a clear/milestone celebration screen is up, keep popping new sparkles at random
-    if ((gameState === 'clear' || gameState === 'milestone' || gameState === 'over') && Math.random() < 0.35) spawnSparkle();
+    const perfectScreen = gameState === 'milestone' && overlayContext.perfect;
+    if (perfectScreen) { if (Math.random() < 0.8) spawnSparkle(true); }
+    else if ((gameState === 'clear' || gameState === 'milestone' || gameState === 'over') && Math.random() < 0.35) spawnSparkle();
     for (let i = effects.length - 1; i >= 0; i--) {
       const fx = effects[i];
       fx.timer -= 16.67 * dt;
@@ -2356,7 +2450,10 @@ const I18N = {
   overlayBtn.addEventListener('click', () => {
     if (gameState === 'ready' && !firstStartHandled) {
       firstStartHandled = true;
-      playFirstStartTransition();
+      // touch start: ask about sound first - the dialog doubles as time for the AudioContext to
+      // spin up on phones. Mouse/keyboard start keeps the wave transition instead.
+      if (lastPointerType === 'touch' || lastPointerType === 'pen') showSoundAsk();
+      else playFirstStartTransition();
       return;
     }
     sfxConfirm();
@@ -2368,17 +2465,80 @@ const I18N = {
     } else if (gameState === 'milestone') {
       startStage(1, true); // the run ends at 5 stages now - back to title, full reset
     } else if (gameState === 'over') {
-      startStage(1, true); // fresh run: lives reset to 3, shows the how-to-play overlay for stage 1
+      // RETRY: same stage, lives back to 3; deaths/bonus keep accumulating so the result table shows it
+      stageRetryCount++;
+      player.lives = instaKill ? 1 : 3;
+      startStage(stage, false, false);
+      beginCountdown();
     }
   });
+  overlayBtn2.addEventListener('click', () => {
+    sfxConfirm();
+    if (gameState === 'over') startStage(1, true); // fresh run: lives reset to 3, shows the how-to-play overlay for stage 1
+  });
+
+  // ---------- First-start sound choice (touch only) ----------
+  let lastPointerType = 'mouse';
+  window.addEventListener('pointerdown', e => { lastPointerType = e.pointerType; }, { capture: true, passive: true });
+  const soundAskEl = document.getElementById('soundAsk');
+  const soundAskBtns = document.getElementById('soundAskBtns');
+  const soundAskOnBtn = document.getElementById('soundAskOn');
+  const soundAskOffBtn = document.getElementById('soundAskOff');
+  let soundAskChosen = false;
+  function renderSoundAskText() {
+    document.getElementById('soundAskTitle').textContent = t('sound_ask_title');
+    document.getElementById('soundAskSub').textContent = t('sound_ask_sub');
+    document.getElementById('soundAskNote').textContent = t('sound_ask_note');
+    soundAskOnBtn.textContent = t('sound_on');
+    soundAskOffBtn.textContent = t('sound_off');
+  }
+  // keeps nudging the AudioContext awake (resume + a silent buffer) - some mobile browsers only
+  // count the finger-up as a valid gesture, so this runs on every touch while the dialog is open
+  function warmAudio() {
+    const ac = ensureAudio();
+    if (!ac || ac.state === 'running') return;
+    ac.resume();
+    const src = ac.createBufferSource();
+    src.buffer = ac.createBuffer(1, 1, 22050);
+    src.connect(ac.destination);
+    src.start(0);
+  }
+  function showSoundAsk() {
+    soundAskChosen = false;
+    soundAskBtns.classList.remove('chosen');
+    soundAskOnBtn.classList.remove('picked');
+    soundAskOffBtn.classList.remove('picked');
+    renderSoundAskText();
+    soundAskEl.classList.add('show');
+    warmAudio();
+  }
+  soundAskEl.addEventListener('pointerdown', warmAudio, { passive: true });
+  soundAskEl.addEventListener('pointerup', warmAudio, { passive: true });
+  function chooseSound(on) {
+    if (soundAskChosen) return; // ignore repeat taps during the exit beat
+    soundAskChosen = true;
+    setSoundOn(on);
+    if (on) sfxConfirm();
+    soundAskBtns.classList.add('chosen');
+    (on ? soundAskOnBtn : soundAskOffBtn).classList.add('picked');
+    setTimeout(() => {
+      soundAskEl.classList.remove('show');
+      beginCountdown();
+    }, 350);
+  }
+  soundAskOnBtn.addEventListener('click', () => chooseSound(true));
+  soundAskOffBtn.addEventListener('click', () => chooseSound(false));
 
   const soundToggle = document.getElementById('soundToggle');
   const soundToggleIcon = soundToggle.querySelector('.icon');
   const soundToggleLabel = document.getElementById('soundToggleLabel');
-  soundToggle.addEventListener('click', () => {
-    soundOn = !soundOn;
+  function setSoundOn(on) {
+    soundOn = on;
     soundToggleIcon.textContent = soundOn ? '🔊' : '🔇';
     soundToggleLabel.textContent = soundOn ? 'MUTE' : 'UNMUTE';
+  }
+  soundToggle.addEventListener('click', () => {
+    setSoundOn(!soundOn);
     if (soundOn) { ensureAudio(); sfxUnmute(); } // re-unlock/resume the audio context, then confirm audibly that sound is back on
   });
 
