@@ -5,168 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>バイバイクラゲ</title>
 <style>
-  :root{
-    --bg: #061826;
-    --arena: #0a2438;
-    --wall: #123449;
-    --accent: #ff6b4a;
-    --accent2: #4de3ff;
-    --ink: #eaf6ff;
-    --dim: #6f93a8;
-  }
-  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{
-    margin:0; padding:0; height:100%; background:var(--bg); color:var(--ink);
-    font-family: "Courier New", ui-monospace, monospace;
-    overflow:hidden; touch-action:none; user-select:none;
+    margin:0; padding:0; height:100%; background:#061826; overflow:hidden;
+    touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
   }
-  #app{
-    position:relative; width:100vw; height:100vh; height:100dvh; display:flex; flex-direction:column;
-  }
-  #canvasWrap{
-    position:relative; flex:1; display:flex; align-items:center; justify-content:center;
-    min-height:0;
-  }
-  canvas{ background:var(--arena); display:block; touch-action:none; }
-  #overlay{
-    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
-    flex-direction:column; gap:14px; background:rgba(11,14,20,0.88); z-index:10;
-    text-align:center; padding:20px;
-  }
-  #overlay.celebrate{ background:rgba(11,14,20,0.42); }
-  #celebrateCanvas{
-    display:none; margin:0 auto; border-radius:50%; border:3px solid rgba(255,255,255,0.4);
-    background:rgba(11,14,20,0.3); box-shadow:0 0 22px rgba(77,227,255,0.3);
-  }
-  #overlay.mascot #celebrateCanvas{ display:block; }
-  #overlay.perfect #celebrateCanvas{ border-color:#ffd54a; box-shadow:0 0 26px rgba(255,213,74,0.55); }
-  #overlay.perfect h2{ color:#ffd54a; text-shadow:0 0 14px rgba(255,213,74,0.6); }
-  .perfectBadge{
-    display:inline-block; background:#ffd54a; color:#12161f; font-weight:bold; font-size:12px;
-    letter-spacing:2px; padding:3px 12px; margin-bottom:4px;
-  }
-  #overlay.show{ display:flex; }
-  #overlay h2{ margin:0; font-size:29px; letter-spacing:2px; line-height:1.4; }
-  #overlay p{ margin:0; color:var(--dim); font-size:16px; line-height:1.7; }
-  #overlay button{
-    margin-top:6px; padding:10px 22px; background:var(--accent); color:#12161f;
-    border:none; font-weight:bold; letter-spacing:1px; font-family:inherit; font-size:14px;
-    cursor:pointer;
-  }
-  #langToggle{
-    position:absolute; top:14px; right:14px; padding:4px 10px; font-size:11px;
-    background:none; border:1px solid var(--dim); color:var(--dim); font-family:inherit;
-    letter-spacing:1px; cursor:pointer; margin-top:0; opacity:0.72;
-  }
-  #overlay button.sub{
-    margin-top:22px; background:none; color:var(--dim); border:1px solid var(--dim); font-size:13px; padding:8px 18px; /* extra gap from RETRY to avoid mis-taps */
-  }
-  #overlay table{ font-family:inherit; }
-  #soundAsk{
-    position:absolute; inset:0; z-index:30; display:none; align-items:center; justify-content:center;
-    background:rgba(11,14,20,0.6); padding:20px;
-  }
-  #soundAsk.show{ display:flex; }
-  #soundAskPanel{
-    background:#12161f; border:1px solid var(--accent); padding:22px 20px 20px; text-align:center;
-    max-width:320px; width:100%; box-shadow:0 0 22px rgba(77,227,255,0.25);
-  }
-  #soundAskTitle{ margin:0 0 8px; font-size:19px; font-weight:bold; color:#eaf6ff; }
-  #soundAskSub{ margin:0 0 4px; font-size:13px; color:var(--dim); }
-  #soundAskNote{ margin:0 0 16px; font-size:12px; color:var(--dim); opacity:0.8; }
-  #soundAskBtns{ display:flex; gap:12px; justify-content:center; }
-  #soundAskBtns button{
-    min-width:110px; padding:12px 0; font-size:16px; font-weight:bold; letter-spacing:1px;
-    font-family:inherit; cursor:pointer; background:none; color:var(--ink); border:1px solid var(--dim);
-    transition:transform 0.12s, opacity 0.12s;
-  }
-  #soundAskBtns button.on{ background:var(--accent); color:#12161f; border-color:var(--accent); }
-  #soundAskBtns button.picked{ transform:scale(1.08); box-shadow:0 0 16px rgba(77,227,255,0.6); }
-  #soundAskBtns.chosen button:not(.picked){ opacity:0.35; }
-  #overlay th, #overlay td{ padding:2px 6px; text-align:right; }
-  #overlay th:first-child, #overlay td:first-child{ text-align:left; }
-  #joyBase{
-    position:absolute; width:110px; height:110px; border-radius:50%;
-    border:2px solid rgba(58,214,255,0.35); background:rgba(58,214,255,0.06);
-    display:none; z-index:6; pointer-events:none;
-  }
-  #joyKnob{
-    position:absolute; width:46px; height:46px; border-radius:50%;
-    background:rgba(58,214,255,0.55); left:32px; top:32px; pointer-events:none;
-  }
-  #topRightControls{
-    position:absolute; top:8px; right:10px; z-index:20; display:flex; gap:6px;
-  }
-  #overlay.show ~ #topRightControls{ display:none; } /* pause is meaningless while any overlay screen is up, and would overlap the language toggle */
-  #waveTransition{
-    position:absolute; inset:0; z-index:60; pointer-events:none; display:none; overflow:hidden;
-    background:linear-gradient(#0f3550, #061826); opacity:0;
-  }
-  #waveTransition.show{ display:block; pointer-events:auto; }
-  #loadingCanvas{ position:absolute; inset:0; width:100%; height:100%; }
-  #loadingText{
-    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    color:#eaf6ff; font-weight:bold; font-size:19px; letter-spacing:3px; z-index:2;
-    animation: loadingBlink 0.9s steps(2, jump-none) infinite;
-    text-shadow: 0 0 12px rgba(77,227,255,0.6); font-family:inherit;
-  }
-  @keyframes loadingBlink{ 50%{ opacity:0.15; } }
-  #soundToggle{
-    position:absolute; top:8px; left:10px; z-index:20; padding:8px 14px; font-size:15px;
-    font-weight:bold; letter-spacing:1px; background:rgba(18,22,31,0.55); border:1px solid var(--wall);
-    color:var(--ink); cursor:pointer; opacity:0.72; font-family:inherit;
-    display:flex; align-items:center; gap:6px;
-  }
-  #soundToggle .icon{ font-size:15px; line-height:1; }
-  #pauseToggle{
-    background:rgba(18,22,31,0.55); border:1px solid var(--accent2);
-    color:var(--ink); font-size:15px; font-weight:bold; padding:8px 14px; cursor:pointer;
-    font-family:inherit; display:flex; align-items:center; gap:6px; letter-spacing:1px;
-    opacity:0.72;
-  }
-  #pauseToggle .icon{ font-size:19px; line-height:1; }
-  #howto{
-    text-align:center; font-size:14px; color:var(--dim); flex-shrink:0;
-    line-height:1.8; padding:10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
-    border-top:1px solid var(--wall);
-  }
+  /* body padding is never visible (the canvas is fixed full-screen) - it only exposes the iPhone
+     home-indicator inset to JS via getComputedStyle, so the bottom hint bar can clear it */
+  body{ padding-bottom:env(safe-area-inset-bottom, 0px); }
+  canvas{ position:fixed; left:0; top:0; display:block; touch-action:none; }
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="canvasWrap">
-    <canvas id="game"></canvas>
-    <button id="soundToggle" aria-label="サウンド"><span class="icon">🔊</span><span id="soundToggleLabel">MUTE</span></button>
-    <div id="overlay">
-      <button id="langToggle">EN</button>
-      <h2 id="overlayTitle">READY?</h2>
-      <canvas id="celebrateCanvas" width="150" height="150"></canvas>
-      <p id="overlayText"></p>
-      <button id="overlayBtn">START</button>
-      <button id="overlayBtn2" class="sub" style="display:none;"></button>
-    </div>
-    <div id="topRightControls">
-      <button id="pauseToggle" aria-label="一時停止"><span class="icon">❚❚</span><span id="pauseToggleLabel">STOP</span></button>
-    </div>
-    <div id="soundAsk">
-      <div id="soundAskPanel">
-        <p id="soundAskTitle"></p>
-        <p id="soundAskSub"></p>
-        <p id="soundAskNote"></p>
-        <div id="soundAskBtns">
-          <button id="soundAskOn" class="on"></button>
-          <button id="soundAskOff"></button>
-        </div>
-      </div>
-    </div>
-    <div id="waveTransition">
-      <canvas id="loadingCanvas"></canvas>
-      <div id="loadingText">TUNING UP</div>
-    </div>
-  </div>
-  <div id="howto"></div>
-  <div id="joyBase"><div id="joyKnob"></div></div>
-</div>
+<canvas id="game"></canvas>
 
 <script>
 // ---------------------------------------------------------------------------
@@ -176,24 +27,22 @@ const I18N = {
   ja: {
     lang_button_label: 'EN', // shows the language you'll switch TO
 
-    controls_hint_html: '移動：スワイプ / ドラッグ / 十字キー<br>攻撃：移動後に手を離す',
+    controls_hint: ['移動：スワイプ / ドラッグ / 十字キー', '攻撃：移動後に手を離す'],
 
     ready_title: 'バイバイクラゲ',
     start_btn: 'START',
-    howto_html: `
-      <div style="text-align:center; font-size:15px; line-height:1.6; max-width:300px; margin:0 auto;">
-        <p style="margin:0 0 14px; color:#d4dee2;">水鉄砲で倍々クラゲを退治しよう！</p>
-        <div style="text-align:left; font-size:14px; line-height:1.85;">
-          <b style="color:#4de3ff;">操作</b><br>
-          移動：スワイプ / ドラッグ / 十字キー<br>
-          攻撃：移動後に手を離す<br><br>
-          <b style="color:#4de3ff;">ルール</b><br>
-          ・画面内を漂う全てのクラゲを倒せばクリア<br>
-          ・倍々クラゲは水鉄砲に当たると大⇒中⇒小と分裂して小さくなる<br>
-          ・クラゲに触れると痺れてライフを失う<br>
-          ・1発で複数のクラゲを倒すと、一時的に攻撃力と移動速度がアップ
-        </div>
-      </div>`,
+    howto: {
+      intro: '水鉄砲で倍々クラゲを退治しよう！',
+      sections: [
+        { head: '操作', lines: ['移動：スワイプ / ドラッグ / 十字キー', '攻撃：移動後に手を離す'] },
+        { head: 'ルール', lines: [
+          '・画面内を漂う全てのクラゲを倒せばクリア',
+          '・倍々クラゲは水鉄砲に当たると大⇒中⇒小と分裂して小さくなる',
+          '・クラゲに触れると痺れてライフを失う',
+          '・1発で複数のクラゲを倒すと、一時的に攻撃力と移動速度がアップ',
+        ] },
+      ],
+    },
 
     stat_time_label: 'クリアタイム',
     stat_deaths_label: 'やられた数',
@@ -204,7 +53,7 @@ const I18N = {
     stages_remaining_text: (remaining) => remaining === 1 ? '次が最後の縄張りだ！' : (remaining > 0 ? `残る縄張りはあと${remaining}つだ。` : ''),
     next_stage_btn: 'NEXT STAGE',
 
-    milestone_title: () => '全ての縄張りを<br>奪還した！',
+    milestone_title: () => ['全ての縄張りを', '奪還した！'],
     perfect_title: '完全制覇！',
     perfect_text: '全ての縄張りを奪還した！',
     stats_table_headers: ['ステージ', 'クリアタイム', 'やられた数', 'ボーナス回数'],
@@ -214,7 +63,7 @@ const I18N = {
     result_title: 'RESULT',
     result_message: (stageNum, clearedCount) => {
       const territoryPart = clearedCount > 0 ? `${clearedCount}つの縄張りを取り返した。` : 'まだ縄張りを取り返せていない。';
-      return `ステージ${stageNum}のクラゲと戦った。<br>${territoryPart}`;
+      return [`ステージ${stageNum}のクラゲと戦った。`, territoryPart];
     },
     paused_title: 'PAUSED',
     paused_hint: '右上のボタンで再開',
@@ -232,24 +81,22 @@ const I18N = {
   en: {
     lang_button_label: '日本語',
 
-    controls_hint_html: 'Move: Swipe / drag / arrows<br>Attack: Release after moving',
+    controls_hint: ['Move: Swipe / drag / arrows', 'Attack: Release after moving'],
 
     ready_title: 'Squirtstrike',
     start_btn: 'START',
-    howto_html: `
-      <div style="text-align:center; font-size:15px; line-height:1.6; max-width:300px; margin:0 auto;">
-        <p style="margin:0 0 14px; color:#d4dee2;">Squirt the jellyfish away!</p>
-        <div style="text-align:left; font-size:14px; line-height:1.85;">
-          <b style="color:#4de3ff;">Controls</b><br>
-          Move: Swipe / drag / arrows<br>
-          Attack: Release after moving<br><br>
-          <b style="color:#4de3ff;">Rules</b><br>
-          - Clear all jellyfish to win the stage<br>
-          - Jellyfish split smaller each hit<br>
-          - Touching one costs a life<br>
-          - Multi-hits grant a temporary power &amp; speed boost
-        </div>
-      </div>`,
+    howto: {
+      intro: 'Squirt the jellyfish away!',
+      sections: [
+        { head: 'Controls', lines: ['Move: Swipe / drag / arrows', 'Attack: Release after moving'] },
+        { head: 'Rules', lines: [
+          '- Clear all jellyfish to win the stage',
+          '- Jellyfish split smaller each hit',
+          '- Touching one costs a life',
+          '- Multi-hits grant a temporary power & speed boost',
+        ] },
+      ],
+    },
 
     stat_time_label: 'Time',
     stat_deaths_label: 'Deaths',
@@ -260,7 +107,7 @@ const I18N = {
     stages_remaining_text: (remaining) => remaining === 1 ? 'This is the final territory!' : (remaining > 0 ? `${remaining} territories left to go.` : ''),
     next_stage_btn: 'NEXT STAGE',
 
-    milestone_title: () => 'All territories reclaimed!',
+    milestone_title: () => ['All territories', 'reclaimed!'],
     perfect_title: 'Perfect Clear!',
     perfect_text: 'All territories reclaimed!',
     stats_table_headers: ['Stage', 'Time', 'Deaths', 'Bonus'],
@@ -270,7 +117,7 @@ const I18N = {
     result_title: 'RESULT',
     result_message: (stageNum, clearedCount) => {
       const territoryPart = clearedCount > 0 ? `Reclaimed ${clearedCount} ${clearedCount === 1 ? 'territory' : 'territories'}.` : 'No territories reclaimed yet.';
-      return `Fought the jellyfish at stage ${stageNum}.<br>${territoryPart}`;
+      return [`Fought the jellyfish at stage ${stageNum}.`, territoryPart];
     },
     paused_title: 'PAUSED',
     paused_hint: 'Tap the button top-right to resume',
@@ -289,9 +136,6 @@ const I18N = {
 (() => {
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-  const wrap = document.getElementById('canvasWrap');
-  const appEl = document.getElementById('app');
-  const howtoEl = document.getElementById('howto');
   // ---------- Audio: everything below is synthesized with the Web Audio API - no sound
   // files, so this stays a single self-contained HTML file and adds zero network weight.
   let audioCtx = null;
@@ -330,13 +174,10 @@ const I18N = {
   // Runs exactly once per page load; every later return-to-title/restart skips straight to
   // beginCountdown() since the AudioContext is already warm by then.
   let firstStartHandled = false;
-  const waveEl = document.getElementById('waveTransition');
-  const loadingCanvas = document.getElementById('loadingCanvas');
-  const loadingCtx = loadingCanvas.getContext('2d');
+  let waveVisible = false, waveOpacity = 0, waveSwarm = null; // drawn by drawUi() on top of everything in the play area
 
   function setupLoadingSwarm() {
-    const w = waveEl.clientWidth, h = waveEl.clientHeight;
-    loadingCanvas.width = w; loadingCanvas.height = h;
+    const w = W, h = wrapH;
     const baseR = Math.min(w, h) * 0.045;
     const specs = [
       { r: baseR * 2.2, gen: 0, count: 1 },
@@ -358,12 +199,10 @@ const I18N = {
     });
     return { w, h, swarm };
   }
-  // steps physics (movement, wall bounce, jellyfish-jellyfish elastic collision) and redraws -
-  // reuses the real drawJellyfish/drawElectricRing/drawSparks, just targeting loadingCtx instead
-  // of the main game canvas
-  function stepAndDrawLoadingSwarm(state, dt) {
+  // steps physics (movement, wall bounce, jellyfish-jellyfish elastic collision); drawing happens
+  // separately in drawLoadingSwarm() so it can be layered by drawUi()
+  function stepLoadingSwarm(state, dt) {
     const { w, h, swarm } = state;
-    loadingCtx.clearRect(0, 0, w, h);
     swarm.forEach(j => {
       j.x += j.vx * dt; j.y += j.vy * dt;
       if (j.x < j.r) { j.x = j.r; j.vx *= -1; }
@@ -393,11 +232,14 @@ const I18N = {
         }
       }
     }
-    swarm.forEach(j => {
+  }
+  // reuses the real drawJellyfish/drawElectricRing/drawSparks
+  function drawLoadingSwarm(state) {
+    state.swarm.forEach(j => {
       const c = JELLY_COLORS[j.gen];
-      drawElectricRing(j.x, j.y, j.r, c.electric, 0.5, j.seed, loadingCtx);
-      drawJellyfish(j.x, j.y, j.r, j.gen, 1, loadingCtx);
-      drawSparks(j.x, j.y, j.r, c.electric, j.seed, loadingCtx);
+      drawElectricRing(j.x, j.y, j.r, c.electric, 0.5, j.seed, ctx);
+      drawJellyfish(j.x, j.y, j.r, j.gen, 1, ctx);
+      drawSparks(j.x, j.y, j.r, c.electric, j.seed, ctx);
     });
   }
 
@@ -412,8 +254,9 @@ const I18N = {
     const ac = audioCtx;
     const baselineTime = ac ? ac.currentTime : 0;
 
-    waveEl.classList.add('show');
-    const swarmState = setupLoadingSwarm();
+    waveVisible = true;
+    waveOpacity = 0;
+    waveSwarm = setupLoadingSwarm();
     const t0 = performance.now();
     let lastFrameT = t0;
     let revealStarted = false;
@@ -422,12 +265,12 @@ const I18N = {
     function frame(now) {
       const dt = Math.max(0, Math.min(0.05, (now - lastFrameT) / 1000));
       lastFrameT = now;
-      stepAndDrawLoadingSwarm(swarmState, dt);
+      stepLoadingSwarm(waveSwarm, dt);
       const elapsed = now - t0;
 
       if (!revealStarted) {
         if (elapsed < COVER_MS) {
-          waveEl.style.opacity = elapsed / COVER_MS;
+          waveOpacity = elapsed / COVER_MS;
           requestAnimationFrame(frame);
           return;
         }
@@ -438,7 +281,7 @@ const I18N = {
         }
         const audioReadyNow = ac && ac.state === 'running' && (ac.currentTime - baselineTime) > 0.03;
         if (now < holdEndsAt && !audioReadyNow) {
-          waveEl.style.opacity = 1;
+          waveOpacity = 1;
           requestAnimationFrame(frame);
           return;
         }
@@ -452,11 +295,11 @@ const I18N = {
 
       const revealElapsed = elapsed - (holdEndsAt - t0);
       if (revealElapsed < REVEAL_MS) {
-        waveEl.style.opacity = 1 - revealElapsed / REVEAL_MS;
+        waveOpacity = 1 - revealElapsed / REVEAL_MS;
         requestAnimationFrame(frame);
       } else {
-        waveEl.style.opacity = 0;
-        waveEl.classList.remove('show');
+        waveOpacity = 0;
+        waveVisible = false;
       }
     }
     requestAnimationFrame(frame);
@@ -811,14 +654,13 @@ const I18N = {
   // (both the charge-up drone and the recovery chime were removed - firing repeatedly made
   // them play constantly and it got noisy; the fire/hit sounds carry enough feedback on their own)
 
-  const overlay = document.getElementById('overlay');
-  const overlayTitle = document.getElementById('overlayTitle');
-  const overlayText = document.getElementById('overlayText');
-  const overlayBtn = document.getElementById('overlayBtn');
-  const overlayBtn2 = document.getElementById('overlayBtn2');
-  const langToggle = document.getElementById('langToggle');
+  // ---------- Screen / UI state (everything is drawn on the single canvas - no DOM UI) ----------
+  let overlayShown = false;     // title / clear / milestone / result screen over the play area
+  let soundAskVisible = false, soundAskChosen = false, soundAskPicked = null, soundAskChosenAt = 0;
+  let lastPointerType = 'mouse';
+  let joyVisible = false, joyOX = 0, joyOY = 0, joyDX = 0, joyDY = 0; // virtual stick, screen px
 
-  // ---------- i18n (text lives in i18n.js / the I18N global) ----------
+  // ---------- i18n (text lives in the I18N global above) ----------
   // default to Japanese only for Japanese-language browsers; everyone else sees English first
   let currentLang = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
   function t(key, ...args) {
@@ -826,98 +668,13 @@ const I18N = {
     const entry = (key in dict) ? dict[key] : I18N.ja[key];
     return (typeof entry === 'function') ? entry(...args) : entry;
   }
-  function updateHudLabels() {
-    howtoEl.innerHTML = t('controls_hint_html');
-  }
-  // remembers what the currently-shown overlay screen needs, so switching language
-  // can rebuild it in place without re-triggering game-state transitions
+  // what the currently-shown overlay screen needs; the screen itself is laid out and drawn
+  // every frame from this in drawOverlay(), so switching language just works
   let overlayContext = { kind: null };
-  function statsBlockHtml(rec) {
-    return `
-      <div style="display:flex; justify-content:center; gap:30px; margin:14px 0; font-size:15px; line-height:1.6;">
-        <div><div style="color:#8fa3ad;">${t('stat_time_label')}</div><div style="font-size:23px; font-weight:bold; color:#4de3ff;">${(rec.clearTimeMs / 1000).toFixed(1)}s</div></div>
-        <div><div style="color:#8fa3ad;">${t('stat_deaths_label')}</div><div style="font-size:23px; font-weight:bold; color:#ff6b4a;">${rec.deaths}</div></div>
-        <div><div style="color:#8fa3ad;">${t('stat_bonus_label')}</div><div style="font-size:23px; font-weight:bold; color:#ffe93a;">${rec.bonusCount}</div></div>
-      </div>`;
-  }
-  function statsTableHtml(stats) {
-    const headers = t('stats_table_headers');
-    const rows = stats.map(r => `
-      <tr>
-        <td style="padding:8px 12px;">${r.stage}</td>
-        <td style="padding:8px 12px; color:#4de3ff; font-weight:bold;">${r.clearTimeMs === null ? '-' : (r.clearTimeMs / 1000).toFixed(1) + 's'}</td>
-        <td style="padding:8px 12px; color:#ff6b4a; font-weight:bold;">${r.deaths}</td>
-        <td style="padding:8px 12px; color:#ffe93a; font-weight:bold;">${r.bonusCount}</td>
-      </tr>`).join('');
-    return `
-      <table style="width:100%; margin:12px auto; font-size:17px; line-height:1.5; border-collapse:collapse;">
-        <tr style="color:#8fa3ad; font-size:13px;"><th>${headers[0]}</th><th>${headers[1]}</th><th>${headers[2]}</th><th>${headers[3]}</th></tr>
-        ${rows}
-      </table>`;
-  }
-  function renderOverlayContext() {
-    const c = overlayContext;
-    if (!c || !c.kind) return;
-    overlayTitle.style.fontSize = ''; // only the milestone screen enlarges the title; reset for every other screen
-    overlay.classList.toggle('celebrate', c.kind === 'clear' || c.kind === 'milestone' || c.kind === 'over');
-    overlay.classList.toggle('mascot', c.kind === 'clear' || c.kind === 'milestone');
-    overlay.classList.toggle('perfect', c.kind === 'milestone' && !!c.perfect);
-    langToggle.style.display = (c.kind === 'ready') ? '' : 'none';
-    overlayBtn.style.minWidth = (c.kind === 'ready' || c.kind === 'over') ? '220px' : ''; // START/RETRY get extra width for an easier tap target
-    overlayBtn2.style.display = (c.kind === 'over') ? '' : 'none'; // secondary "back to title" button, game-over screen only
-    if (c.kind === 'ready') {
-      overlayTitle.textContent = t('ready_title');
-      overlayText.innerHTML = t('howto_html');
-      overlayBtn.textContent = t('start_btn');
-    } else if (c.kind === 'clear') {
-      overlayTitle.textContent = t('stage_clear_title', c.stage);
-      const remaining = MILESTONE_STAGE - c.stage;
-      overlayText.innerHTML = `
-        <div style="font-size:17px; line-height:1.7;">${t('stage_reclaimed_text', c.stage)}<br>${t('stages_remaining_text', remaining)}</div>
-        ${statsBlockHtml(c.statRecord)}`;
-      overlayBtn.textContent = t('next_stage_btn');
-    } else if (c.kind === 'milestone') {
-      if (c.perfect) {
-        // no-retry clear: gold "perfect" version. A clear that used RETRY keeps the normal screen
-        // as-is (no retry count shown) so retrying never feels penalized - only the perfect run is extra
-        overlayTitle.textContent = t('perfect_title');
-        overlayTitle.style.fontSize = '34px';
-        overlayText.innerHTML = `
-          <span class="perfectBadge">NO RETRY</span>
-          <div style="font-size:15px; line-height:1.6; color:#f3e7b8;">${t('perfect_text')}</div>
-          ${statsTableHtml(c.stats)}`;
-      } else {
-        overlayTitle.innerHTML = t('milestone_title', c.stage);
-        overlayTitle.style.fontSize = '30px';
-        overlayText.innerHTML = statsTableHtml(c.stats);
-      }
-      overlayBtn.textContent = t('back_to_title_btn');
-    } else if (c.kind === 'over') {
-      overlayTitle.style.fontSize = '';
-      overlayTitle.textContent = t('result_title');
-      overlayText.innerHTML = `
-        <div style="font-size:17px; line-height:1.7; margin-bottom:8px;">${t('result_message', c.stage, c.clearedCount)}</div>
-        ${c.stats.length ? statsTableHtml(c.stats) : ''}`;
-      overlayBtn.textContent = t('retry_btn');
-      overlayBtn2.textContent = t('back_to_title_btn');
-    }
-  }
   function applyLanguage() {
-    langToggle.textContent = t('lang_button_label');
     document.title = t('ready_title');
-    updateHudLabels();
-    if (overlay.classList.contains('show')) renderOverlayContext();
   }
-  langToggle.addEventListener('click', () => {
-    sfxConfirm();
-    currentLang = currentLang === 'ja' ? 'en' : 'ja';
-    applyLanguage();
-  });
   applyLanguage();
-  const joyBase = document.getElementById('joyBase');
-  const celebrateCanvas = document.getElementById('celebrateCanvas');
-  const celebrateCtx = celebrateCanvas.getContext('2d');
-  const joyKnob = document.getElementById('joyKnob');
 
   // ---------- Tunable parameters (playtest-adjustable) ----------
   const CFG = {
@@ -959,16 +716,27 @@ const I18N = {
   syncDerivedSizes();
 
   // ---------- Resize / scaling ----------
+  // the canvas covers the whole viewport; the arena (CFG.arenaW x arenaH units) is scaled into the
+  // area above the bottom hint bar, and all UI is drawn in CSS-pixel screen coordinates
   let scale = 1;
+  let dpr = 1, W = 0, H = 0, wrapH = 0, barH = 0, barInset = 0, arenaX = 0, arenaY = 0;
   function resize() {
-    const availW = wrap.clientWidth;
-    const availH = wrap.clientHeight;
-    scale = Math.min(availW / CFG.arenaW, availH / CFG.arenaH) * 0.96;
-    canvas.width = CFG.arenaW * scale;
-    canvas.height = CFG.arenaH * scale;
-    canvas.style.width = canvas.width + 'px';
-    canvas.style.height = canvas.height + 'px';
+    W = window.innerWidth;
+    H = window.innerHeight;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    barInset = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+    barH = 10 + HINT_FONT * HINT_LH * 2 + 10 + barInset;
+    wrapH = H - barH;
+    scale = Math.min(W / CFG.arenaW, wrapH / CFG.arenaH) * 0.96;
+    arenaX = (W - CFG.arenaW * scale) / 2;
+    arenaY = (wrapH - CFG.arenaH * scale) / 2;
   }
+  const HINT_FONT = 14, HINT_LH = 1.8;
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
   window.addEventListener('resize', resize);
 
   // ---------- Game state ----------
@@ -1054,8 +822,7 @@ const I18N = {
     gameState = 'ready';
     if (announce) {
       overlayContext = { kind: 'ready' };
-      renderOverlayContext();
-      overlay.classList.add('show');
+      overlayShown = true;
     }
     updateHud();
   }
@@ -1065,7 +832,7 @@ const I18N = {
   const COUNTDOWN_STEP_MS = 550;
   let countdownStep = 0, countdownTimer = 0;
   function beginCountdown() {
-    overlay.classList.remove('show');
+    overlayShown = false;
     gameState = 'countdown';
     countdownStep = 0;
     countdownTimer = COUNTDOWN_STEP_MS;
@@ -1086,9 +853,9 @@ const I18N = {
   window.addEventListener('keydown', e => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
     keys[e.key] = true;
-    if (e.key === 'Enter' && overlay.classList.contains('show')) {
+    if (e.key === 'Enter' && overlayShown && !soundAskVisible && !waveVisible) {
       e.preventDefault();
-      overlayBtn.click();
+      overlayPrimary();
     }
   });
   window.addEventListener('keyup', e => {
@@ -1157,36 +924,37 @@ const I18N = {
   let mouseDown = false, mouseOriginX = 0, mouseOriginY = 0, mouseDX = 0, mouseDY = 0, mouseEngaged = false;
   let lastMouseClientX = 0, lastMouseClientY = 0; // used to re-anchor the pad without needing a fresh mousemove
   canvas.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    lastPointerType = 'mouse';
+    const pt = toScreenPoint(e.clientX, e.clientY);
+    if (uiPress(pt.x, pt.y) || !joystickAllowed()) return;
     mouseDown = true;
     mouseEngaged = false;
     lastMouseClientX = e.clientX; lastMouseClientY = e.clientY;
-    const rect = appEl.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
     mouseOriginX = e.clientX - rect.left;
     mouseOriginY = e.clientY - rect.top;
     mouseDX = 0; mouseDY = 0;
-    joyBase.style.display = 'block';
-    joyBase.style.left = (mouseOriginX - 55) + 'px';
-    joyBase.style.top = (mouseOriginY - 55) + 'px';
-    joyKnob.style.left = '32px'; joyKnob.style.top = '32px';
+    joyVisible = true;
+    joyOX = mouseOriginX; joyOY = mouseOriginY; joyDX = 0; joyDY = 0;
   });
   window.addEventListener('mousemove', e => {
     if (!mouseDown) return;
     lastMouseClientX = e.clientX; lastMouseClientY = e.clientY;
-    const rect = appEl.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
     let dx = (e.clientX - rect.left) - mouseOriginX;
     let dy = (e.clientY - rect.top) - mouseOriginY;
     const dist = Math.hypot(dx, dy);
     if (dist > JOY_MAX) { dx = dx / dist * JOY_MAX; dy = dy / dist * JOY_MAX; }
     mouseDX = dx / JOY_MAX; mouseDY = dy / JOY_MAX;
-    joyKnob.style.left = (32 + dx) + 'px';
-    joyKnob.style.top = (32 + dy) + 'px';
+    joyDX = dx; joyDY = dy;
   });
   window.addEventListener('mouseup', () => {
     // use mouseEngaged (has the drag been outside the dead-zone at any point) rather than
     // only the most recent frame, so a shot never gets silently eaten
     if (mouseDown && player && mouseEngaged) fireQueued = true;
     mouseDown = false;
-    joyBase.style.display = 'none';
+    joyVisible = false;
   });
   function mouseVector() {
     if (!mouseDown) return { dx: 0, dy: 0, active: false };
@@ -1199,39 +967,37 @@ const I18N = {
   // Touch virtual joystick
   let touchId = null, touchOriginX = 0, touchOriginY = 0, touchDX = 0, touchDY = 0, touchActive = false;
   let lastTouchClientX = 0, lastTouchClientY = 0; // used to re-anchor the pad without needing a fresh touchmove
-  // Bound to the whole app (not just the arena canvas) so the pad can be started
-  // from anywhere on screen, including the bottom nav/HUD strip - keeps thumbs
-  // off the play area itself.
-  appEl.addEventListener('touchstart', e => {
-    if (touchId !== null) return;
-    // Don't hijack taps on the overlay (Start/Retry/Next buttons) or the debug panel/toggle.
-    if (e.target.closest('#overlay, #topRightControls, #soundToggle')) return;
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault(); // canvas-only UI: no native scroll/zoom, and no synthetic mouse events afterwards
+    lastPointerType = 'touch';
     const t = e.changedTouches[0];
+    const pt = toScreenPoint(t.clientX, t.clientY);
+    // UI buttons first; otherwise the touch starts the virtual stick (from anywhere on screen,
+    // including the bottom hint strip - keeps thumbs off the play area itself)
+    if (uiPress(pt.x, pt.y)) return;
+    if (touchId !== null || !joystickAllowed()) return;
     touchId = t.identifier;
-    const rect = appEl.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
     touchOriginX = t.clientX - rect.left;
     touchOriginY = t.clientY - rect.top;
     lastTouchClientX = t.clientX; lastTouchClientY = t.clientY;
     touchDX = 0; touchDY = 0; touchActive = true;
-    joyBase.style.display = 'block';
-    joyBase.style.left = (touchOriginX - 55) + 'px';
-    joyBase.style.top = (touchOriginY - 55) + 'px';
-    joyKnob.style.left = '32px'; joyKnob.style.top = '32px';
+    joyVisible = true;
+    joyOX = touchOriginX; joyOY = touchOriginY; joyDX = 0; joyDY = 0;
     e.preventDefault();
   }, { passive: false });
-  appEl.addEventListener('touchmove', e => {
+  canvas.addEventListener('touchmove', e => {
     if (touchId === null) return; // no active joystick drag - don't block native scrolling elsewhere (e.g. debug panel)
     for (const t of e.changedTouches) {
       if (t.identifier !== touchId) continue;
       lastTouchClientX = t.clientX; lastTouchClientY = t.clientY;
-      const rect = appEl.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       let dx = (t.clientX - rect.left) - touchOriginX;
       let dy = (t.clientY - rect.top) - touchOriginY;
       const dist = Math.hypot(dx, dy);
       if (dist > JOY_MAX) { dx = dx / dist * JOY_MAX; dy = dy / dist * JOY_MAX; }
       touchDX = dx / JOY_MAX; touchDY = dy / JOY_MAX;
-      joyKnob.style.left = (32 + dx) + 'px';
-      joyKnob.style.top = (32 + dy) + 'px';
+      joyDX = dx; joyDY = dy;
       e.preventDefault();
     }
   }, { passive: false });
@@ -1240,11 +1006,13 @@ const I18N = {
       if (t.identifier !== touchId) continue;
       if (touchActive && player && player.wasActive) fireQueued = true;
       touchId = null; touchActive = false; touchDX = 0; touchDY = 0;
-      joyBase.style.display = 'none';
+      joyVisible = false;
     }
   }
-  appEl.addEventListener('touchend', touchEnd);
-  appEl.addEventListener('touchcancel', touchEnd);
+  canvas.addEventListener('touchend', touchEnd);
+  canvas.addEventListener('touchcancel', touchEnd);
+  // some mobile browsers only count the finger-up as a valid audio-unlock gesture
+  canvas.addEventListener('touchend', () => { if (soundAskVisible || waveVisible) warmAudio(); });
   function touchVector() {
     if (!touchActive) return { dx: 0, dy: 0, active: false };
     const dist = Math.hypot(touchDX, touchDY);
@@ -1260,22 +1028,18 @@ const I18N = {
     fireQueued = false;
     if (player) player.wasActive = false;
     if (touchId !== null) {
-      const rect = appEl.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       touchOriginX = lastTouchClientX - rect.left;
       touchOriginY = lastTouchClientY - rect.top;
       touchDX = 0; touchDY = 0;
-      joyBase.style.left = (touchOriginX - 55) + 'px';
-      joyBase.style.top = (touchOriginY - 55) + 'px';
-      joyKnob.style.left = '32px'; joyKnob.style.top = '32px';
+      joyOX = touchOriginX; joyOY = touchOriginY; joyDX = 0; joyDY = 0;
     }
     if (mouseDown) {
-      const rect = appEl.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       mouseOriginX = lastMouseClientX - rect.left;
       mouseOriginY = lastMouseClientY - rect.top;
       mouseDX = 0; mouseDY = 0;
-      joyBase.style.left = (mouseOriginX - 55) + 'px';
-      joyBase.style.top = (mouseOriginY - 55) + 'px';
-      joyKnob.style.left = '32px'; joyKnob.style.top = '32px';
+      joyOX = mouseOriginX; joyOY = mouseOriginY; joyDX = 0; joyDY = 0;
     }
   }
 
@@ -1452,8 +1216,7 @@ const I18N = {
       spawnCelebration(3); // the grandest celebration in the game
       sfxMilestone();
     }
-    renderOverlayContext();
-    overlay.classList.add('show');
+    overlayShown = true;
   }
 
   // ---------- Update / physics ----------
@@ -1579,8 +1342,7 @@ const I18N = {
       };
       spawnCelebration(1);
       sfxGameOver();
-      renderOverlayContext();
-      overlay.classList.add('show');
+      overlayShown = true;
     } else {
       startStage(stage, false, false); // restart this stage from scratch, keeping remaining lives
       beginCountdown(); // skip the tap-to-start screen so getting back in feels immediate
@@ -1694,8 +1456,7 @@ const I18N = {
             overlayContext = { kind: 'clear', stage, statRecord: runStats[runStats.length - 1] };
             spawnCelebration(1);
             sfxStageClear();
-            renderOverlayContext();
-            overlay.classList.add('show');
+            overlayShown = true;
           }
         }
       }
@@ -1860,9 +1621,14 @@ const I18N = {
   }
 
   function render() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#061826';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.save();
-    ctx.scale(scale, scale);
-    ctx.clearRect(0, 0, CFG.arenaW, CFG.arenaH);
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * arenaX, dpr * arenaY);
+    ctx.beginPath();
+    ctx.rect(0, 0, CFG.arenaW, CFG.arenaH);
+    ctx.clip(); // effects near the edges must not spill outside the arena now that the canvas is full-screen
 
     // arena bg: underwater gradient + faint grid
     const bgGrad = ctx.createLinearGradient(0, 0, 0, CFG.arenaH);
@@ -2317,29 +2083,6 @@ const I18N = {
       }
     }
 
-    // celebration mascot: the same fish design, drawn on its own small canvas that sits on top
-    // of the overlay's dark background (so it reads at the same visual layer as the text,
-    // instead of being dimmed the way the real gameplay fish used to be) - shown swimming
-    // left-right with a happy expression and no mouth wedge (it isn't aiming at anything)
-    if (gameState === 'clear' || gameState === 'milestone') {
-      // fish stays centered inside its little round window; the window itself slides left-right
-      // (via a CSS transform on the canvas element) so it reads as tracking the fish through a
-      // porthole/telescope, rather than the fish swimming inside a static box
-      const cw = celebrateCanvas.width, ch = celebrateCanvas.height;
-      celebrateCtx.clearRect(0, 0, cw, ch);
-      const mascotFreq = 0.0018;
-      const mascotRadius = 28;
-      const slideAmp = 55;
-      celebrateCanvas.style.transform = `translateX(${Math.sin(frameNow * mascotFreq) * slideAmp}px)`;
-      const mascotAngle = Math.cos(frameNow * mascotFreq) >= 0 ? 0 : Math.PI;
-      drawFish(cw / 2, ch / 2, mascotAngle, {
-        ctx: celebrateCtx,
-        radius: mascotRadius,
-        wasActive: true,
-        happyEyes: true,
-        showMouth: false,
-      });
-    }
 
     // transient effects: bonus burst rings, enemy/player pop explosions, popup text
     for (const fx of effects) {
@@ -2445,9 +2188,11 @@ const I18N = {
     }
 
     ctx.restore();
+    drawUi(drawFish);
   }
 
-  overlayBtn.addEventListener('click', () => {
+  // ---------- Screen actions (what the on-canvas buttons do) ----------
+  function overlayPrimary() {
     if (gameState === 'ready' && !firstStartHandled) {
       firstStartHandled = true;
       // touch start: ask about sound first - the dialog doubles as time for the AudioContext to
@@ -2471,27 +2216,14 @@ const I18N = {
       startStage(stage, false, false);
       beginCountdown();
     }
-  });
-  overlayBtn2.addEventListener('click', () => {
+  }
+  function overlaySecondary() {
     sfxConfirm();
     if (gameState === 'over') startStage(1, true); // fresh run: lives reset to 3, shows the how-to-play overlay for stage 1
-  });
+  }
 
   // ---------- First-start sound choice (touch only) ----------
-  let lastPointerType = 'mouse';
   window.addEventListener('pointerdown', e => { lastPointerType = e.pointerType; }, { capture: true, passive: true });
-  const soundAskEl = document.getElementById('soundAsk');
-  const soundAskBtns = document.getElementById('soundAskBtns');
-  const soundAskOnBtn = document.getElementById('soundAskOn');
-  const soundAskOffBtn = document.getElementById('soundAskOff');
-  let soundAskChosen = false;
-  function renderSoundAskText() {
-    document.getElementById('soundAskTitle').textContent = t('sound_ask_title');
-    document.getElementById('soundAskSub').textContent = t('sound_ask_sub');
-    document.getElementById('soundAskNote').textContent = t('sound_ask_note');
-    soundAskOnBtn.textContent = t('sound_on');
-    soundAskOffBtn.textContent = t('sound_off');
-  }
   // keeps nudging the AudioContext awake (resume + a silent buffer) - some mobile browsers only
   // count the finger-up as a valid gesture, so this runs on every touch while the dialog is open
   function warmAudio() {
@@ -2505,52 +2237,526 @@ const I18N = {
   }
   function showSoundAsk() {
     soundAskChosen = false;
-    soundAskBtns.classList.remove('chosen');
-    soundAskOnBtn.classList.remove('picked');
-    soundAskOffBtn.classList.remove('picked');
-    renderSoundAskText();
-    soundAskEl.classList.add('show');
+    soundAskPicked = null;
+    soundAskVisible = true;
     warmAudio();
   }
-  soundAskEl.addEventListener('pointerdown', warmAudio, { passive: true });
-  soundAskEl.addEventListener('pointerup', warmAudio, { passive: true });
   function chooseSound(on) {
     if (soundAskChosen) return; // ignore repeat taps during the exit beat
     soundAskChosen = true;
+    soundAskPicked = on;
+    soundAskChosenAt = performance.now();
     setSoundOn(on);
-    if (on) sfxConfirm();
-    soundAskBtns.classList.add('chosen');
-    (on ? soundAskOnBtn : soundAskOffBtn).classList.add('picked');
+    if (on) { warmAudio(); sfxConfirm(); }
     setTimeout(() => {
-      soundAskEl.classList.remove('show');
+      soundAskVisible = false;
       beginCountdown();
     }, 350);
   }
-  soundAskOnBtn.addEventListener('click', () => chooseSound(true));
-  soundAskOffBtn.addEventListener('click', () => chooseSound(false));
 
-  const soundToggle = document.getElementById('soundToggle');
-  const soundToggleIcon = soundToggle.querySelector('.icon');
-  const soundToggleLabel = document.getElementById('soundToggleLabel');
   function setSoundOn(on) {
     soundOn = on;
-    soundToggleIcon.textContent = soundOn ? '🔊' : '🔇';
-    soundToggleLabel.textContent = soundOn ? 'MUTE' : 'UNMUTE';
   }
-  soundToggle.addEventListener('click', () => {
+  function toggleSound() {
     setSoundOn(!soundOn);
     if (soundOn) { ensureAudio(); sfxUnmute(); } // re-unlock/resume the audio context, then confirm audibly that sound is back on
+  }
+  function togglePause() {
+    paused = !paused;
+    if (paused) sfxPause(); else sfxResume();
+  }
+  function toggleLanguage() {
+    sfxConfirm();
+    currentLang = currentLang === 'ja' ? 'en' : 'ja';
+    applyLanguage();
+  }
+
+  // ---------- On-canvas UI: hit testing ----------
+  // button rects (screen px) are recorded while drawing each frame and used by the next press
+  let soundBtnRect = null, pauseBtnRect = null, langBtnRect = null, askOnRect = null, askOffRect = null;
+  let overlayHits = [];
+  function toScreenPoint(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  }
+  function inRect(r, x, y) { return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+  function joystickAllowed() { return !overlayShown && !soundAskVisible && !waveVisible; }
+  // which UI element (if any) is under the point; 'block' = a modal layer swallows the press
+  function uiHitKey(x, y) {
+    if (waveVisible) return 'block';
+    if (soundAskVisible) {
+      if (inRect(askOnRect, x, y)) return 'ask_on';
+      if (inRect(askOffRect, x, y)) return 'ask_off';
+      return 'block';
+    }
+    if (inRect(soundBtnRect, x, y)) return 'sound';
+    if (overlayShown) {
+      if (overlayContext.kind === 'ready' && inRect(langBtnRect, x, y)) return 'lang';
+      for (const h of overlayHits) if (inRect(h, x, y)) return h.key;
+      return 'block';
+    }
+    if (inRect(pauseBtnRect, x, y)) return 'pause';
+    return null;
+  }
+  function uiPress(x, y) {
+    const key = uiHitKey(x, y);
+    if (!key) return false;
+    if (key === 'ask_on' || key === 'ask_off') { if (!soundAskChosen) chooseSound(key === 'ask_on'); }
+    else if (key === 'sound') toggleSound();
+    else if (key === 'lang') toggleLanguage();
+    else if (key === 'primary') overlayPrimary();
+    else if (key === 'secondary') overlaySecondary();
+    else if (key === 'pause') togglePause();
+    return true;
+  }
+  canvas.addEventListener('mousemove', e => {
+    const pt = toScreenPoint(e.clientX, e.clientY);
+    const key = uiHitKey(pt.x, pt.y);
+    canvas.style.cursor = (key && key !== 'block') ? 'pointer' : 'default';
   });
 
-  const pauseToggle = document.getElementById('pauseToggle');
-  const pauseToggleIcon = pauseToggle.querySelector('.icon');
-  const pauseToggleLabel = document.getElementById('pauseToggleLabel');
-  pauseToggle.addEventListener('click', () => {
-    paused = !paused;
-    pauseToggleIcon.textContent = paused ? '▶' : '❚❚';
-    pauseToggleLabel.textContent = paused ? 'START' : 'STOP';
-    if (paused) sfxPause(); else sfxResume();
-  });
+  // ---------- On-canvas UI: drawing helpers ----------
+  const UI_FONT = '"Courier New", ui-monospace, monospace';
+  const UI_COL = { ink: '#eaf6ff', dim: '#6f93a8', accent: '#ff6b4a', accent2: '#4de3ff', wall: '#123449', gold: '#ffd54a', label: '#8fa3ad' };
+  function setFont(size, bold) { ctx.font = (bold ? 'bold ' : '') + size + 'px ' + UI_FONT; }
+  function setSpacing(px) { if ('letterSpacing' in ctx) ctx.letterSpacing = px + 'px'; }
+  function textW(str) { return ctx.measureText(str).width; }
+  // greedy line wrap with the current font: Japanese breaks per character, ASCII words stay whole,
+  // closing punctuation never starts a line, and "・"/"- " bullets get a hanging indent
+  const NO_LINE_START = '、。，．！？」』）ー…';
+  function wrapText(text, maxW, hang) {
+    if (!text) return [{ text: '', indent: 0 }];
+    const tokens = text.match(/[\x21-\x7e]+|\s+|[\s\S]/gu);
+    const prefix = hang ? (text.startsWith('・') ? '・' : (text.startsWith('- ') ? '- ' : '')) : '';
+    const hangW = prefix ? textW(prefix) : 0;
+    const lines = [];
+    let cur = '';
+    for (const tok of tokens) {
+      const avail = lines.length ? maxW - hangW : maxW;
+      if (cur && textW(cur + tok) > avail && !NO_LINE_START.includes(tok)) {
+        lines.push(cur);
+        cur = /^\s+$/.test(tok) ? '' : tok;
+      } else {
+        cur += tok;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines.map((l, i) => ({ text: i ? l.replace(/^\s+/, '') : l, indent: i ? hangW : 0 }));
+  }
+  function fillRoundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
+    ctx.fill();
+  }
+  // a button box with centered label; style: 'primary' (filled accent) | 'sub' (outlined, dim) | 'chip'
+  function drawButtonBox(x, y, w, h, label, style, opts) {
+    opts = opts || {};
+    ctx.save();
+    if (opts.alpha !== undefined) ctx.globalAlpha = opts.alpha;
+    if (style === 'primary') {
+      ctx.fillStyle = opts.fill || UI_COL.accent;
+      if (opts.glow) { ctx.shadowColor = opts.glow; ctx.shadowBlur = 16; }
+      ctx.fillRect(x, y, w, h);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#12161f';
+    } else {
+      if (opts.bg) { ctx.fillStyle = opts.bg; ctx.fillRect(x, y, w, h); }
+      if (opts.glow) { ctx.shadowColor = opts.glow; ctx.shadowBlur = 16; }
+      ctx.strokeStyle = opts.border || UI_COL.dim;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = opts.color || UI_COL.dim;
+    }
+    setFont(opts.size || 14, true);
+    setSpacing(opts.spacing === undefined ? 1 : opts.spacing);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + w / 2, y + h / 2 + 1);
+    setSpacing(0);
+    ctx.restore();
+  }
+
+  // ---------- Overlay screens (title / stage clear / all clear / result) ----------
+  // Laid out like the old HTML version: a vertically-centered column of blocks with a 14px gap.
+  // Each block = { h, gap (space above it), draw(y) } in layout px with x=0 at the column center.
+  function buildOverlay(maxW) {
+    const c = overlayContext;
+    const items = [];
+    const push = (h, draw, gap, btn) => items.push({ h, draw, gap: gap === undefined ? 14 : gap, btn });
+
+    function title(lines, size, color, glow) {
+      setFont(size, true); setSpacing(2);
+      const all = [];
+      lines.forEach(l => wrapText(l, maxW).forEach(w => all.push(w.text)));
+      setSpacing(0);
+      const lh = size * 1.4;
+      push(all.length * lh, y => {
+        ctx.save();
+        setFont(size, true); setSpacing(2);
+        ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 14; }
+        all.forEach((str, i) => ctx.fillText(str, 0, y + lh * (i + 0.5)));
+        setSpacing(0);
+        ctx.restore();
+      });
+    }
+    // centered paragraph lines (each source line wraps independently)
+    function para(lines, size, color, lhMul, gap, bold) {
+      setFont(size, bold);
+      const all = [];
+      lines.filter(l => l !== '').forEach(l => wrapText(l, maxW).forEach(w => all.push(w.text)));
+      const lh = size * lhMul;
+      push(all.length * lh, y => {
+        setFont(size, bold);
+        ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        all.forEach((str, i) => ctx.fillText(str, 0, y + lh * (i + 0.5)));
+      }, gap);
+    }
+    function mascot(perfect) {
+      push(156, y => drawMascot(y + 78, perfect));
+    }
+    function button(label, key, gap) {
+      const primary = key === 'primary';
+      setFont(primary ? 14 : 13, true); setSpacing(1);
+      const tw = textW(label);
+      setSpacing(0);
+      const minW = (c.kind === 'ready' || c.kind === 'over') && primary ? 220 : 0; // START/RETRY get extra width for an easier tap target
+      const w = Math.max(minW, tw + (primary ? 44 : 36));
+      const h = primary ? 37 : 31;
+      push(h, y => drawButtonBox(-w / 2, y, w, h, label, primary ? 'primary' : 'sub', { size: primary ? 14 : 13 }), gap, { key, x: -w / 2, w });
+    }
+    function statsBlock(rec) {
+      const cols = [
+        { label: t('stat_time_label'), value: (rec.clearTimeMs / 1000).toFixed(1) + 's', color: '#4de3ff' },
+        { label: t('stat_deaths_label'), value: String(rec.deaths), color: '#ff6b4a' },
+        { label: t('stat_bonus_label'), value: String(rec.bonusCount), color: '#ffe93a' },
+      ];
+      cols.forEach(col => {
+        setFont(15, false); const lw = textW(col.label);
+        setFont(23, true); const vw = textW(col.value);
+        col.w = Math.max(lw, vw);
+      });
+      let gapX = 30;
+      let total = cols.reduce((a, col) => a + col.w, 0) + gapX * 2;
+      if (total > maxW) { gapX = Math.max(8, (maxW - total + gapX * 2) / 2); total = cols.reduce((a, col) => a + col.w, 0) + gapX * 2; }
+      push(24 + 36.8, y => {
+        let x = -total / 2;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        cols.forEach(col => {
+          setFont(15, false); ctx.fillStyle = UI_COL.label;
+          ctx.fillText(col.label, x + col.w / 2, y + 12);
+          setFont(23, true); ctx.fillStyle = col.color;
+          ctx.fillText(col.value, x + col.w / 2, y + 24 + 18.4);
+          x += col.w + gapX;
+        });
+      });
+    }
+    function table(stats, gap) {
+      const headers = t('stats_table_headers');
+      const tw = Math.min(maxW, 420);
+      const fr = [0.18, 0.30, 0.26, 0.26];
+      const headH = 13 * 1.5 + 4, rowH = 17 * 1.5 + 16;
+      push(headH + rowH * stats.length, y => {
+        const x0 = -tw / 2;
+        const edges = [x0];
+        fr.forEach(f => edges.push(edges[edges.length - 1] + tw * f));
+        ctx.textBaseline = 'middle';
+        setFont(13, true); ctx.fillStyle = UI_COL.label;
+        headers.forEach((hd, i) => {
+          ctx.textAlign = i === 0 ? 'left' : 'right';
+          ctx.fillText(hd, i === 0 ? edges[0] + 6 : edges[i + 1] - 6, y + headH / 2);
+        });
+        stats.forEach((r, ri) => {
+          const cy = y + headH + rowH * ri + rowH / 2;
+          const vals = [
+            { v: String(r.stage), color: UI_COL.dim, bold: false },
+            { v: r.clearTimeMs === null ? '-' : (r.clearTimeMs / 1000).toFixed(1) + 's', color: '#4de3ff', bold: true },
+            { v: String(r.deaths), color: '#ff6b4a', bold: true },
+            { v: String(r.bonusCount), color: '#ffe93a', bold: true },
+          ];
+          vals.forEach((cell, i) => {
+            setFont(17, cell.bold); ctx.fillStyle = cell.color;
+            ctx.textAlign = i === 0 ? 'left' : 'right';
+            ctx.fillText(cell.v, i === 0 ? edges[0] + 12 : edges[i + 1] - 12, cy);
+          });
+        });
+      }, gap);
+    }
+    function howto() {
+      const h = t('howto');
+      const bw = Math.min(300, maxW);
+      setFont(15, false);
+      const intro = wrapText(h.intro, bw);
+      push(intro.length * 24, y => {
+        setFont(15, false); ctx.fillStyle = '#d4dee2'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        intro.forEach((l, i) => ctx.fillText(l.text, 0, y + 24 * (i + 0.5)));
+      });
+      // left-aligned controls/rules block: cyan bold headings, wrapped body lines with hanging bullets
+      const rows = [];
+      h.sections.forEach((sec, si) => {
+        if (si > 0) rows.push(null); // blank line between sections
+        rows.push({ text: sec.head, head: true, indent: 0 });
+        setFont(14, false);
+        sec.lines.forEach(line => wrapText(line, bw, true).forEach(w => rows.push({ text: w.text, indent: w.indent })));
+      });
+      const lh = 14 * 1.85;
+      push(rows.length * lh, y => {
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        rows.forEach((r, i) => {
+          if (!r) return;
+          setFont(14, !!r.head);
+          ctx.fillStyle = r.head ? UI_COL.accent2 : UI_COL.dim;
+          ctx.fillText(r.text, -bw / 2 + r.indent, y + lh * (i + 0.5));
+        });
+      });
+    }
+
+    if (c.kind === 'ready') {
+      title([t('ready_title')], 29, UI_COL.ink);
+      howto();
+      button(t('start_btn'), 'primary', 20);
+    } else if (c.kind === 'clear') {
+      title([t('stage_clear_title', c.stage)], 29, UI_COL.ink);
+      mascot(false);
+      para([t('stage_reclaimed_text', c.stage), t('stages_remaining_text', MILESTONE_STAGE - c.stage)], 17, UI_COL.dim, 1.7);
+      statsBlock(c.statRecord);
+      button(t('next_stage_btn'), 'primary', 34);
+    } else if (c.kind === 'milestone') {
+      if (c.perfect) {
+        // no-retry clear: gold "perfect" version. A clear that used RETRY keeps the normal screen
+        // as-is (no retry count shown) so retrying never feels penalized - only the perfect run is extra
+        title([t('perfect_title')], 34, UI_COL.gold, 'rgba(255,213,74,0.6)');
+        mascot(true);
+        setFont(12, true); setSpacing(2);
+        const bwid = textW('NO RETRY') + 24;
+        setSpacing(0);
+        push(20, y => drawButtonBox(-bwid / 2, y, bwid, 20, 'NO RETRY', 'primary', { size: 12, spacing: 2, fill: UI_COL.gold }));
+        para([t('perfect_text')], 15, '#f3e7b8', 1.6, 4);
+        table(c.stats, 12);
+      } else {
+        title(t('milestone_title', c.stage), 30, UI_COL.ink);
+        mascot(false);
+        table(c.stats, 26);
+      }
+      button(t('back_to_title_btn'), 'primary', 32);
+    } else if (c.kind === 'over') {
+      title([t('result_title')], 29, UI_COL.ink);
+      para(t('result_message', c.stage, c.clearedCount), 17, UI_COL.dim, 1.7);
+      if (c.stats.length) table(c.stats, 20);
+      button(t('retry_btn'), 'primary', c.stats.length ? 32 : 20);
+      button(t('back_to_title_btn'), 'secondary', 36); // extra gap from RETRY to avoid mis-taps
+    }
+    return items;
+  }
+
+  // celebration mascot: the same fish design inside a round "porthole" that slides left-right,
+  // so it reads as tracking the fish swimming (happy expression, no mouth wedge)
+  let uiDrawFish = null;
+  function drawMascot(cy, perfect) {
+    const mascotFreq = 0.0018;
+    const slide = Math.sin(frameNow * mascotFreq) * 55;
+    const angle = Math.cos(frameNow * mascotFreq) >= 0 ? 0 : Math.PI;
+    ctx.save();
+    ctx.translate(slide, cy);
+    ctx.shadowColor = perfect ? 'rgba(255,213,74,0.55)' : 'rgba(77,227,255,0.3)';
+    ctx.shadowBlur = perfect ? 26 : 22;
+    ctx.beginPath();
+    ctx.arc(0, 0, 78, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(11,14,20,0.3)';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, 75, 0, Math.PI * 2);
+    ctx.clip();
+    if (uiDrawFish) uiDrawFish(0, 0, angle, { ctx, radius: 28, wasActive: true, happyEyes: true, showMouth: false });
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(0, 0, 76.5, 0, Math.PI * 2);
+    ctx.strokeStyle = perfect ? UI_COL.gold : 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawOverlay() {
+    const kind = overlayContext.kind;
+    const celebrate = kind === 'clear' || kind === 'milestone' || kind === 'over';
+    ctx.fillStyle = celebrate ? 'rgba(11,14,20,0.42)' : 'rgba(11,14,20,0.88)';
+    ctx.fillRect(0, 0, W, wrapH);
+    const maxW = Math.max(200, W - 40);
+    const items = buildOverlay(maxW);
+    let total = 0;
+    items.forEach((it, i) => { total += it.h + (i ? it.gap : 0); });
+    // shrink the whole column uniformly if it doesn't fit (very short / landscape phones)
+    const s = Math.min(1, (wrapH - 40) / total);
+    const top = (wrapH - total * s) / 2;
+    ctx.save();
+    ctx.translate(W / 2, top);
+    ctx.scale(s, s);
+    overlayHits = [];
+    let y = 0;
+    items.forEach((it, i) => {
+      if (i) y += it.gap;
+      it.draw(y);
+      if (it.btn) overlayHits.push({ key: it.btn.key, x: W / 2 + it.btn.x * s, y: top + y * s, w: it.btn.w * s, h: it.h * s });
+      y += it.h;
+    });
+    ctx.restore();
+
+    langBtnRect = null;
+    if (kind === 'ready') {
+      const label = t('lang_button_label');
+      // (matches the old HTML: the generic overlay-button style won over #langToggle's own)
+      setFont(14, true); setSpacing(1);
+      const w = textW(label) + 44;
+      setSpacing(0);
+      langBtnRect = { x: W - 14 - w, y: 20, w, h: 37 };
+      drawButtonBox(langBtnRect.x, langBtnRect.y, w, 37, label, 'primary', { size: 14, alpha: 0.72 });
+    }
+  }
+
+  // top-left sound toggle / top-right pause toggle: icon + label chips
+  function drawChip(x, y, icon, iconSize, label, border, alignRight) {
+    setFont(iconSize, true);
+    const iw = textW(icon);
+    setFont(15, true); setSpacing(1);
+    const lw = textW(label);
+    setSpacing(0);
+    const w = 14 + iw + 6 + lw + 14, h = 34;
+    const bx = alignRight ? x - w : x;
+    ctx.save();
+    ctx.globalAlpha = 0.72;
+    ctx.fillStyle = 'rgba(18,22,31,0.55)';
+    ctx.fillRect(bx, y, w, h);
+    ctx.strokeStyle = border; ctx.lineWidth = 1;
+    ctx.strokeRect(bx + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.fillStyle = UI_COL.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    setFont(iconSize, true);
+    ctx.fillText(icon, bx + 14, y + h / 2 + 1);
+    setFont(15, true); setSpacing(1);
+    ctx.fillText(label, bx + 14 + iw + 6, y + h / 2 + 1);
+    setSpacing(0);
+    ctx.restore();
+    return { x: bx, y, w, h };
+  }
+
+  function drawSoundAsk() {
+    ctx.fillStyle = 'rgba(11,14,20,0.6)';
+    ctx.fillRect(0, 0, W, wrapH);
+    const pw = Math.min(320, W - 40), inner = pw - 40;
+    setFont(19, true); const titleL = wrapText(t('sound_ask_title'), inner);
+    setFont(13, false); const subL = wrapText(t('sound_ask_sub'), inner);
+    setFont(12, false); const noteL = wrapText(t('sound_ask_note'), inner);
+    const btnH = 43;
+    const ph = 22 + titleL.length * 23 + 8 + subL.length * 17 + 4 + noteL.length * 16 + 16 + btnH + 20;
+    const px = (W - pw) / 2, py = (wrapH - ph) / 2;
+    ctx.save();
+    ctx.shadowColor = 'rgba(77,227,255,0.25)'; ctx.shadowBlur = 22;
+    ctx.fillStyle = '#12161f';
+    ctx.fillRect(px, py, pw, ph);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = UI_COL.accent; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    let y = py + 22;
+    setFont(19, true); ctx.fillStyle = UI_COL.ink;
+    titleL.forEach(l => { ctx.fillText(l.text, W / 2, y + 11.5); y += 23; });
+    y += 8;
+    setFont(13, false); ctx.fillStyle = UI_COL.dim;
+    subL.forEach(l => { ctx.fillText(l.text, W / 2, y + 8.5); y += 17; });
+    y += 4;
+    setFont(12, false); ctx.globalAlpha = 0.8;
+    noteL.forEach(l => { ctx.fillText(l.text, W / 2, y + 8); y += 16; });
+    ctx.globalAlpha = 1;
+    y += 16;
+    ctx.restore();
+    const bw = Math.min(110, (inner - 12) / 2);
+    const bx1 = W / 2 - 6 - bw, bx2 = W / 2 + 6;
+    askOnRect = { x: bx1, y, w: bw, h: btnH };
+    askOffRect = { x: bx2, y, w: bw, h: btnH };
+    // the picked button pops slightly and glows; the other fades back
+    const k = soundAskChosen ? Math.min(1, (performance.now() - soundAskChosenAt) / 120) : 0;
+    [[true, askOnRect], [false, askOffRect]].forEach(([on, r]) => {
+      const picked = soundAskChosen && soundAskPicked === on;
+      const sc = picked ? 1 + 0.08 * k : 1;
+      const alpha = soundAskChosen && !picked ? 1 - 0.65 * k : 1;
+      const w = r.w * sc, h = r.h * sc;
+      const x = r.x + (r.w - w) / 2, yy = r.y + (r.h - h) / 2;
+      const glow = picked ? 'rgba(77,227,255,0.6)' : null;
+      if (on) drawButtonBox(x, yy, w, h, t('sound_on'), 'primary', { size: 16, alpha, glow });
+      else drawButtonBox(x, yy, w, h, t('sound_off'), 'sub', { size: 16, alpha, glow, color: UI_COL.ink });
+    });
+  }
+
+  function drawWave() {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, waveOpacity));
+    ctx.beginPath();
+    ctx.rect(0, 0, W, wrapH);
+    ctx.clip();
+    const g = ctx.createLinearGradient(0, 0, 0, wrapH);
+    g.addColorStop(0, '#0f3550');
+    g.addColorStop(1, '#061826');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, wrapH);
+    if (waveSwarm) drawLoadingSwarm(waveSwarm);
+    // "TUNING UP" blinks on a hard 0.9s on/off cycle
+    const blinkOn = (performance.now() % 900) < 450;
+    ctx.globalAlpha *= blinkOn ? 1 : 0.15;
+    setFont(19, true); setSpacing(3);
+    ctx.fillStyle = UI_COL.ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(77,227,255,0.6)'; ctx.shadowBlur = 12;
+    ctx.fillText('TUNING UP', W / 2, wrapH / 2);
+    setSpacing(0);
+    ctx.restore();
+  }
+
+  // the whole UI pass, in CSS-pixel screen coordinates, layered like the old HTML z-order:
+  // hint bar < joystick < overlay screen < top buttons < sound dialog < first-start wave
+  function drawUi(drawFishFn) {
+    uiDrawFish = drawFishFn;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // bottom control-hint bar
+    ctx.strokeStyle = UI_COL.wall; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, wrapH + 0.5); ctx.lineTo(W, wrapH + 0.5); ctx.stroke();
+    const hint = t('controls_hint');
+    let hs = HINT_FONT;
+    setFont(hs, false);
+    const widest = Math.max(...hint.map(textW));
+    if (widest > W - 32) { hs = Math.max(10, hs * (W - 32) / widest); setFont(hs, false); }
+    ctx.fillStyle = UI_COL.dim; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    hint.forEach((line, i) => ctx.fillText(line, W / 2, wrapH + 10 + HINT_FONT * HINT_LH * (i + 0.5)));
+
+    if (joyVisible) {
+      ctx.beginPath();
+      ctx.arc(joyOX, joyOY, 54, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(58,214,255,0.06)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(58,214,255,0.35)'; ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(joyOX + joyDX, joyOY + joyDY, 23, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(58,214,255,0.55)';
+      ctx.fill();
+    }
+
+    if (overlayShown) drawOverlay();
+    else { overlayHits = []; langBtnRect = null; }
+
+    soundBtnRect = drawChip(10, 8, soundOn ? '🔊' : '🔇', 15, soundOn ? 'MUTE' : 'UNMUTE', UI_COL.wall, false);
+    // pause is meaningless while any overlay screen is up (and would overlap the language toggle)
+    pauseBtnRect = overlayShown ? null : drawChip(W - 10, 8, paused ? '▶' : '❚❚', 19, paused ? 'START' : 'STOP', UI_COL.accent2, true);
+
+    if (soundAskVisible) drawSoundAsk();
+    else { askOnRect = null; askOffRect = null; }
+    if (waveVisible) drawWave();
+    ctx.restore();
+  }
+
 
   resize();
   startStage(1, true);
