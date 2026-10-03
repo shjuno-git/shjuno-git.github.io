@@ -98,6 +98,43 @@ function drawText(text, x, y, opts) {
 	ctx.restore();
 }
 
+/* 縁取りだけの文字（中央タイマーの数字・ロゴなど）。
+ * Androidの標準フォント(Roboto)などは「8」の上下の輪のように輪郭を重ねて字形を作っているため、
+ * strokeTextで縁取りだけを描くと重なった内側の線まで見えてしまう。
+ * そこで別のcanvasに「太めに縁取り → 文字の塗りの部分をくり抜く」と描き、外側の輪郭だけを残してから貼る。
+ * 文字・色が変わらない限り作り直さないようキャッシュする。 */
+const outlineTextCache = new Map();
+function drawOutlineText(text, x, y, opts) {
+	const size = opts.size || 16, weight = opts.weight || "", lw = opts.strokeWidth || 3;
+	const key = [text, size, weight, opts.stroke, lw].join("|");
+	let img = outlineTextCache.get(key);
+	if (!img) {
+		const font = `${weight} ${size}px ${FONT}`.trim();
+		const pad = lw * 2 + 4;
+		const w = Math.ceil(measureTextWidth(text, size, weight) + pad * 2);
+		const h = Math.ceil(size * 1.5 + pad * 2);
+		img = document.createElement("canvas");
+		img.width = w;
+		img.height = h;
+		const c = img.getContext("2d");
+		c.font = font;
+		c.textAlign = "center";
+		c.textBaseline = "middle";
+		c.lineJoin = "round";
+		c.lineWidth = lw * 2; // 外側に残るのは半分なので2倍で描く
+		c.strokeStyle = opts.stroke;
+		c.strokeText(text, w / 2, h / 2);
+		c.globalCompositeOperation = "destination-out"; // 文字の内側（重なった輪郭の線を含む）を消す
+		c.fillText(text, w / 2, h / 2);
+		if (outlineTextCache.size > 64) outlineTextCache.clear();
+		outlineTextCache.set(key, img);
+	}
+	ctx.save();
+	ctx.globalAlpha = opts.alpha != null ? clamp(opts.alpha, 0, 1) : 1;
+	ctx.drawImage(img, x - img.width / 2, y - img.height / 2);
+	ctx.restore();
+}
+
 function measureTextWidth(text, size, weight) {
 	ctx.save();
 	ctx.font = `${weight || ""} ${size}px ${FONT}`.trim();
@@ -1910,7 +1947,7 @@ function drawCenterTimer(s) {
 	ctx.save();
 	ctx.translate(CX, CY);
 	ctx.scale(sc, sc);
-	drawText(String(sec), 0, 10, { size, weight: "bold", align: "center", baseline: "middle", stroke: col, strokeWidth: late ? 5 : 3, noFill: true, alpha: (late ? 0.6 : 0.4) * fade });
+	drawOutlineText(String(sec), 0, 10, { size, weight: "bold", stroke: col, strokeWidth: late ? 5 : 3, alpha: (late ? 0.6 : 0.4) * fade });
 	drawText(String(sec), 0, 10, { size, weight: "bold", align: "center", baseline: "middle", color: col, alpha: (late ? 0.16 : 0.08) * k * fade });
 	ctx.restore();
 	drawText("♪ ×" + beatMultiplier(sec), CX, CY + 96, { size: 13, weight: "bold", align: "center", baseline: "middle", color: col, alpha: 0.45 * fade });
@@ -2301,7 +2338,7 @@ function drawClearLayer(s) {
 		ctx.fillStyle = "#000";
 		ctx.fillRect(0, 0, W, H);
 		ctx.restore();
-		drawText("0", CX, CY + 10, { size: 260, weight: "bold", align: "center", baseline: "middle", stroke: "#ffffff", strokeWidth: 5, noFill: true, alpha: 0.85 });
+		drawOutlineText("0", CX, CY + 10, { size: 260, weight: "bold", stroke: "#ffffff", strokeWidth: 5, alpha: 0.85 });
 		c.remnants.forEach((r) => {
 			drawSpikyStar(r.sx, r.sy, r.rot, "#3a3a4a", 11);
 			strokeCircle(r.sx, r.sy, 12, "#ffffff", 1.5, 0.9);
@@ -2839,11 +2876,11 @@ function drawLogo(cx, cy, k) {
 	ctx.translate(cx, cy);
 	ctx.scale(sc, sc);
 	if (lang === "ja") {
-		drawText(t("logo1"), 0, -26, { size: 74, weight: "bold", align: "center", baseline: "middle", stroke: COL_PLAYER, strokeWidth: 5, noFill: true, alpha: k });
+		drawOutlineText(t("logo1"), 0, -26, { size: 74, weight: "bold", stroke: COL_PLAYER, strokeWidth: 5, alpha: k });
 		drawText(t("logo1"), 0, -26, { size: 74, weight: "bold", align: "center", baseline: "middle", color: COL_PLAYER, alpha: 0.15 * k });
 		drawText(t("logo2"), 0, 40, { size: 46, weight: "bold", align: "center", baseline: "middle", color: "#ffffff", stroke: COL_ENEMY, strokeWidth: 7, alpha: k });
 	} else {
-		drawText(t("logo1"), 0, -24, { size: 64, weight: "bold", align: "center", baseline: "middle", stroke: COL_PLAYER, strokeWidth: 5, noFill: true, alpha: k });
+		drawOutlineText(t("logo1"), 0, -24, { size: 64, weight: "bold", stroke: COL_PLAYER, strokeWidth: 5, alpha: k });
 		drawText(t("logo1"), 0, -24, { size: 64, weight: "bold", align: "center", baseline: "middle", color: COL_PLAYER, alpha: 0.15 * k });
 		drawText(t("logo2"), 0, 30, { size: 30, weight: "bold", align: "center", baseline: "middle", color: "#ffffff", stroke: COL_ENEMY, strokeWidth: 6, alpha: k });
 	}
