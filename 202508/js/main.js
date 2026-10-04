@@ -199,8 +199,6 @@ const COLORS = {
 	upgradeOffBg: "#141414",
 	upgradeOnBorder: "#ffcc00",
 	upgradeOffBorder: "#3a3a3a",
-	restartBtn: "#cc0000",
-	continueBtn: "#00994d",
 };
 
 /* ==================== ゲーム定数 ==================== */
@@ -638,12 +636,13 @@ function updateStageStats(stg, result) {
 
 function advanceStage() {
 	saveData();
-	stage++;
 	startFlg = true;
-	if (stage > MAX_STAGE) {
+	if (stage >= MAX_STAGE) {
+		// クリア時もステージ表示・オッズ表示はLv10のまま保つ（stageを範囲外の11にしない）
 		clearFlg = true;
 		showResult();
 	} else {
+		stage++;
 		drawCount = 1 + bonusDraw;
 		generateNewLotteryPool();
 		rebuildBalls();
@@ -657,6 +656,10 @@ function showResult() {
 	elapsedTime += clearTime - startTime;
 	saveData();
 	resultElapsedMs = 0;
+	resultPrevStage = null;
+	resultFadeMs = RESULT_FADE_MS;
+	resultSelStage = MAX_STAGE; // 最初はLv10の内訳から見せ、その後は自動で巡回する
+	resultSelTimerMs = RESULT_AUTO_MS;
 	resultParticles = [];
 	const colors = ["#ffcc00", "#ff3333", "#ffffff"];
 	const count = initFlg ? 60 : 40; // 豪運クリア（ノーミス）はより派手に
@@ -841,6 +844,14 @@ canvas.addEventListener("pointerdown", (e) => {
 	}
 
 	if (clearFlg) {
+		for (let i = 1; i < resultDotRects.length; i++) {
+			const r = resultDotRects[i];
+			if (r && r.has && hitTestBtn(r, p.x, p.y)) {
+				selectResultStage(i); // タップしたLvを少し長めに表示して止める
+				resultSelTimerMs = RESULT_HOLD_MS;
+				return;
+			}
+		}
 		if (resultRestartRect && hitTestBtn(resultRestartRect, p.x, p.y)) {
 			pressAnim('resultRestart');
 			fullResetGame();
@@ -940,7 +951,7 @@ function drawRoadmapCard() {
 	ctx.restore();
 	for (let i = 1; i <= MAX_STAGE; i++) {
 		const nx = startX + (endX - startX) * (i - 1) / (MAX_STAGE - 1);
-		const done = i < stage, current = i === stage;
+		const done = i < stage || (clearFlg && i === stage), current = i === stage && !clearFlg;
 		ctx.save();
 		if (current || done) { ctx.shadowColor = "#ff3333"; ctx.shadowBlur = current ? 8 : 4; }
 		ctx.beginPath(); ctx.arc(nx, ny, current ? 7 : 4.5, 0, Math.PI * 2);
@@ -1275,40 +1286,6 @@ function drawGame() {
 	ctx.restore();
 }
 
-// 1行内に「ステージ表示」＋「回数/勝敗内訳」を並べる。英語表記は日本語より長くなりがちなので、
-// ステージ表示の実測幅からstats側の開始xを動的に決め、収まらない場合はさらにfitFontSizeで縮小する。
-// WIN/MISSはW/Mの略記だと分かりにくいためフル単語にし、さらにWINを金色・MISSをグレーで色分けして視認性を上げる。
-function drawResultStageLine(sNum, stats, x, y, boxRight) {
-	const stageLabel = t("resultStageFmt")(sNum);
-	drawText(stageLabel, x, y, { size: 14, color: "#dddddd", align: "left", baseline: "top" });
-	const stageW = measureTextWidth(stageLabel, 14, "");
-	const statsX = Math.max(x + 85, x + stageW + 10);
-	const maxStatsW = Math.max(40, boxRight - statsX - 10);
-
-	const drawLabel = t("resultStageDrawFmt")(stats.draw);
-	const winPart = `${t("resultWinLabel")} ${stats.win}`;
-	const sep = " / ";
-	const missPart = `${t("resultMissLabel")} ${stats.lose}`;
-	const fullText = drawLabel + "  " + winPart + sep + missPart;
-	const size = fitFontSize(fullText, maxStatsW, 14, "");
-
-	let cx = statsX;
-	drawText(drawLabel, cx, y, { size, color: "#dddddd", align: "left", baseline: "top" });
-	cx += measureTextWidth(drawLabel + "  ", size, "");
-	drawText(winPart, cx, y, { size, weight: "bold", color: "#ffcc00", align: "left", baseline: "top" });
-	cx += measureTextWidth(winPart, size, "bold");
-	drawText(sep, cx, y, { size, color: "#666666", align: "left", baseline: "top" });
-	cx += measureTextWidth(sep, size, "");
-	drawText(missPart, cx, y, { size, color: "#999999", align: "left", baseline: "top" });
-}
-
-// ラベル＋回数を1つの文字列としてfitFontSizeで縮小することで、英語表記が長くなっても重ならないようにする。
-function drawResultUpgradeItem(labelKey, count, x, y, maxWidth) {
-	const text = `${t(labelKey)}${t("upgradeResultCountFmt")(count)}`;
-	const size = fitFontSize(text, maxWidth, 14, "");
-	drawText(text, x, y, { size, color: "#dddddd", align: "left", baseline: "top" });
-}
-
 function drawResultParticles() {
 	const t2 = resultElapsedMs / 1000;
 	for (const p of resultParticles) {
@@ -1353,64 +1330,225 @@ function drawDiamond(cx, cy, r, color) {
 	ctx.restore();
 }
 
+// リザルト画面の「Lv別成績」ドット。タップしたLvの成績を下のキャプション欄に出す（もう一度タップで解除）。
+let resultSelStage = null;
+let resultSelTimerMs = 0;
+let resultPrevStage = null;   // フェードアウト中の旧Lv
+let resultFadeMs = 0;
+const RESULT_FADE_MS = 360;   // 旧表示が消えて新表示が現れるまでの総時間
+const RESULT_AUTO_MS = 3000; // 自動で次のLvに切り替わる間隔
+const RESULT_HOLD_MS = 5000; // タップ後にそのLvを表示し続ける時間
+
+// 内訳表示を次のLv（Lv10の次はLv1）へ進める。成績が無いLv（豪運クリア時など）は飛ばす。
+function selectResultStage(n) {
+	if (n === resultSelStage) return;
+	resultPrevStage = resultSelStage;
+	resultSelStage = n;
+	resultFadeMs = 0;
+}
+function advanceResultSelection() {
+	for (let n = 1; n <= MAX_STAGE; n++) {
+		const next = ((resultSelStage - 1 + n) % MAX_STAGE) + 1;
+		if (stageStats[next]) { selectResultStage(next); return; }
+	}
+}
+let resultDotRects = [];
+
+function formatClearTime(ms) {
+	const h = Math.floor(ms / 3600000);
+	const m = Math.floor((ms % 3600000) / 60000);
+	const sec = Math.floor((ms % 60000) / 1000);
+	const ss = String(sec).padStart(2, '0');
+	return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+function drawResultTile(x, y, w, h, value, label, valueColor) {
+	fillRoundRect(x, y, w, h, 8, "#1a1a1a");
+	strokeRoundRect(x, y, w, h, 8, "#333333", 1);
+	const size = fitFontSize(value, w - 8, 18, "bold");
+	drawText(value, x + w / 2, y + h * 0.40, { size, weight: "bold", color: valueColor || "#ffffff", align: "center", baseline: "middle" });
+	drawText(label, x + w / 2, y + h * 0.73, { size: 10, color: "#888888", align: "center", baseline: "middle" });
+}
+
+// 強化回数タイル：数字 / 絵文字 / ラベル を段分けして、JACKPOTのような長いラベルでも折り返さないようにする。
+function drawResultUpgradeTile(x, y, w, h, count, icon, label) {
+	fillRoundRect(x, y, w, h, 8, "#1a1a1a");
+	strokeRoundRect(x, y, w, h, 8, "#333333", 1);
+	drawText(String(count), x + w / 2, y + 14, { size: 17, weight: "bold", color: "#ffcc00", align: "center", baseline: "middle" });
+	drawText(icon, x + w / 2, y + 32, { size: 12, align: "center", baseline: "middle" });
+	const size = fitFontSize(label, w - 6, 9, "");
+	drawText(label, x + w / 2, y + 47, { size, color: "#888888", align: "center", baseline: "middle" });
+}
+
+function drawRestartIcon(cx, cy, color) {
+	// 時計回りの回転矢印：上側に隙間を残してほぼ一周する弧＋終端の矢じり
+	const r = 6.5, a0 = -Math.PI * 0.28, a1 = a0 + Math.PI * 1.62;
+	ctx.save();
+	ctx.strokeStyle = color; ctx.fillStyle = color;
+	ctx.lineWidth = 2.2; ctx.lineCap = "round";
+	ctx.beginPath();
+	ctx.arc(cx, cy, r, a0, a1, false);
+	ctx.stroke();
+	const ex = cx + r * Math.cos(a1), ey = cy + r * Math.sin(a1);
+	const tx = -Math.sin(a1), ty = Math.cos(a1); // 進行方向（接線）
+	const nx = Math.cos(a1), ny = Math.sin(a1);  // 外向き法線
+	ctx.beginPath();
+	ctx.moveTo(ex + tx * 5, ey + ty * 5);
+	ctx.lineTo(ex - tx * 0.5 + nx * 4.2, ey - ty * 0.5 + ny * 4.2);
+	ctx.lineTo(ex - tx * 0.5 - nx * 4.2, ey - ty * 0.5 - ny * 4.2);
+	ctx.closePath(); ctx.fill();
+	ctx.restore();
+}
+function drawPlayIcon(cx, cy, color) {
+	ctx.save();
+	ctx.fillStyle = color;
+	ctx.beginPath();
+	ctx.moveTo(cx - 5, cy - 7); ctx.lineTo(cx + 6, cy); ctx.lineTo(cx - 5, cy + 7);
+	ctx.closePath(); ctx.fill();
+	ctx.restore();
+}
+
+// アイコン＋文字を中央揃えで並べる
+function drawIconLabel(rect, label, color, iconFn, size) {
+	const iconW = 14, gap = 7;
+	const tw = measureTextWidth(label, size, "bold");
+	const startX = rect.x + (rect.w - (iconW + gap + tw)) / 2;
+	const cy = rect.y + rect.h / 2;
+	iconFn(startX + iconW / 2, cy, color);
+	drawText(label, startX + iconW + gap, cy + 1, { size, weight: "bold", color, align: "left", baseline: "middle" });
+}
+
+// 色や太さの異なる文字列を横に連結して中央揃えで描く（幅に収まらなければ全体を縮小）
+function drawColoredSegments(segs, cx, y, maxWidth, baseSize) {
+	const widthAt = (size) => segs.reduce((sum, g) => sum + measureTextWidth(g.text, size, g.weight || ""), 0);
+	let size = baseSize;
+	while (size > 8 && widthAt(size) > maxWidth) size -= 1;
+	let x = cx - widthAt(size) / 2;
+	for (const g of segs) {
+		drawText(g.text, x, y, { size, weight: g.weight || "", color: g.color, glow: g.glow, glowBlur: 4, align: "left", baseline: "middle" });
+		x += measureTextWidth(g.text, size, g.weight || "");
+	}
+}
+
+// 選択Lvの内訳（Lv・[確率]は金、TOTALは白、WINは金、MISSは薄いグレー）を1行で描く
+function drawResultDetail(n, cx, y, maxWidth) {
+	const st = stageStats[n];
+	if (!st) return;
+	const segs = [
+		{ text: `Lv.${n}`, color: "#ffcc00", weight: "bold" },
+		{ text: ` [1/${Math.pow(2, n)}]`, color: "#ffcc00" },
+		{ text: "   ", color: "#999999" },
+		{ text: `${t("resultTotalLabel")} `, color: "#aaaaaa" },
+		{ text: String(st.draw), color: "#ffffff", weight: "bold" },
+		{ text: "  /  ", color: "#555555" },
+		{ text: `${t("resultWinLabel")} `, color: "#d4a800" },
+		{ text: String(st.win), color: "#ffcc00", weight: "bold", glow: "#ff8800" },
+		{ text: "  /  ", color: "#555555" },
+		{ text: `${t("resultMissLabel")} `, color: "#888888" },
+		{ text: String(st.lose), color: "#cccccc", weight: "bold" },
+	];
+	drawColoredSegments(segs, cx, y, maxWidth, 13);
+}
+
 function drawResultOverlay() {
 	drawResultParticles();
 
-	const boxY = 70, boxX = 20, boxW = 320;
-	fillRoundRect(boxX, boxY, boxW, 470, 12, "rgba(10,10,10,0.95)");
+	const boxW = 320, boxH = 400, boxX = (W - boxW) / 2, boxY = (H - boxH) / 2;
+	fillRoundRect(boxX, boxY, boxW, boxH, 12, "rgba(10,10,10,0.95)");
 	ctx.save();
 	ctx.shadowColor = "#ffcc00"; ctx.shadowBlur = 10;
-	strokeRoundRect(boxX, boxY, boxW, 470, 12, COLORS.panelBorder, 2);
+	strokeRoundRect(boxX, boxY, boxW, boxH, 12, COLORS.panelBorder, 2);
 	ctx.restore();
 
+	const cx = W / 2;
 	const titleKey = initFlg ? "resultTitlePerfect" : "resultTitle";
-	drawResultTitleBadge(titleKey, 180, boxY + 25, initFlg);
+	drawResultTitleBadge(titleKey, cx, boxY + 28, initFlg);
 
-	let y = 50;
-	if (initFlg) {
-		y += 100;
-		const stats = stageStats[MAX_STAGE] || { draw: 0, win: 0, lose: 0 };
-		drawResultStageLine(MAX_STAGE, stats, 50, boxY + y, boxX + boxW - 10);
-		y += 100;
-	} else {
-		const stages = Object.keys(stageStats).map(Number).sort((a, b) => a - b);
-		for (const sNum of stages) {
-			drawResultStageLine(sNum, stageStats[sNum], 30, boxY + y, boxX + boxW - 10);
-			y += 25;
-		}
-	}
-	y += 5;
-
-	drawText(t("resultTotalFmt")(totalDraw, Math.floor(totalExp)), 30, boxY + y, { size: 16, color: "#ff6666", align: "left", baseline: "top" });
-
-	const elapsed = elapsedTime;
-	const hours = Math.floor(elapsed / 3600000);
-	const minutes = Math.floor((elapsed % 3600000) / 60000);
-	const seconds = Math.floor((elapsed % 60000) / 1000);
-	const timeString = `${String(hours).padStart(2, '0')}h${String(minutes).padStart(2, '0')}m${String(seconds).padStart(2, '0')}s`;
-
-	drawText(t("resultStreakFmt")(maxWinStreak), 30, boxY + y + 30, { size: 14, weight: "bold", color: "#dddddd", align: "left", baseline: "top" });
-	drawText(t("resultTimeFmt")(timeString), 30 + 160, boxY + y + 30, { size: 14, color: "#dddddd", align: "left", baseline: "top" });
-
-	drawResultUpgradeItem("upgradeResultWin", bonusWin, 25, boxY + y + 60, 150);
-	drawResultUpgradeItem("upgradeResultDraw", bonusDraw, 25 + 160, boxY + y + 60, 150);
-	drawResultUpgradeItem("upgradeResultGain", bonusGain, 25, boxY + y + 80, 150);
-	drawResultUpgradeItem("upgradeResultSpecial", bonusSpecial, 25 + 160, boxY + y + 80, 150);
-
-	resultRestartRect = { x: 50, y: boxY + y + 110, w: 120, h: 40 };
-	resultContinueRect = { x: 190, y: boxY + y + 110, w: 120, h: 40 };
-
-	drawScaled('resultRestart', resultRestartRect.x + resultRestartRect.w / 2, resultRestartRect.y + resultRestartRect.h / 2, () => {
-		fillRoundRect(resultRestartRect.x, resultRestartRect.y, resultRestartRect.w, resultRestartRect.h, 8, COLORS.restartBtn);
-		drawText(t("restartBtn"), resultRestartRect.x + resultRestartRect.w / 2, resultRestartRect.y + resultRestartRect.h / 2 + 1, {
-			size: 14, color: "#ffffff", align: "center", baseline: "middle",
-		});
+	// TOTAL SCORE（主役）
+	drawText(t("resultScoreLabel"), cx, boxY + 66, { size: 11, color: "#999999", align: "center", baseline: "middle" });
+	const scoreText = Math.floor(totalExp).toLocaleString("en-US");
+	const scoreSize = fitFontSize(scoreText, boxW - 40, 44, "bold");
+	drawText(scoreText, cx, boxY + 96, {
+		size: scoreSize, weight: "bold", color: "#ffcc00", align: "center", baseline: "middle", glow: "#ff8800", glowBlur: 14,
 	});
-	drawScaled('resultContinue', resultContinueRect.x + resultContinueRect.w / 2, resultContinueRect.y + resultContinueRect.h / 2, () => {
-		fillRoundRect(resultContinueRect.x, resultContinueRect.y, resultContinueRect.w, resultContinueRect.h, 8, COLORS.continueBtn);
-		drawText(t("continueBtn"), resultContinueRect.x + resultContinueRect.w / 2, resultContinueRect.y + resultContinueRect.h / 2 + 1, {
-			size: 14, color: "#ffffff", align: "center", baseline: "middle",
-		});
+
+	// 3タイル：TOTAL DRAWS / MAX STREAK / TIME
+	const pad = 14, gap = 8;
+	const innerW = boxW - pad * 2;
+	const tile3W = (innerW - gap * 2) / 3;
+	const tileY = boxY + 126, tileH = 54;
+	drawResultTile(boxX + pad, tileY, tile3W, tileH, String(totalDraw), t("resultDrawsLabel"));
+	drawResultTile(boxX + pad + (tile3W + gap), tileY, tile3W, tileH, `🔥${maxWinStreak}`, t("resultStreakLabel"));
+	drawResultTile(boxX + pad + (tile3W + gap) * 2, tileY, tile3W, tileH, formatClearTime(elapsedTime), t("resultTimeLabel"));
+
+	// Lv別成績：ドット列（タップで詳細）
+	const dotY = boxY + 208;
+	const dotX0 = boxX + 30, dotX1 = boxX + boxW - 30;
+	resultDotRects = [];
+	for (let i = 1; i <= MAX_STAGE; i++) {
+		const dx = dotX0 + (dotX1 - dotX0) * (i - 1) / (MAX_STAGE - 1);
+		const has = !!stageStats[i];
+		const sel = resultSelStage === i;
+		resultDotRects[i] = { x: dx - 13, y: dotY - 15, w: 26, h: 30, has };
+		ctx.save();
+		if (has) { ctx.shadowColor = "#ff3333"; ctx.shadowBlur = sel ? 10 : 5; }
+		ctx.beginPath(); ctx.arc(dx, dotY, sel ? 7 : 5, 0, Math.PI * 2);
+		ctx.fillStyle = has ? (sel ? "#ff3333" : "#ffcc00") : "#333333";
+		ctx.fill();
+		if (sel) { ctx.lineWidth = 1.5; ctx.strokeStyle = "#ffffff"; ctx.stroke(); }
+		ctx.restore();
+	}
+
+	// キャプション欄：選択中のLvの内訳。切替時は「旧表示をフェードアウト→新表示をフェードイン」
+	const capY = boxY + 236;
+	const fp = Math.min(1, resultFadeMs / RESULT_FADE_MS);
+	ctx.save();
+	if (fp < 1 && resultPrevStage) {
+		if (fp < 0.5) { ctx.globalAlpha = 1 - fp * 2; drawResultDetail(resultPrevStage, cx, capY, boxW - 24); }
+		else { ctx.globalAlpha = fp * 2 - 1; drawResultDetail(resultSelStage, cx, capY, boxW - 24); }
+	} else {
+		drawResultDetail(resultSelStage, cx, capY, boxW - 24);
+	}
+	ctx.restore();
+
+	// 区切り線
+	ctx.save();
+	ctx.strokeStyle = "#333333"; ctx.lineWidth = 1;
+	ctx.beginPath(); ctx.moveTo(boxX + pad, boxY + 256); ctx.lineTo(boxX + boxW - pad, boxY + 256); ctx.stroke();
+	ctx.restore();
+
+	// 強化回数 4タイル（数字／絵文字／ラベルの3段）
+	const upY = boxY + 268, upH = 56;
+	const tile4W = (innerW - gap * 3) / 4;
+	const ups = [
+		[bonusWin, "🎯", t("resultUpWin")],
+		[bonusDraw, "🎫", t("resultUpCredit")],
+		[bonusGain, "📈", t("resultUpScore")],
+		[bonusSpecial, "⭐", t("resultUpJackpot")],
+	];
+	ups.forEach((u, i) => drawResultUpgradeTile(boxX + pad + (tile4W + gap) * i, upY, tile4W, upH, u[0], u[1], u[2]));
+
+	// ボタン：最初から（枠線のみ）／続ける（金のメインボタン）
+	const btnY = boxY + 338, btnH = 48;
+	const restartW = Math.round(innerW * 0.4), continueW = innerW - restartW - gap;
+	resultRestartRect = { x: boxX + pad, y: btnY, w: restartW, h: btnH };
+	resultContinueRect = { x: boxX + pad + restartW + gap, y: btnY, w: continueW, h: btnH };
+
+	drawScaled('resultRestart', resultRestartRect.x + restartW / 2, btnY + btnH / 2, () => {
+		fillRoundRect(resultRestartRect.x, btnY, restartW, btnH, 10, "rgba(255,255,255,0.03)");
+		strokeRoundRect(resultRestartRect.x, btnY, restartW, btnH, 10, "#888888", 1.5);
+		drawIconLabel(resultRestartRect, t("restartBtn"), "#cccccc", drawRestartIcon, 15);
+	});
+	drawScaled('resultContinue', resultContinueRect.x + continueW / 2, btnY + btnH / 2, () => {
+		const r = resultContinueRect;
+		ctx.save();
+		ctx.shadowColor = "rgba(255,204,0,0.6)"; ctx.shadowBlur = 14;
+		fillRoundRect(r.x, r.y, r.w, r.h, 10, "#a06800"); // 下端の影（立体感）
+		ctx.restore();
+		const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h - 3);
+		g.addColorStop(0, "#ffd84a"); g.addColorStop(1, "#e0a000");
+		fillRoundRect(r.x, r.y, r.w, r.h - 3, 10, g);
+		drawIconLabel({ x: r.x, y: r.y, w: r.w, h: r.h - 3 }, t("continueBtn"), "#2a1800", drawPlayIcon, 16);
 	});
 }
 
@@ -1421,7 +1559,12 @@ function frame(now) {
 	lastTime = now;
 	updateTweens(dt);
 	updateTimers(dt);
-	if (clearFlg) resultElapsedMs += dt;
+	if (clearFlg) {
+		resultElapsedMs += dt;
+		resultSelTimerMs -= dt;
+		resultFadeMs += dt;
+		if (resultSelTimerMs <= 0) { advanceResultSelection(); resultSelTimerMs = RESULT_AUTO_MS; }
+	}
 
 	drawGame();
 
