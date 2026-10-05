@@ -423,10 +423,10 @@ function ballColor(ball) {
 
 /* ==================== 演出：当たり／ハズレ ==================== */
 const flashObj = { alpha: 0 };
-function screenFlash() {
+function screenFlash(peak) {
 	killTweensOf(flashObj);
 	flashObj.alpha = 0;
-	tween(flashObj, { alpha: 0.8 }, 150, { onComplete: () => tween(flashObj, { alpha: 0 }, 150) });
+	tween(flashObj, { alpha: peak }, 150, { onComplete: () => tween(flashObj, { alpha: 0 }, 150) });
 }
 
 // CREDITボックス消化演出。くじを引いた瞬間、消費されるボックスを白くフラッシュさせてから馴染ませる。
@@ -526,13 +526,96 @@ function drawWinParticles() {
 	}
 }
 
-function playWinEffect(ball, onComplete) {
+/* ---- 当たり演出：リング波紋／枠ランプ／スコア浮き上がり（光量を増やさず賑やかにするための動きの演出） ---- */
+const winRings = [];   // {x,y,r0,max,col,p}
+const lampChases = []; // {p,laps}
+const scoreFloats = []; // {x,y,txt,big,p}
+const scoreBounceObj = { v: 0 };
+const linear = p => p;
+
+function spawnWinRings(ball, big) {
+	const n = big ? 3 : 2;
+	for (let i = 0; i < n; i++) {
+		const ring = { x: ball.x, y: ball.y, r0: ball.r, max: big ? 110 : 70, col: big ? "#ffe066" : "#ff6666", p: 0 };
+		winRings.push(ring);
+		tween(ring, { p: 1 }, 700, { delay: i * 120, ease: easePower1Out, onComplete: () => { const k = winRings.indexOf(ring); if (k >= 0) winRings.splice(k, 1); } });
+	}
+}
+function startLampChase(big) {
+	const ch = { p: 0, laps: big ? 2 : 1 };
+	lampChases.push(ch);
+	tween(ch, { p: 1 }, big ? 900 : 650, { ease: linear, onComplete: () => { const k = lampChases.indexOf(ch); if (k >= 0) lampChases.splice(k, 1); } });
+}
+function spawnScoreFloat(ball, amount, big) {
+	const f = { x: ball.x, y: ball.y - ball.r, txt: "+" + Math.floor(amount), big: !!big, p: 0 };
+	scoreFloats.push(f);
+	tween(f, { p: 1 }, 800, { ease: linear, onComplete: () => { const k = scoreFloats.indexOf(f); if (k >= 0) scoreFloats.splice(k, 1); } });
+}
+// SCORE数字が加算された瞬間に弾ませる
+function bounceScore() {
+	killTweensOf(scoreBounceObj);
+	scoreBounceObj.v = 1;
+	tween(scoreBounceObj, { v: 0 }, 400, { ease: linear });
+}
+function drawWinRings() {
+	for (const r of winRings) {
+		if (r.p <= 0) continue;
+		const e = 1 - Math.pow(1 - r.p, 3);
+		ctx.save();
+		ctx.globalAlpha = (1 - r.p) * 0.9;
+		ctx.strokeStyle = r.col; ctx.lineWidth = 4 * (1 - r.p) + 1;
+		ctx.shadowColor = r.col; ctx.shadowBlur = 8;
+		ctx.beginPath(); ctx.arc(r.x, r.y, r.r0 + (r.max - r.r0) * e, 0, Math.PI * 2); ctx.stroke();
+		ctx.restore();
+	}
+}
+function drawScoreFloats() {
+	for (const f of scoreFloats) {
+		const e = 1 - Math.pow(1 - f.p, 2);
+		ctx.save();
+		ctx.globalAlpha = f.p < 0.7 ? 1 : 1 - (f.p - 0.7) / 0.3;
+		drawText(f.txt, Math.min(W - 40, Math.max(40, f.x)), f.y - 25 * e, {
+			size: f.big ? 30 : 22, weight: "bold", color: f.big ? "#ffe066" : "#ffcc00", align: "center", baseline: "middle", stroke: "#000000", strokeWidth: 4,
+		});
+		ctx.restore();
+	}
+}
+// 玉エリアの枠に電球ランプを並べ、当たり時に光の尾が周回する。
+function drawFrameLamps() {
+	const box = LAYOUT.ballBox, gap = 14, lamps = [];
+	const x0 = box.x + 2, y0 = box.y + 2, x1 = box.x + box.w - 2, y1 = box.y + box.h - 2;
+	for (let x = x0 + 5; x < x1; x += gap) lamps.push([x, y0]);
+	for (let y = y0 + 5; y < y1; y += gap) lamps.push([x1, y]);
+	for (let x = x1 - 5; x > x0; x -= gap) lamps.push([x, y1]);
+	for (let y = y1 - 5; y > y0; y -= gap) lamps.push([x0, y]);
+	const lit = new Map();
+	for (const ch of lampChases) {
+		const head = ch.p * ch.laps * lamps.length;
+		for (let k = 0; k < 8; k++) {
+			const idx = (((Math.floor(head - k)) % lamps.length) + lamps.length) % lamps.length;
+			lit.set(idx, Math.max(lit.get(idx) || 0, 1 - k / 8));
+		}
+	}
+	lamps.forEach(([x, y], i) => {
+		const a = lit.get(i) || 0;
+		ctx.save();
+		ctx.beginPath(); ctx.arc(x, y, a ? 3.2 : 2, 0, Math.PI * 2);
+		if (a) { ctx.shadowColor = "#ffcc00"; ctx.shadowBlur = 10 * a; ctx.fillStyle = `rgba(255,235,140,${0.4 + 0.6 * a})`; }
+		else ctx.fillStyle = "rgba(150,110,30,0.55)";
+		ctx.fill();
+		ctx.restore();
+	});
+}
+
+function playWinEffect(ball, onComplete, big) {
+	spawnWinRings(ball, big);
+	startLampChase(big);
 	tween(ball, { scale: 2 }, 400, {
 		ease: easeBackOut,
 		onComplete: () => tween(ball, { scale: 1 }, 400, { ease: easeBackOut, onComplete })
 	});
 	tween(ball, { alpha: 0.6 }, 200, { onComplete: () => tween(ball, { alpha: 1 }, 200) });
-	screenFlash();
+	screenFlash(big ? 0.55 : 0.3); // 通常WINは弱め、JACKPOTは強め
 }
 
 // パーティクルは当たった玉ではなく、画面中央のWIN!テキストと一緒に光るオーラ（演出用の玉）から飛び散らせる。
@@ -694,34 +777,41 @@ function drawLottery() {
 
 	updateStageStats(stage, result);
 
+	// 獲得スコアは演出開始時点で確定させ、「+N」を当たった玉の位置からすぐ浮かせる（演出後はステージが進んで玉の配置が変わるため）。
 	if (result === 'gold') {
+		const nextStreak = winStreak + 1;
+		const baseGain = getStageExp(stage) * 3;
+		const streakBonus = Math.floor(baseGain * 0.7 * (nextStreak - 1));
+		const totalGain = Math.max(
+			Math.floor((baseGain + streakBonus) * (1 + bonusGain * 0.1)),
+			getUpgradeCost(20, bonusGain) * 1.1,
+			getUpgradeCost(25, bonusSpecial) * 1.1,
+			getUpgradeCost(10, bonusWin) * 1.1,
+			getUpgradeCost(15, bonusDraw) * 1.1
+		);
+		spawnScoreFloat(pickedBall, totalGain, true);
 		playWinEffect(pickedBall, () => {
 			winStreak++;
 			if (winStreak > maxWinStreak) maxWinStreak = winStreak;
-			const baseGain = getStageExp(stage) * 3;
-			const streakBonus = Math.floor(baseGain * 0.7 * (winStreak - 1));
-			const totalGain = Math.max(
-				Math.floor((baseGain + streakBonus) * (1 + bonusGain * 0.1)),
-				getUpgradeCost(20, bonusGain) * 1.1,
-				getUpgradeCost(25, bonusSpecial) * 1.1,
-				getUpgradeCost(10, bonusWin) * 1.1,
-				getUpgradeCost(15, bonusDraw) * 1.1
-			);
 			addExp(totalGain);
+			bounceScore();
 			pickedBall.revealed = true;
 			drawInProgress = false;
 			advanceStage();
-		});
+		}, true);
 		createAuraTextBig(t("bigWinText"), COLORS.ballGold, 32);
 		screenShake(4, 6, 40);
 	} else if (result === 'win') {
+		const nextStreak = winStreak + 1;
+		const baseGain = Math.max(getStageExp(stage), 5 * stage);
+		const streakBonus = Math.floor(baseGain * 0.4 * (nextStreak - 1));
+		const totalGain = Math.floor((baseGain + streakBonus) * (1 + bonusGain * 0.05));
+		spawnScoreFloat(pickedBall, totalGain, false);
 		playWinEffect(pickedBall, () => {
 			winStreak++;
 			if (winStreak > maxWinStreak) maxWinStreak = winStreak;
-			const baseGain = Math.max(getStageExp(stage), 5 * stage);
-			const streakBonus = Math.floor(baseGain * 0.4 * (winStreak - 1));
-			const totalGain = Math.floor((baseGain + streakBonus) * (1 + bonusGain * 0.05));
 			addExp(totalGain);
+			bounceScore();
 			pickedBall.revealed = true;
 			drawInProgress = false;
 			advanceStage();
@@ -994,14 +1084,31 @@ function drawBalls() {
 	strokeRoundRect(box.x, box.y, box.w, box.h, 4, COLORS.panelBorder, 3);
 	strokeRoundRect(box.x + 4, box.y + 4, box.w - 8, box.h - 8, 2, "#3a2a10", 1);
 
-	for (const b of balls) {
+	// 高Lvで玉が極小になっても当たり玉が埋もれないよう、JACKPOT→WINの順に最後（最前面）へ描く。
+	const rank = b => (usedFlags[b.index] && b.revealed) ? 0 : currentLotteryPool[b.index] === 'gold' ? 2 : currentLotteryPool[b.index] === 'win' ? 1 : 0;
+	const drawOrder = balls.slice().sort((a, b) => rank(a) - rank(b));
+	const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+	for (const b of drawOrder) {
 		const type = currentLotteryPool[b.index];
-		const glow = (usedFlags[b.index] && b.revealed) ? null : (type === 'gold' || type === 'win' ? ballColor(b) : null);
+		const used = usedFlags[b.index] && b.revealed;
+		const glow = used ? null : (type === 'gold' || type === 'win' ? ballColor(b) : null);
+		const cx = b.x + b.offsetX;
+		// JACKPOTの星は極小Lvでも見えるよう最低サイズを確保し、脈打つ輪で目立たせる。
+		const isGoldLive = !used && type === 'gold';
+		const rr = Math.max(0, isGoldLive ? Math.max(b.r, 5) * b.scale : b.r * b.scale);
+		if (isGoldLive) {
+			ctx.save();
+			ctx.globalAlpha = b.alpha * (0.15 + 0.25 * (1 - pulse));
+			ctx.strokeStyle = "#ffe066"; ctx.lineWidth = 1;
+			ctx.beginPath(); ctx.arc(cx, b.y, rr * (1.25 + 0.2 * pulse), 0, Math.PI * 2); ctx.stroke();
+			ctx.restore();
+		}
+		// 色覚に依らず見分けられるよう、種類ごとに形を変える（JACKPOT=星 / WIN=丸 / MISS=ひし形）。使用済みも同じ形のまま暗くする（ハイライトなし）。
+		const shape = type === 'gold' ? 'star' : type === 'lose' ? 'diamond' : 'circle';
 		ctx.save();
 		ctx.globalAlpha = b.alpha;
-		if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 10; }
-		ctx.beginPath();
-		ctx.arc(b.x + b.offsetX, b.y, Math.max(0, b.r * b.scale), 0, Math.PI * 2);
+		if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = isGoldLive ? 8 + 5 * pulse : 10; }
+		ballShapePath(cx, b.y, rr, shape);
 		ctx.fillStyle = ballColor(b);
 		ctx.fill();
 		ctx.restore();
@@ -1009,15 +1116,34 @@ function drawBalls() {
 		ctx.globalAlpha = b.alpha;
 		ctx.strokeStyle = "#000000";
 		ctx.lineWidth = 1.5;
-		ctx.beginPath();
-		ctx.arc(b.x + b.offsetX, b.y, Math.max(0, b.r * b.scale), 0, Math.PI * 2);
+		ballShapePath(cx, b.y, rr, shape);
 		ctx.stroke();
-		// ハイライト（電球のガラス反射）
-		ctx.beginPath();
-		ctx.arc(b.x + b.offsetX - b.r * 0.3, b.y - b.r * 0.3, Math.max(0, b.r * b.scale * 0.25), 0, Math.PI * 2);
-		ctx.fillStyle = "rgba(255,255,255,0.45)";
-		ctx.fill();
+		// ハイライト（電球のガラス反射）。形からはみ出さないよう、ひし形・星は内側に小さく寄せる。使用済みは付けない。
+		if (!used) {
+			const k = shape === 'diamond' ? 0.17 : 0.3, hr = shape === 'diamond' ? 0.17 : shape === 'star' ? 0.2 : 0.25;
+			ctx.beginPath();
+			ctx.arc(cx - b.r * k, b.y - b.r * k, Math.max(0, rr * hr), 0, Math.PI * 2);
+			ctx.fillStyle = "rgba(255,255,255,0.45)";
+			ctx.fill();
+		}
 		ctx.restore();
+	}
+}
+
+function ballShapePath(x, y, r, shape) {
+	ctx.beginPath();
+	if (shape === 'star') {
+		const R = r * 1.2;
+		for (let i = 0; i < 10; i++) {
+			const a = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? R * 0.45 : R;
+			ctx.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+		}
+		ctx.closePath();
+	} else if (shape === 'diamond') {
+		ctx.moveTo(x, y - r * 0.85); ctx.lineTo(x + r * 0.85, y); ctx.lineTo(x, y + r * 0.85); ctx.lineTo(x - r * 0.85, y);
+		ctx.closePath();
+	} else {
+		ctx.arc(x, y, r, 0, Math.PI * 2);
 	}
 }
 
@@ -1174,9 +1300,15 @@ function drawExpAndUpgrades() {
 	strokeRoundRect(r.x, r.y, r.w, r.h, 4, COLORS.panelBorder, 1.5);
 	drawText(t("expLabel"), r.x + 12, r.y + r.h / 2, { size: 11, weight: "bold", color: "#dddddd", align: "left", baseline: "middle" });
 	// SCOREの数字は中央寄せ。ドラムロール風にexpへ滑らかに追従する表示値(displayExpObj)を使う。
-	drawText(`${String(Math.floor(displayExpObj.value)).padStart(6, '0')}`, r.x + r.w / 2, r.y + r.h / 2, {
-		size: 18, weight: "bold", color: COLORS.scoreColor, align: "center", baseline: "middle", glow: "#ffcc00", glowBlur: 6,
+	// 当たりで加算されたとき、数字が一瞬ふくらんで弾む（scoreBounceObj）
+	ctx.save();
+	const bs = 1 + 0.35 * Math.sin(scoreBounceObj.v * Math.PI);
+	ctx.translate(r.x + r.w / 2, r.y + r.h / 2);
+	ctx.scale(bs, bs);
+	drawText(`${String(Math.floor(displayExpObj.value)).padStart(6, '0')}`, 0, 0, {
+		size: 18, weight: "bold", color: COLORS.scoreColor, align: "center", baseline: "middle", glow: "#ffcc00", glowBlur: 6 + 10 * scoreBounceObj.v,
 	});
+	ctx.restore();
 
 	for (let i = 0; i < UPGRADES.length; i++) {
 		const u = UPGRADES[i];
@@ -1262,14 +1394,21 @@ function drawGame() {
 
 	if (!clearFlg) {
 		drawBalls();
+		drawFrameLamps();
+		drawWinRings();
 		drawWinParticles();
 		drawEventOverlays();
+		drawScoreFloats(); // 連続当たりバッジなどより手前に出す
 	}
 
 	if (flashObj.alpha > 0) {
 		ctx.save();
+		// 光過敏・目の負担に配慮し、画面全体を白く光らせず四辺だけ金色に光らせる（縁ヴィネット）
 		ctx.globalAlpha = flashObj.alpha;
-		ctx.fillStyle = "#ffffff";
+		const fg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.hypot(W, H) / 2);
+		fg.addColorStop(0, "rgba(255,204,0,0)");
+		fg.addColorStop(1, "#ffcc00");
+		ctx.fillStyle = fg;
 		ctx.fillRect(-10, -10, W + 20, H + 20);
 		ctx.restore();
 	}
