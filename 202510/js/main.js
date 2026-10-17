@@ -6,6 +6,7 @@ const PLAY_X = 20, PLAY_Y = 58, PLAY_W = 320, PLAY_H = 428;
 const CX = PLAY_X + PLAY_W / 2, CY = PLAY_Y + PLAY_H / 2;
 const PLAYER_RADIUS = 16;
 const PLAYER_ANGLE = Math.PI / 6; // 扇形の半角
+const PLAYER_APEX_AHEAD = 7; // 扇形の頂点が判定点より進行方向へ出る距離
 const MAX_TIME = 60000; // ms（クリアまでの時間）
 const TIP_RADIUS = 6; // 先端の当たり判定円の半径（元のcircleRadius）
 const WALL_HIT_RADIUS = 10; // 壁反射の判定半径
@@ -939,11 +940,8 @@ function normalizeVelocityToSpeed(s) {
 	s.vy = s.vy / n * speed;
 }
 function getPlayerTipPos(s) {
-	const tipOffset = PLAYER_RADIUS - 23; // -7（先端は進行方向と逆側に少し寄る）
-	return {
-		x: s.player.x + Math.cos(s.playerAngle) * tipOffset,
-		y: s.player.y + Math.sin(s.playerAngle) * tipOffset,
-	};
+	// 判定点＝自機の座標＝扇形の回転軸。旋回しても判定点は動かない（扇形の頂点は判定点より PLAYER_APEX_AHEAD 前に描く）
+	return { x: s.player.x, y: s.player.y };
 }
 
 function addPop(s, x, y, text, color, size) {
@@ -1256,25 +1254,24 @@ function checkCollisions(s) {
 function reflectWalls(s) {
 	const tip = getPlayerTipPos(s);
 	let reflected = false;
-	const rTotal = PLAYER_RADIUS + TIP_RADIUS;
 
 	if (tip.x - WALL_HIT_RADIUS < PLAY_X) {
-		s.player.x = PLAY_X + WALL_HIT_RADIUS - Math.cos(s.playerAngle) * rTotal;
+		s.player.x = PLAY_X + WALL_HIT_RADIUS;
 		const dot = s.vx * 1 + s.vy * 0; s.vx -= 2 * dot * 1; s.vy -= 2 * dot * 0;
 		reflected = true;
 	}
 	if (tip.x + WALL_HIT_RADIUS > PLAY_X + PLAY_W) {
-		s.player.x = PLAY_X + PLAY_W - WALL_HIT_RADIUS - Math.cos(s.playerAngle) * rTotal;
+		s.player.x = PLAY_X + PLAY_W - WALL_HIT_RADIUS;
 		const dot = s.vx * -1 + s.vy * 0; s.vx -= 2 * dot * -1; s.vy -= 2 * dot * 0;
 		reflected = true;
 	}
 	if (tip.y - WALL_HIT_RADIUS < PLAY_Y) {
-		s.player.y = PLAY_Y + WALL_HIT_RADIUS - Math.sin(s.playerAngle) * rTotal;
+		s.player.y = PLAY_Y + WALL_HIT_RADIUS;
 		const dot = s.vx * 0 + s.vy * 1; s.vx -= 2 * dot * 0; s.vy -= 2 * dot * 1;
 		reflected = true;
 	}
 	if (tip.y + WALL_HIT_RADIUS > PLAY_Y + PLAY_H) {
-		s.player.y = PLAY_Y + PLAY_H - WALL_HIT_RADIUS - Math.sin(s.playerAngle) * rTotal;
+		s.player.y = PLAY_Y + PLAY_H - WALL_HIT_RADIUS;
 		const dot = s.vx * 0 + s.vy * -1; s.vx -= 2 * dot * 0; s.vy -= 2 * dot * -1;
 		reflected = true;
 	}
@@ -2292,7 +2289,7 @@ function drawPlayer(s) {
 	// 本体（扇形）：パワーアップ中はアイテムの色で縁取る
 	const baseAngle = s.playerAngle + Math.PI;
 	ctx.save();
-	ctx.translate(s.player.x, s.player.y);
+	ctx.translate(s.player.x + Math.cos(s.playerAngle) * PLAYER_APEX_AHEAD, s.player.y + Math.sin(s.playerAngle) * PLAYER_APEX_AHEAD);
 	ctx.beginPath();
 	ctx.moveTo(0, 0);
 	ctx.arc(0, 0, PLAYER_RADIUS + 4, baseAngle - PLAYER_ANGLE, baseAngle + PLAYER_ANGLE);
