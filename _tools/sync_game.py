@@ -19,7 +19,7 @@ KS_SITE = "https://kshukshu.com"
 
 GAMES = {
     "kurage": {
-        "src": KSHUKSHU / "kurage" / "index.html",
+        "src": KSHUKSHU / "22.kurage" / "index.html",
         # GitHub Pages 上の置き場所（複数可）。リメイク予定のない新しめの作品は old/ と直下の両方に置く
         # （kshukshu.com 側はキー名 = フォルダ名）
         "dest": ["202610/old", "202610"],
