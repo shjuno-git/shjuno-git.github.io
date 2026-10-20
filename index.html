@@ -264,30 +264,30 @@
 
     <script>
         // ===== ゲームデータ =====
-        // id: kshukshu.comのフォルダ名／ date: 公開年月（GitHub Pagesのフォルダ名 YYYYMM にもなる）／ remake: リメイク版あり／ remakeDate: リメイク公開年月（PCのみ表示）／ engine: JavaScript以外の場合のみ記入
+        // id: kshukshu.comのフォルダ名／ num: 作品の通し番号（GitHub Pagesの /g/NNN/ になる。一度振ったら変えない）／ ver: GitHub Pagesに置いたリメイク版の版番号（リメイク版があれば2、なければ省略）／ date: 公開年月（一覧の表示用）／ remake: リメイク作品（バッジ表示）／ remakeDate: リメイク公開年月（PCのみ表示）／ engine: JavaScript以外の場合のみ記入
         const GAMES = [
-            { id: "kurage", title: "バイバイクラゲ", desc: "水鉄砲で倍々に増えるクラゲを退治しよう！", genre: "アクション", date: "2026-10", img: "linkcard_kurage.png" },
-            { id: "kiki", title: "機器一発！", desc: "表裏を見極めて、機器を一発で接続しよう！", genre: "アクション", engine: "Godot", date: "2026-09", img: "linkcard_kiki.png" },
-            { id: "meteor", title: "受けとメテオ！", desc: "タップで隕石を操作、器で受け止めよう！", genre: "アクション", date: "2026-08", img: "linkcard_meteor.png" },
-            { id: "bunny", title: "逃げウサ囲み～Bunny Sweeper～", desc: "数字を頼りに移動して、ウサギを囲んで捕まえよう！", genre: "パズル", date: "2026-07", img: "linkcard_bunny.png" },
-            { id: "water", title: "ポンプでポップにボールイン", desc: "3つのポンプでボールを操作、ゴールにシュートだ！", genre: "その他", date: "2026-06", img: "linkcard_water.png" },
-            { id: "fruits", title: "ずらして ちぎって 大収穫！", desc: "果物を左右にずらして、端でちぎって、大収穫しよう！", genre: "パズル", date: "2026-05", img: "linkcard_fruits.png" },
-            { id: "himo", title: "囲って、ひも犬", desc: "スライドでひも犬を操作して敵やアイテムを囲おう！", genre: "アクション", date: "2026-04", img: "linkcard_himo.png" },
-            { id: "piyo", title: "ぴよこの飛行訓練", desc: "ぴよこは目を閉じて飛ぶ！ゴールまで導こう。", genre: "アクション", date: "2026-03", img: "linkcard_piyo.png" },
-            { id: "yasai", title: "ピッタリパワーでヤサイ抜き！", desc: "パワーゲージをタップで止めて、ヤサイを引っこ抜こう！", genre: "アクション", date: "2026-02", img: "linkcard_yasai.png" },
-            { id: "make21", title: "CHANGE & MAKE 21", desc: "-6～6のカードで手札と山札を交換して21を作ろう！", genre: "パズル", date: "2026-01", img: "linkcard_make21.png" },
-            { id: "ryote", title: "両手でディフェンス", desc: "両手で左右のバーを操作して敵にボールをぶつけよう！", genre: "アクション", date: "2025-12", img: "linkcard_ryote.png" },
-            { id: "gcp", title: "消して100ぐちぱ！", desc: "ぐちぱを繋げて目指せ100ぐちぱ！", genre: "パズル", date: "2025-11", img: "linkcard_gcp.png", remakeImg: "linkcard_gcp_remake.png", remake: true, remakeDate: "2026-10" },
-            { id: "nige", title: "１分逃げて！", desc: "迫りくる攻撃から１分間逃げ切って！", genre: "アクション", date: "2025-10", img: "linkcard_nige.png", remakeImg: "linkcard_nige_remake.png", remake: true, remakeDate: "2026-10" },
-            { id: "fish", title: "Fish and Chips", desc: "マネキンを飛ばしてFishとChipをGetしよう", genre: "アクション", engine: "Unity", date: "2025-09", img: "linkcard_fish.png", remakeImg: "linkcard_fish_remake.png", remake: true, remakeDate: "2026-10" },
-            { id: "kuji", title: "豪運くじびき", desc: "1/1024の当たりを引こう。経験値で強化だ！", genre: "その他", date: "2025-08", img: "linkcard_kuji.png", remakeImg: "linkcard_kuji_remake.png", remake: true, remakeDate: "2026-10" },
-            { id: "sansu", title: "いい加減さんすう", desc: "数字を計算してゴールと同じ数字をつくろう！", genre: "パズル", date: "2025-07", img: "linkcard_sansu.png", remakeImg: "linkcard_sansu_remake.png", remake: true, remakeDate: "2026-09" },
-            { id: "yokeroke", title: "タッチ★よけロケ！", desc: "タッチで避けてゴールを目指そう！", genre: "アクション", date: "2025-06", img: "linkcard_yokerocket.png", remakeImg: "linkcard_yokerocket_remake.png", remake: true, remakeDate: "2026-09" },
-            { id: "ogiyahagi", title: "荻や萩-OgiYaHagi-", desc: "OGIやHAGIを仕分けよう。決めろOGIYAHAGI！", genre: "アクション", date: "2025-05", img: "linkcard_ogiyahagi.png", remake: true, remakeDate: "2026-09" },
-            { id: "plus5", title: "足して５！～または同じ数字で消すパズル～", desc: "２つの数字を組み合わせて、全消しを狙おう！", genre: "パズル", date: "2025-04", img: "linkcard_plus5.png", remakeImg: "linkcard_plus5_remake.png", remake: true, remakeDate: "2026-09" },
-            { id: "nibungi", title: "二分木クイズ", desc: "二分木の？に入る数字を当てよう！", genre: "パズル", date: "2025-03", img: "linkcard_nibungi.png", remakeImg: "linkcard_nibungi_remake.png", remake: true, remakeDate: "2026-08" },
-            { id: "fufukosho", title: "フーフーコショー", desc: "プチプチ感覚でコショウをお掃除だ！", genre: "アクション", date: "2025-02", img: "linkcard_fufukosho.png", remake: true, remakeDate: "2026-08" },
-            { id: "goenball", title: "５円はスルー、ボールは打つ！", desc: "ボールを打ち返して５円玉を集めよう！", genre: "アクション", date: "2025-01", img: "linkcard_goen.png", remake: true, remakeDate: "2026-08" },
+            { id: "kurage", num: "022", title: "バイバイクラゲ", desc: "水鉄砲で倍々に増えるクラゲを退治しよう！", genre: "アクション", date: "2026-10", img: "linkcard_kurage.png" },
+            { id: "kiki", num: "021", title: "機器一発！", desc: "表裏を見極めて、機器を一発で接続しよう！", genre: "アクション", engine: "Godot", date: "2026-09", img: "linkcard_kiki.png" },
+            { id: "meteor", num: "020", title: "受けとメテオ！", desc: "タップで隕石を操作、器で受け止めよう！", genre: "アクション", date: "2026-08", img: "linkcard_meteor.png" },
+            { id: "bunny", num: "019", title: "逃げウサ囲み～Bunny Sweeper～", desc: "数字を頼りに移動して、ウサギを囲んで捕まえよう！", genre: "パズル", date: "2026-07", img: "linkcard_bunny.png" },
+            { id: "water", num: "018", title: "ポンプでポップにボールイン", desc: "3つのポンプでボールを操作、ゴールにシュートだ！", genre: "その他", date: "2026-06", img: "linkcard_water.png" },
+            { id: "fruits", num: "017", title: "ずらして ちぎって 大収穫！", desc: "果物を左右にずらして、端でちぎって、大収穫しよう！", genre: "パズル", date: "2026-05", img: "linkcard_fruits.png" },
+            { id: "himo", num: "016", title: "囲って、ひも犬", desc: "スライドでひも犬を操作して敵やアイテムを囲おう！", genre: "アクション", date: "2026-04", img: "linkcard_himo.png" },
+            { id: "piyo", num: "015", title: "ぴよこの飛行訓練", desc: "ぴよこは目を閉じて飛ぶ！ゴールまで導こう。", genre: "アクション", date: "2026-03", img: "linkcard_piyo.png" },
+            { id: "yasai", num: "014", title: "ピッタリパワーでヤサイ抜き！", desc: "パワーゲージをタップで止めて、ヤサイを引っこ抜こう！", genre: "アクション", date: "2026-02", img: "linkcard_yasai.png" },
+            { id: "make21", num: "013", title: "CHANGE & MAKE 21", desc: "-6～6のカードで手札と山札を交換して21を作ろう！", genre: "パズル", date: "2026-01", img: "linkcard_make21.png" },
+            { id: "ryote", num: "012", title: "両手でディフェンス", desc: "両手で左右のバーを操作して敵にボールをぶつけよう！", genre: "アクション", date: "2025-12", img: "linkcard_ryote.png" },
+            { id: "gcp", num: "011", title: "消して100ぐちぱ！", desc: "ぐちぱを繋げて目指せ100ぐちぱ！", genre: "パズル", date: "2025-11", img: "linkcard_gcp.png", remakeImg: "linkcard_gcp_remake.png", remake: true, remakeDate: "2026-10" },
+            { id: "nige", num: "010", title: "１分逃げて！", desc: "迫りくる攻撃から１分間逃げ切って！", genre: "アクション", date: "2025-10", img: "linkcard_nige.png", remakeImg: "linkcard_nige_remake.png", remake: true, remakeDate: "2026-10", ver: 2 },
+            { id: "fish", num: "009", title: "Fish and Chips", desc: "マネキンを飛ばしてFishとChipをGetしよう", genre: "アクション", engine: "Unity", date: "2025-09", img: "linkcard_fish.png", remakeImg: "linkcard_fish_remake.png", remake: true, remakeDate: "2026-10", ver: 2 },
+            { id: "kuji", num: "008", title: "豪運くじびき", desc: "1/1024の当たりを引こう。経験値で強化だ！", genre: "その他", date: "2025-08", img: "linkcard_kuji.png", remakeImg: "linkcard_kuji_remake.png", remake: true, remakeDate: "2026-10", ver: 2 },
+            { id: "sansu", num: "007", title: "いい加減さんすう", desc: "数字を計算してゴールと同じ数字をつくろう！", genre: "パズル", date: "2025-07", img: "linkcard_sansu.png", remakeImg: "linkcard_sansu_remake.png", remake: true, remakeDate: "2026-09", ver: 2 },
+            { id: "yokeroke", num: "006", title: "タッチ★よけロケ！", desc: "タッチで避けてゴールを目指そう！", genre: "アクション", date: "2025-06", img: "linkcard_yokerocket.png", remakeImg: "linkcard_yokerocket_remake.png", remake: true, remakeDate: "2026-09", ver: 2 },
+            { id: "ogiyahagi", num: "005", title: "荻や萩-OgiYaHagi-", desc: "OGIやHAGIを仕分けよう。決めろOGIYAHAGI！", genre: "アクション", date: "2025-05", img: "linkcard_ogiyahagi.png", remake: true, remakeDate: "2026-09", ver: 2 },
+            { id: "plus5", num: "004", title: "足して５！～または同じ数字で消すパズル～", desc: "２つの数字を組み合わせて、全消しを狙おう！", genre: "パズル", date: "2025-04", img: "linkcard_plus5.png", remakeImg: "linkcard_plus5_remake.png", remake: true, remakeDate: "2026-09", ver: 2 },
+            { id: "nibungi", num: "003", title: "二分木クイズ", desc: "二分木の？に入る数字を当てよう！", genre: "パズル", date: "2025-03", img: "linkcard_nibungi.png", remakeImg: "linkcard_nibungi_remake.png", remake: true, remakeDate: "2026-08", ver: 2 },
+            { id: "fufukosho", num: "002", title: "フーフーコショー", desc: "プチプチ感覚でコショウをお掃除だ！", genre: "アクション", date: "2025-02", img: "linkcard_fufukosho.png", remake: true, remakeDate: "2026-08", ver: 2 },
+            { id: "goenball", num: "001", title: "５円はスルー、ボールは打つ！", desc: "ボールを打ち返して５円玉を集めよう！", genre: "アクション", date: "2025-01", img: "linkcard_goen.png", remake: true, remakeDate: "2026-08", ver: 2 },
         ];
 
         // リメイク版専用の画像があればそちらを優先（旧画像は残す）
@@ -295,14 +295,14 @@
 
         // ===== 公開先 =====
         // 同じindex.htmlをkshukshu.comとGitHub Pagesの両方に置く。開いているサイトに応じてリンク先を切り替える
-        // GitHub Pagesは公開年月のフォルダに置く：リメイク版は YYYYMM/、旧版（リメイクなし作品も）は YYYYMM/old/
+        // GitHub Pagesは作品番号と版番号で置く：/g/NNN/vN/（v1=初版、v2=リメイク版。リメイクなし作品はv1のみ）
         // （動作確認用に ?site=gh を付けるとGitHub Pagesとして表示する）
         const KS = "https://kshukshu.com/";
         const GH = "https://shjuno-git.github.io/";
         const ON_GH = location.hostname.endsWith("github.io") || new URLSearchParams(location.search).get("site") === "gh";
-        const dirOf = g => g.date.replace("-", "");
-        const remakeUrl = g => g.remake ? (ON_GH ? `./${dirOf(g)}/` : `${GH}${dirOf(g)}/`) : null;
-        const urlOf = g => ON_GH ? `./${dirOf(g)}/old/` : `${KS}${g.id}/`; // 旧版（リメイクがなければ通常版）
+        const gameDir = (g, v) => `g/${g.num}/v${v}/`;
+        const remakeUrl = g => g.ver > 1 ? (ON_GH ? `./${gameDir(g, g.ver)}` : `${GH}${gameDir(g, g.ver)}`) : null;
+        const urlOf = g => ON_GH ? `./${gameDir(g, 1)}` : `${KS}${g.id}/`; // 旧版（リメイクがなければ通常版）
         const playOf = g => remakeUrl(g) || urlOf(g);
         const fmtDate = d => d.replace("-", ".");
         const titleOf = g => g.title + (g.engine ? `<span class="engine">（${g.engine}）</span>` : "");
@@ -321,7 +321,7 @@
                     <p>${g.desc}</p>
                     <div class="actions">
                         <a class="btn${g.remake ? " remake" : ""}" href="${playOf(g)}">遊ぶ</a>
-                        ${g.remake ? `<a class="btn-sub" href="${urlOf(g)}">旧版で遊ぶ</a>` : ""}
+                        ${g.ver > 1 ? `<a class="btn-sub" href="${urlOf(g)}">旧版で遊ぶ</a>` : ""}
                     </div>
                 </div>`;
         }
@@ -357,7 +357,7 @@
                         <div class="meta"><span>${g.genre}</span><span>${fmtDate(g.date)}</span>${g.remakeDate ? `<span class="remake-date" title="リメイク公開年月">${fmtDate(g.remakeDate)}</span>` : ""}</div>
                         <div class="actions">
                             <a class="btn${g.remake ? " remake" : ""}" href="${playOf(g)}">遊ぶ</a>
-                            ${g.remake ? `<a class="btn-sub" href="${urlOf(g)}">旧版</a>` : ""}
+                            ${g.ver > 1 ? `<a class="btn-sub" href="${urlOf(g)}">旧版</a>` : ""}
                         </div>
                     </div>
                 </article>`).join("");

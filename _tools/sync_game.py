@@ -20,9 +20,9 @@ KS_SITE = "https://kshukshu.com"
 GAMES = {
     "kurage": {
         "src": KSHUKSHU / "22.kurage" / "index.html",
-        # GitHub Pages 上の置き場所（複数可）。リメイク予定のない新しめの作品は old/ と直下の両方に置く
+        # GitHub Pages 上の置き場所（/g/NNN/vN/）。新作は g/<通し番号>/v1 の1か所だけ
         # （kshukshu.com 側はキー名 = フォルダ名）
-        "dest": ["202610/old", "202610"],
+        "dest": ["g/022/v1"],
         "title": "バイバイクラゲ",
         "desc": "水鉄砲で倍々に増えるクラゲを退治しよう！数分で遊べるフリーのブラウザゲーム。",
         "image": "linkcard_kurage.png",
