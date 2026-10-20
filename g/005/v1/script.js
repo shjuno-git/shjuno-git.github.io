@@ -2905,7 +2905,7 @@ function createMainScene() {
         const tweetBtn = createButton("TWEET", app.screen.width / 2 + 75, app.screen.height - 115, 32, 10);
         tweetBtn.interactive = true;
         tweetBtn.on('pointerdown', () => {
-            const tweetText = encodeURIComponent(`【荻や萩】\nOGI：${redCorrect}荻\nHAGI：${yellowCorrect}萩\n称号：${title1.text}-${title2.text}\nhttps://shjuno-git.github.io/202505/old/`);
+            const tweetText = encodeURIComponent(`【荻や萩】\nOGI：${redCorrect}荻\nHAGI：${yellowCorrect}萩\n称号：${title1.text}-${title2.text}\nhttps://shjuno-git.github.io/g/005/v1/`);
             const tweetURL = `https://x.com/intent/tweet?text=${tweetText}`;
             window.open(tweetURL, "_blank");
         });
