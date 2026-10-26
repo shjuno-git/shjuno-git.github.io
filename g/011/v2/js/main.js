@@ -522,8 +522,7 @@ function triggerLevelFx(level, color) {
 	if (level >= 3) shake = { amp: Math.min(1.2 + level * 0.7, 7), age: 0, dur: 240 };
 }
 function showTotalCombo(n) {
-	if (n < 4) return;
-	effects.push({ kind: "specialGet", x: W / 2, y: H * 0.64, age: 0, life: 1600 });
+	if (n < 4) return; // 「特殊コマゲット！」の文字は finishTapChain で連鎖中に先に出している
 	for (let i = 0; i < 6; i++) {
 		setTimeout(() => particleBurst(W / 2, H / 2, HIGHLIGHT_CYCLE[i % HIGHLIGHT_CYCLE.length]), i * 90);
 	}
@@ -560,33 +559,36 @@ function updateEnemyWarnings() {
 
 /* ==================== ゲームオーバー判定 ==================== */
 // 敵が3つ以上並んでいる全マス（ゲームオーバー演出で強調する）
+// 3つ以上並んだドクロを探す。cells=該当マス（重複なし）、runs=並びごとのマス（線を組ごとに引くため）
 function findEnemyRuns() {
 	const cells = new Map();
+	const runs = [];
 	const isE = (x, y) => grid[x][y] && grid[x][y].type === "enemy";
+	const addRun = (run) => { if (run.length < 3) return; runs.push(run); run.forEach((c) => cells.set(c.x + "," + c.y, c)); };
 	for (let y = 0; y < ROWS; y++) {
 		let run = [];
 		for (let x = 0; x <= COLS; x++) {
 			if (x < COLS && isE(x, y)) run.push({ x, y });
-			else { if (run.length >= 3) run.forEach((c) => cells.set(c.x + "," + c.y, c)); run = []; }
+			else { addRun(run); run = []; }
 		}
 	}
 	for (let x = 0; x < COLS; x++) {
 		let run = [];
 		for (let y = 0; y <= ROWS; y++) {
 			if (y < ROWS && isE(x, y)) run.push({ x, y });
-			else { if (run.length >= 3) run.forEach((c) => cells.set(c.x + "," + c.y, c)); run = []; }
+			else { addRun(run); run = []; }
 		}
 	}
-	return [...cells.values()];
+	return { cells: [...cells.values()], runs };
 }
 function checkGameOver() {
-	const cells = findEnemyRuns();
+	const { cells, runs } = findEnemyRuns();
 	if (cells.length === 0) return false;
-	triggerGameOver(cells);
+	triggerGameOver(cells, runs);
 	return true;
 }
 const OVER_DELAY_MS = 1700; // ドクロ3つ並びの演出を見せてからリザルトへ
-function triggerGameOver(overCells) {
+function triggerGameOver(overCells, overRuns) {
 	if (gameOver) return;
 	gameOver = true;
 	const score = totalRemoved;
@@ -596,7 +598,7 @@ function triggerGameOver(overCells) {
 	resultState = {
 		age: -OVER_DELAY_MS,
 		enemiesSnap: enemiesRemoved, comboSnap: maxCombo, totalSnap: totalRemoved, scoreSnap: currentScore(),
-		isKing, msgIdx, nextTarget, overCells: overCells || [],
+		isKing, msgIdx, nextTarget, overCells: overCells || [], overRuns: overRuns || [],
 		rec: commitRecords(currentScore(), totalRemoved, maxCombo),
 	};
 	shake = { amp: 8, age: 0, dur: 500 };
@@ -620,13 +622,12 @@ function drawOverAlert(nowMs) {
 	ctx.globalAlpha = fadeIn;
 	ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = 5; ctx.shadowColor = "#ff0000"; ctx.shadowBlur = 16;
 	ctx.lineCap = "round";
-	if (pts.length >= 2) {
-		const sorted = pts.slice().sort((a, b) => (a.x - b.x) || (a.y - b.y));
-		ctx.globalAlpha = fadeIn * 0.9;
-		ctx.beginPath(); ctx.moveTo(sorted[0].x, sorted[0].y);
-		sorted.slice(1).forEach((q) => ctx.lineTo(q.x, q.y));
-		ctx.stroke();
-	}
+	// 線は並びごとに1本ずつ（別々の組を1本でつながない）
+	ctx.globalAlpha = fadeIn * 0.9;
+	(resultState.overRuns || []).forEach((run) => {
+		const a = posToPixel(run[0].x, run[0].y), b = posToPixel(run[run.length - 1].x, run[run.length - 1].y);
+		ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+	});
 	pts.forEach((q) => {
 		ctx.globalAlpha = fadeIn * (0.65 + 0.35 * pulse);
 		const sz = CELL * (0.98 + 0.06 * pulse);
@@ -634,8 +635,12 @@ function drawOverAlert(nowMs) {
 	});
 	ctx.restore();
 	// 見出し
+	// 見出しはドクロに重ならない高さへ（組が上下に分かれていても被らないように候補から選ぶ）
 	const midY = pts.reduce((a, q) => a + q.y, 0) / pts.length;
-	const ty = midY > H * 0.5 ? H * 0.3 : H * 0.7;
+	const cands = midY > H * 0.5 ? [H * 0.3, H * 0.7] : [H * 0.7, H * 0.3];
+	for (let y = OFFSET_Y + CELL * 0.5; y < OFFSET_Y + CELL * ROWS; y += CELL * 0.5) cands.push(y);
+	const clear = (y) => pts.every((q) => Math.abs(q.y - y) >= CELL / 2 + 16);
+	const ty = cands.find(clear) ?? cands[0];
 	const pop = easeBackOut(clamp(age / 350, 0, 1));
 	ctx.save();
 	ctx.translate(W / 2, ty); ctx.scale(pop, pop);
@@ -950,6 +955,7 @@ function updateHighlightFades(deltaMs) {
 function chainBonus(n) { return n >= 3 ? (n - 2) * 2 : 0; }
 function finishTapChain() {
 	const totalComboForLast = tapChain.totalComboForLast;
+	const stockBefore = stock;
 	if (best.combo > 0 && totalComboForLast > best.combo && totalComboForLast > comboRecordShown) {
 		comboRecordShown = totalComboForLast;
 		Sound.play("newbest");
@@ -976,6 +982,17 @@ function finishTapChain() {
 	pendingPostCombo = totalComboForLast;
 	tapChain = null;
 	startCollapseAndFill();
+	if (totalComboForLast >= 4) {
+		// 特殊コマゲットは連鎖中（まだ操作できない間）に出し、操作が戻ったら入った場所へ飛ばす
+		let to = { x: STOCK_SLOT.x + STOCK_SLOT.w / 2, y: STOCK_SLOT.y + STOCK_SLOT.h / 2, s: 0.3 };
+		if (stock === stockBefore) { // ストックが埋まっていて盤面に出た
+			for (let y = 0; y < ROWS; y++) {
+				const q = grid[lastTappedColumn][y];
+				if (q && isSpecialType(q.type)) { const pp = posToPixel(lastTappedColumn, y); to = { x: pp.x, y: pp.y, s: 0.3 }; break; }
+			}
+		}
+		effects.push({ kind: "specialGet", x: W / 2, y: H * 0.64, age: 0, life: 1600, flyTo: to });
+	}
 }
 
 /* ==================== 下詰め・補充 ==================== */
@@ -1067,7 +1084,28 @@ function updateAllPieces(deltaMs) {
 	}
 	updateDrops(deltaMs);
 }
+// COMBOなどの文字は、操作が戻った瞬間に盤面の外へ飛ばす（次に押したいマスを隠さない）
+const FLY_TEXT_KINDS = ["combo", "bonus", "specialGet", "newbest"];
+const FLY_MS = 260, FLY_SP_MS = 420, FLY_LINGER_MS = 300, FLY_HOLD_AGE = 600;
+function flyTextDest(e) {
+	if (e.kind === "combo") return { x: W / 2, y: 52, s: 0.5 };       // 上のドクロ欄
+	if (e.kind === "bonus") return { x: W * 0.3, y: 74, s: 0.55 };
+	if (e.kind === "newbest") return { x: W * 0.7, y: 74, s: 0.5 };
+	return e.flyTo;                                                       // 特殊コマ：入った場所
+}
+function updateFlyingTexts(deltaMs) {
+	const unlocked = !busy && !tapChain && !activeSpecial && !collapsePhase;
+	for (const e of effects) {
+		if (!FLY_TEXT_KINDS.includes(e.kind)) continue;
+		if (!e.fly && unlocked) e.fly = { t: 0, dest: flyTextDest(e) };
+		if (!e.fly) continue;
+		e.fly.t += deltaMs;
+		if (e.kind === "specialGet") { if (e.fly.t >= FLY_SP_MS && e.life - e.age > 150) e.age = e.life - 150; } // 枠に入ったらすぐ消える
+		else if (e.fly.t < FLY_MS + FLY_LINGER_MS) e.age = Math.min(e.age, FLY_HOLD_AGE - deltaMs); // 飛んでいる間と着地後しばらくは不透明のまま
+	}
+}
 function updateEffectsList(deltaMs) {
+	updateFlyingTexts(deltaMs);
 	for (let i = effects.length - 1; i >= 0; i--) {
 		const e = effects[i];
 		if (e.delay > 0) { e.delay -= deltaMs; continue; }
@@ -1305,8 +1343,8 @@ function drawStarShape(cx, cy, outerR, innerR, spikes, rotation) {
 	}
 	ctx.closePath();
 }
-function drawEffects() {
-	for (const e of effects) {
+function drawEffects(list) {
+	for (const e of list) {
 		if (e.delay > 0) continue;
 		if (e.kind === "particle") {
 			const t2 = clamp(e.age / e.life, 0, 1);
@@ -1449,6 +1487,24 @@ function drawEffects() {
 			}
 			ctx.restore();
 		}
+	}
+}
+// 飛んでいる文字はHUD・ルール欄より手前に描く。上の欄に着地した文字の下には薄い帯を敷く
+function drawFlyingTexts() {
+	const flying = effects.filter((e) => e.fly);
+	if (!flying.length) return;
+	const top = flying.filter((e) => e.kind !== "specialGet");
+	if (top.length) {
+		const a = Math.max(...top.map((e) => clamp(e.fly.t / FLY_MS, 0, 1) * clamp((e.life - e.age) / 300, 0, 1)));
+		ctx.save(); ctx.globalAlpha = 0.6 * a; ctx.fillStyle = "#1a0f33"; ctx.fillRect(0, 38, W, 48); ctx.restore();
+	}
+	for (const e of flying) {
+		const k = easeOutQuad(clamp(e.fly.t / (e.kind === "specialGet" ? FLY_SP_MS : FLY_MS), 0, 1)), d = e.fly.dest;
+		const sc = lerp(1, d.s, k);
+		ctx.save();
+		ctx.translate(lerp(e.x, d.x, k), lerp(e.y, d.y, k)); ctx.scale(sc, sc); ctx.translate(-e.x, -e.y);
+		drawEffects([e]);
+		ctx.restore();
 	}
 }
 function drawStars() {
@@ -1741,52 +1797,63 @@ function drawRuleBox() {
 	drawStockSlot(performance.now());
 }
 
-// 吹き出し：どこに置いても盤面内に収まり、しっぽは必ず対象を指す
+// 吹き出しは盤面に重ねず、下のルール欄の中（ストック枠の左）に出して、対象マスまで曲線でつなぐ
 // 吹き出しの点滅：1.3秒表示→0.5秒消える（消えている間は下のマスが見える）
 function guideBubbleAlpha(nowMs) {
 	const T = nowMs % 1800;
 	if (T < 1300) return clamp(T / 150, 0, 1) * clamp((1300 - T) / 150, 0, 1);
 	return 0;
 }
-function drawGuideBubble(targetX, targetY, lines, nowMs) {
+const GUIDE_BOX = { x: 8, y: H - RULE_BOX_H + 5, w: STOCK_SLOT.x - 8 - 14, h: RULE_BOX_H - 10 };
+let guideBubbleReq = null; // drawGuides で決めて、ルール欄を描いたあとに drawGuideBubble で描く
+function requestGuideBubble(targetX, targetY, lines) { guideBubbleReq = { targetX, targetY, lines }; }
+function drawGuideBubble(nowMs) {
+	const req = guideBubbleReq;
+	if (!req) return;
 	const alpha = guideBubbleAlpha(nowMs);
 	if (alpha <= 0.01) return;
-	const sizes = [15, 11];
-	ctx.save();
-	let tw = 0;
-	lines.forEach((ln, i) => { ctx.font = `bold ${sizes[i] || 11}px ${FONT_STACK}`; tw = Math.max(tw, ctx.measureText(ln).width); });
-	ctx.restore();
-	const bw = Math.min(W - 16, tw + 28), bh = lines.length > 1 ? 46 : 34;
-	const areaTop = OFFSET_Y - 4, areaBottom = H - RULE_BOX_H - 6; // 上のHUD（バッジ・敵カウンタ）には被せない
-	const gap = 34; // 対象マス中心から吹き出しまでの距離
-	const above = targetY - gap - bh >= areaTop;
-	const by = above ? targetY - gap - bh : Math.min(targetY + gap, areaBottom - bh);
-	const bx = clamp(targetX - bw / 2, 8, W - 8 - bw);
-	const bob = Math.sin(nowMs / 220) * 2;
-	const tailX = clamp(targetX, bx + 16, bx + bw - 16);
-	const tailBaseY = above ? by + bh : by;
-	const tailTipY = above ? by + bh + 12 : by - 12;
+	const b = GUIDE_BOX;
 	ctx.save();
 	ctx.globalAlpha = alpha;
-	ctx.translate(0, bob);
+	if (req.targetY > H - RULE_BOX_H) drawGuidePointerRight(b, req.targetY); // ストック枠：右へ三角
+	else drawGuideCurve(b, req.targetX, req.targetY);
 	ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 8;
 	ctx.fillStyle = "#fff6e0";
-	roundRectPath(bx, by, bw, bh, 12); ctx.fill();
-	ctx.beginPath();
-	ctx.moveTo(tailX - 8, tailBaseY + (above ? -1 : 1));
-	ctx.lineTo(clamp(targetX, tailX - 10, tailX + 10), tailTipY);
-	ctx.lineTo(tailX + 8, tailBaseY + (above ? -1 : 1));
-	ctx.closePath(); ctx.fill();
+	roundRectPath(b.x, b.y, b.w, b.h, 12); ctx.fill();
 	ctx.restore();
 	ctx.save();
 	ctx.globalAlpha = alpha;
-	ctx.translate(0, bob);
-	if (lines.length > 1) {
-		drawText(lines[0], bx + bw / 2, by + 16, { size: 15, weight: "bold", align: "center", baseline: "middle", color: "#5a2a00" });
-		drawText(lines[1], bx + bw / 2, by + 34, { size: 11, align: "center", baseline: "middle", color: "#7a4a10" });
-	} else {
-		drawText(lines[0], bx + bw / 2, by + bh / 2 + 1, { size: 15, weight: "bold", align: "center", baseline: "middle", color: "#5a2a00" });
+	const two = req.lines.length > 1;
+	drawText(req.lines[0], b.x + b.w / 2, b.y + (two ? 19 : b.h / 2 + 1), { size: 15, weight: "bold", align: "center", baseline: "middle", color: "#5a2a00" });
+	if (two) {
+		let size = 11;
+		ctx.font = `${size}px ${FONT_STACK}`;
+		while (size > 8 && ctx.measureText(req.lines[1]).width > b.w - 16) { size -= 0.5; ctx.font = `${size}px ${FONT_STACK}`; }
+		drawText(req.lines[1], b.x + b.w / 2, b.y + 41, { size, align: "center", baseline: "middle", color: "#7a4a10" });
 	}
+	ctx.restore();
+}
+function drawGuidePointerRight(b, targetY) {
+	const tipX = STOCK_SLOT.x - 3;
+	ctx.fillStyle = "#fff6e0";
+	ctx.beginPath(); ctx.moveTo(b.x + b.w - 1, targetY - 9); ctx.lineTo(tipX, targetY); ctx.lineTo(b.x + b.w - 1, targetY + 9); ctx.closePath(); ctx.fill();
+}
+// 吹き出しの上端から対象マスの下端まで、点線の曲線＋矢印
+function drawGuideCurve(b, tx, ty) {
+	const sx = clamp(tx, b.x + 24, b.x + b.w - 24), sy = b.y + 2;
+	const ex = tx, ey = ty + CELL * 0.42;
+	const side = tx < W / 2 ? 1 : -1;
+	const cx = (sx + ex) / 2 + side * 46, cy = (sy + ey) / 2;
+	ctx.lineCap = "round";
+	for (const [col, lw, dash] of [["rgba(40,16,70,0.9)", 6, []], ["#fff6e0", 3, [7, 6]]]) {
+		ctx.setLineDash(dash); ctx.strokeStyle = col; ctx.lineWidth = lw;
+		ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(cx, cy, ex, ey); ctx.stroke();
+	}
+	ctx.setLineDash([]);
+	ctx.save();
+	ctx.fillStyle = "#fff6e0"; ctx.strokeStyle = "rgba(40,16,70,0.9)"; ctx.lineWidth = 2;
+	ctx.translate(ex, ey); ctx.rotate(Math.atan2(ey - cy, ex - cx));
+	ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(-9, 7); ctx.lineTo(-9, -7); ctx.closePath(); ctx.stroke(); ctx.fill();
 	ctx.restore();
 }
 
@@ -1824,8 +1891,10 @@ function updateGuides() {
 function dismissGuidesOnTap() {
 	if (guideTapTarget) { guideMarkDone("tap"); guideTapTarget = null; }
 	else if (guideEnemyTarget) { guideMarkDone("enemy"); guideEnemyTarget = null; }
+	else if (guideStockActive) { guideMarkDone("stock"); guideStockActive = false; } // ストック案内も次に盤面をタップしたら終わり
 }
 function drawGuides(nowMs) {
+	guideBubbleReq = null;
 	if (titleScreen || busy || gameOver || clearPopup) return;
 	const pulse = 0.6 + 0.4 * Math.sin(nowMs / 150);
 	if (guideTapTarget) {
@@ -1847,7 +1916,7 @@ function drawGuides(nowMs) {
 		ctx.beginPath(); ctx.arc(p.x, p.y, CELL * 0.5 + 4 * pulse, 0, Math.PI * 2); ctx.stroke();
 		ctx.restore();
 		drawEmoji("👆", p.x + 8, p.y + CELL * 0.62 + Math.abs(Math.sin(nowMs / 260)) * 8, 28);
-		drawGuideBubble(p.x, p.y, [t("guideTap"), t("guideTapHold")], nowMs);
+		requestGuideBubble(p.x, p.y, [t("guideTap"), t("guideTapHold")]);
 	} else if (guideEnemyTarget) {
 		const { x: gx, y: gy } = guideEnemyTarget;
 		const piece = grid[gx]?.[gy];
@@ -1857,14 +1926,14 @@ function drawGuides(nowMs) {
 		ctx.globalAlpha = 0.6 + 0.4 * pulse; ctx.strokeStyle = "#ff4d4d"; ctx.lineWidth = 4; ctx.shadowColor = "#ff4d4d"; ctx.shadowBlur = 14;
 		roundRectPath(p.x - CELL * 0.5, p.y - CELL * 0.5, CELL, CELL, CELL * 0.22); ctx.stroke();
 		ctx.restore();
-		drawGuideBubble(p.x, p.y, [t("guideEnemy1")], nowMs);
+		requestGuideBubble(p.x, p.y, [t("guideEnemy1")]);
 	} else if (guideStockActive && stock) {
 		const q = { x: STOCK_SLOT.x + STOCK_SLOT.w / 2, y: STOCK_SLOT.y + STOCK_SLOT.h / 2 };
 		ctx.save();
 		ctx.globalAlpha = 0.6 + 0.4 * pulse; ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 3.5; ctx.shadowColor = "#ffd166"; ctx.shadowBlur = 12;
 		roundRectPath(STOCK_SLOT.x - 3, STOCK_SLOT.y - 3, STOCK_SLOT.w + 6, STOCK_SLOT.h + 6, 14); ctx.stroke();
 		ctx.restore();
-		drawGuideBubble(q.x, q.y, [t("guideStock1"), t("guideStock2")], nowMs);
+		requestGuideBubble(q.x, q.y, [t("guideStock1"), t("guideStock2")]);
 	}
 }
 const RESULT_BTN_AGE = 1500; // リトライボタンが出て押せるようになるまでの時間(ms)
@@ -2201,7 +2270,7 @@ function draw(nowMs) {
 	drawChainPreview(nowMs);
 	drawGuides(nowMs);
 	drawHighlights();
-	drawEffects();
+	drawEffects(effects.filter((e) => !e.fly));
 	drawStars();
 	drawDangerVignette(nowMs);
 	if (screenFlash) {
@@ -2216,6 +2285,8 @@ function draw(nowMs) {
 	drawRuleBox();
 	drawLangButton();
 	drawSoundButton();
+	drawGuideBubble(nowMs);
+	drawFlyingTexts();
 
 	if (gameOver && resultState.age >= 0) drawGameOverOverlay();
 	else if (gameOver) drawOverAlert(nowMs);
