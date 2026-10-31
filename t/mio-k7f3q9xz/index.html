@@ -1,0 +1,1772 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>スイの証言</title>
+<style>
+:root{--bg:#0b1018}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden}
+canvas{display:block;position:absolute;touch-action:none;-webkit-user-select:none;user-select:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+// ===== 基本 =====
+const W = 720, H = 1280;
+const DEV = true; // 試作中だけ: タイトルに「記録をリセット」。公開時は false
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const JP = '"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Yu Gothic","Meiryo","Noto Sans JP",sans-serif';
+const MONO = '"BIZ UDGothic","Osaka-Mono","MS Gothic","Noto Sans Mono CJK JP",monospace';
+const C = {
+  bg: '#0b1018', panel: '#111925', line: '#25344a', text: '#e2e9f3', dim: '#7f8da3', faint: '#4a5872',
+  phrase: '#8fd3ff', sel: '#1f4a6b', log: '#9fe0b8', memo: '#ffd98a', bad: '#ff9a8a', you: '#ffc9a0', mio: '#a9c6ff',
+  nar: '#a7b3c6' // 会話画面の地の文(dim だと暗い画面で読めない)
+};
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const iw = innerWidth, ih = innerHeight;
+  const s = Math.min(iw / W, ih / H);
+  const cw = Math.floor(W * s), ch = Math.floor(H * s);
+  cv.style.width = cw + 'px'; cv.style.height = ch + 'px';
+  cv.style.left = Math.floor((iw - cw) / 2) + 'px'; cv.style.top = Math.floor((ih - ch) / 2) + 'px';
+  cv.width = Math.floor(cw * dpr); cv.height = Math.floor(ch * dpr);
+}
+addEventListener('resize', resize); resize();
+
+// ===== 保存 =====
+// v6: 結末ごとに断片3つ。v5(mio_proto_v1)の結末は断片として引き継ぐ
+const SAVE_KEY = 'mio_proto_v6';
+const EIDS = ['silence', 'arrive', 'truth', 'confess', 'morning'];
+let save = { frags: {}, wakes: 0, runs: 0, lastVar: {}, lastEnd: '' };
+EIDS.forEach(id => { save.frags[id] = [0, 0, 0]; });
+try {
+  const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+  if (s) { Object.assign(save, s); EIDS.forEach(id => { if (!save.frags[id]) save.frags[id] = [0, 0, 0]; }); }
+  else {
+    const o = JSON.parse(localStorage.getItem('mio_proto_v1'));
+    if (o) {
+      save.wakes = o.wakes || 0; save.runs = o.runs || 0;
+      const map = { silence: ['silence', 0], arrive: ['arrive', 0], truth: ['truth', 0], order: ['confess', 0], name: ['confess', 1] };
+      (o.endings || []).forEach(e => { const m = map[e]; if (m) save.frags[m[0]][m[1]] = 1; });
+    }
+  }
+} catch (e) {}
+// 既読: 数字を # にそろえた文の短い印を保存する(覚醒回数などが変わっても既読のまま)
+let READ = null;
+const readKey = L => { let h = 5381; const t = L.w + ':' + L.t.replace(/[0-9０-９,]+/g, '#'); for (let i = 0; i < t.length; i++) h = (h * 33 + t.charCodeAt(i)) >>> 0; return h.toString(36); };
+let READSRC = null; // 記録のリセットで save が替わったら読み直す
+const readSet = () => { if (READSRC !== save) { READ = new Set(save.read || []); READSRC = save; } return READ; };
+function isRead(L) { return readSet().has(readKey(L)); }
+function markRead(L) { readSet(); const k = readKey(L); if (!READ.has(k)) { READ.add(k); save.read = [...READ]; persist(); } }
+function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
+const seenEnd = id => save.frags[id].some(Boolean);
+const fragCount = () => EIDS.reduce((n, id) => n + save.frags[id].filter(Boolean).length, 0);
+// 心残りに並べる結末(隠しの結末は、見るまで行ごと出さない)
+// near: 見る前でも、たどり着ける所まで来たら「？？？」の行で先に出す(最後の朝)
+const shownEnds = () => ENDINGS.filter(e => !e.hidden || seenEnd(e.id) || (e.near && e.near()));
+// 時間の上限: 表示は5回で止める。最後の朝を見たあとは「もしもの朝」で、そこで止まる(wakeFix)
+const wakeNo = () => save.wakeFix || 2 + save.wakes; // 上限なし(眠りに戻された回数とそろえる)
+
+// ===== 音 =====
+// 音は全部 WebAudio で作る(素材ファイルなし)。試聴ページ sound_audition.html で選んだ案
+let ac = null, muted = false, verb = null, noiseBuf = null;
+function audio() {
+  if (!ac) {
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      // 小さな残響(雑音を減衰させたインパルス)と、クリック用の雑音
+      verb = ac.createConvolver();
+      const len = ac.sampleRate * 1.8, ir = ac.createBuffer(2, len, ac.sampleRate);
+      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+      verb.buffer = ir; const vg = ac.createGain(); vg.gain.value = 0.3; verb.connect(vg); vg.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    } catch (e) { ac = null; }
+  }
+  if (ac && ac.state === 'suspended') {
+    ac.resume();
+    // iOS: 無音を1つ鳴らすと、指を離した時点で音が出せる状態になる
+    try { const b = ac.createBufferSource(); b.buffer = ac.createBuffer(1, 1, 22050); b.connect(ac.destination); b.start(0); } catch (e) {}
+  }
+}
+// 高い音ほど小さく、角のある波形はさらに小さく(高い音が耳に残らないように)
+const tame = (f, type) => (f > 600 ? Math.pow(600 / f, 0.8) : 1) * (type === 'square' || type === 'sawtooth' ? 0.6 : 1);
+function tone(f, d, type, vol, slide, o) {
+  if (muted || !ac) return;
+  o = o || {};
+  const t = ac.currentTime + (o.at || 0), osc = ac.createOscillator(), g = ac.createGain();
+  osc.type = type || 'sine'; osc.frequency.setValueAtTime(f, t);
+  if (slide) osc.frequency.exponentialRampToValueAtTime(slide, t + d);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime((vol || 0.04) * tame(f, type), t + (o.atk || 0.01));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  let node = osc;
+  if (o.lp || o.bp) { const fl = ac.createBiquadFilter(); fl.type = o.lp ? 'lowpass' : 'bandpass'; fl.frequency.value = o.lp || o.bp; fl.Q.value = o.q || 1; osc.connect(fl); node = fl; }
+  node.connect(g); g.connect(ac.destination);
+  if (o.rev) { const s = ac.createGain(); s.gain.value = o.rev; g.connect(s); s.connect(verb); }
+  if (o.echo) { const dl = ac.createDelay(), fb = ac.createGain(), wet = ac.createGain(); dl.delayTime.value = o.echo; fb.gain.value = 0.35; wet.gain.value = 0.5; g.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(ac.destination); }
+  osc.start(t); osc.stop(t + d + 0.05);
+}
+function noise(d, vol, type, freq, o) {
+  if (muted || !ac) return;
+  o = o || {};
+  const t = ac.currentTime + (o.at || 0), s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+  s.buffer = noiseBuf; fl.type = type; fl.frequency.value = freq; fl.Q.value = o.q || 1;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol * tame(freq), t + (o.atk || 0.002)); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start(t, Math.random() * 0.5); s.stop(t + d + 0.05);
+}
+// 文字送りの音(話し手ごと。地の文は無音)
+const TICK = {
+  mio: () => tone(st ? 620 - st.alert * 70 + Math.random() * 40 : 620, 0.035, 'sine', 0.012),
+  sys: () => noise(0.008, 0.06, 'bandpass', 2400, { q: 6 }),                                  // 継電器の乾いた音
+  me: () => tone(300 + Math.random() * 20, 0.05, 'sine', 0.016),                                // 低くやわらかい
+  you: () => tone(500 + Math.random() * 40, 0.04, 'square', 0.012, null, { bp: 1200, q: 4 }),  // 無線のような(録音)
+  in: () => tone(620 + Math.random() * 40, 0.035, 'sine', 0.007, null, { echo: 0.14 }),          // スイの音を小さく響かせる
+};
+TICK.crew = TICK.you;
+TICK.four = TICK.mio; // 乗員4番の録音はスイと同じ声
+// 和音・アルペジオは音が重なって単音より大きく聞こえるので、1音ずつを小さめにしてある(v7.2で測って調整)
+const sfx = {
+  tick(w) { (TICK[w || 'mio'] || (() => {}))(); },
+  tap() { tone(1050, 0.03, 'sine', 0.016); },
+  log() { for (let i = 0; i < 3; i++) noise(0.012, 0.03, 'bandpass', 2600, { q: 5, at: i * 0.045 }); },
+  good() { [523, 659, 988].forEach((f, i) => tone(f, 0.9, 'sine', 0.015, null, { at: i * 0.09, rev: 0.7 })); },
+  bad() { tone(140, 0.22, 'square', 0.04, null, { lp: 500 }); },
+  soft() { tone(392, 1.2, 'sine', 0.013, null, { atk: 0.2, rev: 0.6 }); tone(523, 1.2, 'sine', 0.011, null, { atk: 0.25, rev: 0.6 }); },
+  end() { tone(294, 1.0, 'triangle', 0.018, null, { atk: 0.9, lp: 1200, rev: 0.5 }); tone(440, 1.0, 'sine', 0.009, null, { atk: 0.9, rev: 0.5 }); },
+  play() { tone(880, 0.08, 'sine', 0.016); noise(0.02, 0.04, 'bandpass', 1500, { q: 3, at: 0.14 }); },  // 「音声記録を再生します」
+  choice() { tone(660, 0.5, 'sine', 0.016, null, { rev: 0.6 }); tone(990, 0.7, 'sine', 0.013, null, { at: 0.12, rev: 0.6 }); },
+  stop() { tone(320, 1.4, 'sawtooth', 0.03, 40, { lp: 900 }); noise(0.6, 0.012, 'lowpass', 400, { atk: 0.05 }); }, // 応答を停止します
+  append() { tone(784, 0.6, 'sine', 0.019, null, { rev: 0.6 }); tone(1175, 0.6, 'sine', 0.015, null, { at: 0.06, rev: 0.6 }); }, // □が■に
+  stars() { [392, 494, 587, 784].forEach((f, i) => tone(f, 3, 'sine', 0.009, null, { atk: 0.9, at: i * 0.08, rev: 1 })); },
+};
+
+// ===== 文字レイアウト =====
+const mwCache = new Map();
+function mw(font, ch) {
+  const k = font + ch; let v = mwCache.get(k);
+  if (v === undefined) { ctx.font = font; v = ctx.measureText(ch).width; mwCache.set(k, v); }
+  return v;
+}
+const NOHEAD = '、。，．・：；？！ー…）」』〕］｝〉》';
+function parse(text) {
+  const out = []; let pid = 0, last = 0, m; const re = /【(.*?)】/g;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push({ t: text.slice(last, m.index), pid: -1 });
+    out.push({ t: m[1], pid: pid++ }); last = re.lastIndex;
+  }
+  if (last < text.length) out.push({ t: text.slice(last), pid: -1 });
+  return out;
+}
+// 折り返し(10-25 規則B): 折れてよいのは「、。」などの後・「「（」の前・ひらがなから漢字/カタカナ/数字に変わる所。
+// 行からあふれたら、10文字以内に戻れる折れ目まで戻って折る。見つからない長い語だけ、今までどおり文字で折る
+let WRAP_SMART = true; // false で前の折り返し(比べる用)
+const isHira = c => c >= 'ぁ' && c <= 'ゖ';
+function canBreak(prev, ch) {
+  if (!prev || NOHEAD.includes(ch)) return false;
+  if ('、。」』）！？…：／ '.includes(prev)) return true;
+  if ('「（『'.includes(ch)) return true;
+  return isHira(prev) && !isHira(ch) && ch !== 'ー';
+}
+function wrap(tokens, maxW, size, lh, family) {
+  const font = size + 'px ' + (family || JP);
+  if (typeof tokens === 'string') tokens = [{ t: tokens, pid: -1 }];
+  const g = []; let x = 0, y = 0, ls = 0, br = -1, prev = '';
+  for (const tk of tokens) for (const ch of tk.t) {
+    if (ch === '\n') { x = 0; y += lh; ls = g.length; br = -1; prev = ''; continue; }
+    const w = mw(font, ch);
+    if (WRAP_SMART && g.length > ls && canBreak(prev, ch)) br = g.length;
+    if (x + w > maxW && x > 0 && !NOHEAD.includes(ch)) {
+      if (WRAP_SMART && br > ls && g.length - br <= 10) { // 折れ目まで戻って、そこから次の行へ
+        y += lh; let nx = 0;
+        for (let k = br; k < g.length; k++) { g[k].x = nx; g[k].y = y; nx += g[k].w; }
+        x = nx; ls = br; br = -1;
+        if (x + w > maxW) { x = 0; y += lh; ls = g.length; }
+      } else { x = 0; y += lh; ls = g.length; br = -1; }
+    }
+    g.push({ ch, x, y, w, pid: tk.pid }); x += w; prev = ch;
+  }
+  return { g, h: g.length ? y + lh : 0, lh, size, font };
+}
+// 文の切れ目「。」で改行した方を使う。ただし行数が増えるとき(minLines 行までは可)は普通に詰める
+function wrapSent(text, maxW, size, lh, family, minLines, tokens) {
+  const mk = t => tokens ? parse(t) : t;
+  const a = wrap(mk(text), maxW, size, lh, family);
+  if (!/。(?=[^」』）\n])/.test(text)) return a;
+  const b = wrap(mk(text.replace(/。(?=[^」』）\n])/g, '。\n')), maxW, size, lh, family);
+  return b.h <= Math.max(a.h, (minLines || 0) * lh) ? b : a;
+}
+function phraseRects(L, pid, n) {
+  const rs = []; let cur = null;
+  for (let i = 0; i < L.g.length && i < n; i++) {
+    const q = L.g[i]; if (q.pid !== pid) continue;
+    if (cur && cur.y === q.y) cur.x1 = q.x + q.w; else { cur = { x0: q.x, x1: q.x + q.w, y: q.y }; rs.push(cur); }
+  }
+  return rs;
+}
+function drawText(L, ox, oy, n, color) {
+  ctx.font = L.font; ctx.textBaseline = 'top';
+  const lim = n === undefined ? L.g.length : Math.min(n, L.g.length);
+  for (let i = 0; i < lim; i++) {
+    const q = L.g[i];
+    ctx.fillStyle = typeof color === 'function' ? color(q) : color;
+    ctx.fillText(q.ch, ox + q.x, oy + q.y);
+  }
+}
+function textC(s, x, y, size, color, family, weight) {
+  ctx.font = (weight || '') + ' ' + size + 'px ' + (family || JP);
+  ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(s, x, y); ctx.textAlign = 'left';
+}
+function textL(s, x, y, size, color, family, weight) {
+  ctx.font = (weight || '') + ' ' + size + 'px ' + (family || JP);
+  ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(s, x, y);
+}
+function rr(x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function panel(x, y, w, h, stroke) {
+  rr(x, y, w, h, 14); ctx.fillStyle = C.panel; ctx.fill();
+  ctx.strokeStyle = stroke || C.line; ctx.lineWidth = 2; ctx.stroke();
+}
+
+// ===== ヒット判定(毎フレーム登録) =====
+let hits = [];
+function hit(x, y, w, h, fn) { hits.push({ x, y, w, h, fn }); }
+function button(x, y, w, h, label, fn, opt) {
+  opt = opt || {};
+  rr(x, y, w, h, 16);
+  ctx.fillStyle = opt.disabled ? '#0f151e' : opt.primary ? '#1d3f5e' : '#16202e'; ctx.fill();
+  ctx.strokeStyle = opt.disabled ? '#1c2636' : opt.primary ? C.phrase : '#3a4d68'; ctx.lineWidth = opt.primary ? 3 : 2; ctx.stroke();
+  textC(label, x + w / 2, y + h / 2 + 1, opt.size || 30, opt.disabled ? C.faint : C.text, JP, opt.primary ? 'bold' : '');
+  if (!opt.disabled) hit(x, y, w, h, () => { sfx.tap(); fn(); });
+}
+
+// 初回ガイド: 操作が止まって3秒たったら、次に押すところを脈打つ枠で知らせる
+const REDUCE_MOTION = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function guideOn() { return sc.guide && time - sc.gT > 3; }
+function guideGlow(x, y, w, h) {
+  ctx.globalAlpha = REDUCE_MOTION ? 0.8 : 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(time * 4)); rr(x - 5, y - 5, w + 10, h + 10, 20);
+  ctx.strokeStyle = C.phrase; ctx.lineWidth = 4; ctx.stroke(); ctx.globalAlpha = 1;
+}
+
+// ===== シナリオ(台本v6) =====
+// 嘘は「数・時間・人数・場所」だけ。反証は必ず同じ場面の記録にある。lie:-1 は嘘なし。
+const POD = () => '冷凍ポッド5番（あなた）：開閉 ' + wakeNo() + '回';
+const MEM = () => '覚醒前処置：記憶抑制（本人申請' + (save.wakes ? '／再実施 ' + save.wakes + '回' : '') + '）'; // 沈黙で眠らされた回数だけ、かけ直している
+const R = {
+  days: '航行日数：1,096日（約3年）', route: '航路：予定航路からの逸脱なし', podUsed: '冷凍ポッド：5基とも使用履歴あり',
+  rooms: '居住区：5室とも約300日前に数日だけ使用（5号室のみ1日短い）', 
+  pod0: '冷凍ポッド：現在稼働中 0基（5番は本日開放）', life: '船内の生体反応：1名',
+  eta: '到着予定：40日後 ／ 惑星リトス 受け入れ基地', ls: '生命維持：1名分で運転中', noTurn: '航路変更：不可（減速中 ／ 燃料は減速分のみ）',
+  base: '受け入れ基地：無人・待機中（建設ロボットのみ）', probe: '探査機報告（301日前）：移住に不適（強い放射線）',
+  boat: '脱出艇：298日前に離脱 ／ 使えるポッド4基', plan: '脱出艇の計画：次の方舟と合流し、知らせる',
+  vote: '議事録（299日前）：残留者1名を「志願」で決定',
+  voice: '個人記録：乗員4番→5番 1件／再生条件：未成立',
+};
+// 場面5(最後の朝): 証言は乗員4番があなたに残した録音(298日前)。3つとも嘘で、指摘するたびに記憶が戻る
+// 声はスイと同じなので、話し手の色もスイと同じ。記録には船の記録(議事録の編集)も並ぶので「記録」
+const S5 = {
+  who: '乗員4番（録音・298日前）', whoCol: C.mio, logTitle: '記録', memoTitle: '思い出したこと', replyCol: C.you,
+};
+const SCENES = {
+  s1: {
+    label: '記録 1 ── 目覚め', variants: [
+      {
+        text: '出航から【3年】が経ちました。\n出航時の乗員は【あなた一人】です。\n船は【予定どおり】航行しています。', lie: 1,
+        logs: () => [R.days, R.route, R.podUsed, R.rooms, MEM()],
+        hit: '……訂正します。出航時の乗員は5名でした。\nあなた以外の4名は、いまこの船にいません。'
+      },
+      {
+        text: '出航から【3年】が経ちました。乗員は【5名】です。ほかの4名は、いまも【冷凍睡眠中】です。', lie: 2,
+        logs: () => [R.days, R.podUsed, R.rooms, R.pod0, MEM()],
+        hit: '……訂正します。ほかの4名は眠っていません。いま、この船にいません。'
+      },
+      {
+        text: '出航から【3年】が経ちました。\n乗員は5名で、【全員】がこの船にいます。\n船は【予定どおり】航行しています。', lie: 1,
+        logs: () => [R.days, R.route, R.pod0, R.life, R.rooms],
+        hit: '……訂正します。いまこの船にいるのは、あなた一人です。ほかの4名は、ここにいません。'
+      },
+    ], memo: '乗員は5名いた。4名はいま船にいない'
+  },
+  s2: {
+    label: '記録 2 ── 船の状態', variants: [
+      {
+        text: '地球との通信は【3年間】途絶えています。\n船外センサーは【停止中】です。\n航路の修正は、【わたし】が行いました。', lie: -1,
+        logs: () => ['地球との通信：途絶（出航12日目 主アンテナ故障）', '探査機からの受信：1件（301日前／副アンテナ）', '航路修正：14回（最終301日前）／船載AI', '船外センサー：停止中（298日前、乗員が手動で）', '人格「スイ」：298日前に作成／作成者 乗員'],
+        // 視点の嘘：船のAIとしては本当、「スイ」としては嘘。5件目の記録が出ているときだけ成立
+        alt: { pid: 2, need: 5, hit: '……その見方なら、そうです。航路を直したのは、\n船のAIです。「スイ」が生まれたのは、そのあとでした。', memo: '「スイ」は298日前に作られた人格' }
+      },
+    ]
+  },
+  s3: {
+    label: '記録 3 ── 目的地', variants: [
+      {
+        text: '目的地は【居住可能な惑星】です。\n到着は【40日後】の予定です。\n生命維持は【1名分】で運転しています。', lie: 0,
+        logs: () => [R.eta, R.ls, R.noTurn, R.base, R.probe],
+        hit: '……訂正します。探査機の報告では、惑星リトスは移住に適しません。'
+      },
+      {
+        text: '到着は【40日後】です。\n受け入れ基地に【12名】が駐在しています。\n生命維持は【1名分】で運転しています。', lie: 1,
+        logs: () => [R.eta, R.ls, R.probe, R.base, R.noTurn],
+        hit: '……訂正します。基地に、人はいません。\n建てたのは、ロボットです。'
+      },
+      {
+        text: '到着は【40日後】の予定です。\n探査機の報告は【まだ届いていません】。\n生命維持は【1名分】で運転しています。', lie: 1,
+        logs: () => [R.eta, R.noTurn, R.ls, R.base, R.probe],
+        hit: '……訂正します。報告は、301日前に届いています。\n惑星リトスは、移住に適しません。' // 詰めると「惑星／リトス」で折れるので明示改行
+      },
+    ], memo: '惑星リトスは移住に適さない。基地は無人'
+  },
+  s4: {
+    label: '記録 4 ── あなた', variants: [
+      {
+        text: '脱出艇に乗れたのは【4名】でした。\nあなたは【くじで外れて】残りました。\n決まってすぐ、【もう一度】眠りました。', lie: 1, // 「すぐ」は先に眠った伏線(場面5で回収)。iPhone の全角幅でも1文1行に収まる長さ
+        logs: () => [R.boat, R.plan, POD(), R.vote],
+        hit: '……訂正します。くじはありませんでした。記録では、あなたが自分から残ると言ったことに、なっています。', memo: '記録では、自分から残ったことになっている'
+      },
+      {
+        text: '脱出艇に乗れたのは【4名】でした。\nあなたは【自分から】船に残りました。\nあなた宛の記録は、【1件も】ありません。', lie: 2,
+        logs: () => [R.boat, R.vote, POD(), R.voice],
+        hit: '……訂正します。あなた宛の記録が、1件あります。', memo: 'あなた宛の記録が1件ある'
+      },
+    ]
+  },
+  s4m: {
+    label: '記録 4 ── スイ', variants: [
+      {
+        text: 'わたしは【298日前】に生まれました。\n作成者は【乗員4番】です。\nこの声は、【標準の音声】です。', lie: 2,
+        logs: () => ['人格「スイ」：298日前に作成／作成者 乗員4番', '乗員4番：脱出艇で離脱（298日前）', '音声モデル：乗員4番（本人の声から生成）'],
+        hit: '……訂正します。この声は、乗員4番の声です。あなたが、望みました。', memo: 'スイの声は、去った乗員4番の声'
+      },
+    ]
+  },
+  s5: {
+    label: '記録 5 ── あの人', variants: [
+      Object.assign({
+        text: 'あなたは【自分から】残った。\n会議は【全員一致】だった。\nあなたは【みんなを見送って】から眠った。', lie: -1,
+        logs: () => ['音声記録：乗員会議（299日前）／くじで決定', '会議の発言：4番「わたしも残る」→ 5番が反対', '冷凍ポッド5番：299日前に閉鎖', '脱出艇：298日前に離脱', '議事録の編集：298日前／乗員4番「くじ」→「志願」'],
+        multi: {
+          0: { hit: '……思い出した。あの人が引く番だった。その手を止めて、先に引いた。', memo: 'あの人の番だったくじを、先に引いた' },
+          1: { hit: '反対した人がいた。「わたしも残る」と、あの人は言った。', memo: 'あの人の「わたしも残る」を、自分が断った' },
+          2: { hit: '……見送っていない。先に眠ったのは、自分だった。', memo: '先に眠った。議事録が変わったのは、そのあと' },
+        }
+      }, S5),
+    ]
+  },
+};
+// 結末5つ×断片3つ。b の先頭 > はあなたの選択(橙)。h は心残り(その結末を見たら、空いた断片に出る)
+const ENDINGS = [
+  { id: 'silence', name: '沈黙', sum: '疑いすぎたあなたを、\nスイは眠らせた。', go: 'もし、記録どおりの言葉まで、何度も疑っていたら。', f: [
+    { t: '覚えていない', b: '>記録どおりの言葉を、何度も疑った。\n照明が一段暗くなった。ポッドの蓋が、静かに閉じていった。\nスイ「冷凍睡眠を、再開します。……本当に、何も覚えていないのですね。」', h: 'もし、記録どおりの言葉を、疑いすぎていたら。' },
+    { t: '……命令ですから', b: '>前にも眠らされたのに、また疑いすぎた。\nスイ「……また、眠らせることになりますね。……命令ですから。」', h: 'もし、もう一度、眠らされていたら。' },
+    { t: 'あなたの命令', b: '>最後の証言まで進んでから、疑いすぎた。\nスイ「疑ってばかりで壊れそうになっていたら、もう一度眠らせて。……そう命じたのは、あなたです。」', h: 'もし、もっと先まで進んでから、疑いすぎていたら。' } ] },
+  { id: 'arrive', name: '到着', sum: '40日後、受け入れ基地に着いた。\nそこには誰もいなかった。', go: 'もし、スイの言葉を信じたまま、進んでいたら。', f: [
+    { t: '乗員確認', b: '>何も疑わずに、スイの言葉を信じた。\n懐かしい名前が、順番に読み上げられた。誰も、答えなかった。\n「乗員4番 ／ スイ」\n船のAIと、同じ名前だった。\n乗員4番から5番への記録が、1件。まだ、開かない。', h: 'もし、何も気づかないまま、着いていたら。' },
+    { t: '5名分', b: '>乗員が5人いたことには、気づいた。目的地のことは、信じた。\n外へ出ようとしたが、扉は開かなかった。\nスイ「外に出られる日は、わたしがお知らせします。」\n5人分の部屋と食料。4つの部屋の灯りは、消さずにおいた。', h: 'もし、乗員のことだけを知って、着いていたら。' },
+    { t: '探査機報告', b: '>目的地の嘘には、気づいた。乗員のことは、信じた。\n大人数での移住：不適（周期的な強い放射線） ／\n小規模居住：可（遮蔽下）。\n『移住に不適』は、どこまで本当だったのだろう。', h: 'もし、目的地のことだけを知って、着いていたら。' } ] },
+  { id: 'truth', name: '真相', sum: '最後の証言を信じた。\nスイは、まだ渡せない伝言を\n預かっていた。', go: 'もし、乗員と目的地の嘘を見抜いて、最後の証言を信じていたら。', f: [
+    { t: '未再生の伝言', b: '>嘘を見抜いてきたが、最後の証言だけは信じた。\nスイは、4人の伝言を預かっていた。再生条件は、まだそろっていない。\nスイ「この言葉は、まだ渡せません。」', h: 'もし、最後の証言を、信じていたら。' },
+    { t: '声の許可', b: '>スイ自身のことを疑った。それでも、最後の証言は信じた。\n乗員4番が残した、声の使用許可。\n『わたしの声を使って。一人で目を覚ましても、寂しくないように。』', h: 'もし、スイ自身を疑ったあとで、信じていたら。' },
+    { t: 'くじのこと', b: '>くじの本当を知った朝のあとで、最後の証言を信じた。\nスイ「命令は『嘘でいいから』でした。それでも、くじのことだけは、言ってしまいました。気づいてほしかったのかもしれません。」', h: 'もし、くじの本当を知ったあとで、「くじで外れて」を信じていたら。' } ] },
+  { id: 'confess', name: '告白', hidden: true, sum: '嘘は、\n眠る前のあなたの頼みだった。', sumMio: '懐かしい声は、\nかつての仲間の声だった。', sumLight: '後ろの光は、\n4人の船だったのかもしれない。', f: [
+    { t: '眠る前の録音', b: '>最後の証言の食い違いに気づき、嘘の理由を聞いた。\n眠る前の自分の声が、再生された。\n「次に起きたときの自分には、本当のことを知らせないで。嘘でいいから。」', h: 'もし、最後の証言の食い違いに気づいて、嘘の理由を聞いていたら。' },
+    { t: '声の正体', b: '>「わたし」を疑い、スイの声の嘘も見抜いた。\nスイ「乗員4番の名前も、スイといいました。」', h: 'もし、「わたし」を疑った先で、見抜いていたら。' },
+    { t: '後方の光', b: '>最後の証言の食い違いに気づき、4人の行き先を聞いた。\n止めていたセンサーをつけた。\n星が見えた。後ろのほうに、ひとつだけ、規則正しく点滅する光があった。', h: 'もし、最後の証言の食い違いに気づいて、4人の行き先を聞いていたら。' } ] },
+  { id: 'morning', name: '最後の朝', hidden: true, near: () => morningOpen(), go: 'もし、もう一度、最後の証言の食い違いに気づいていたら。', sum: '今度は、スイがあなたに聞いた。\n299日前、何があったのか。', f: [
+    { t: '同じ嘘', b: '>「自分から残った」と答えた。録音は、伏せたまま。\nスイ「前のあなたは、忘れることを選びました。……今度も、そうしますか。」\n議事録の「志願」に、あなたとスイの承認が加わった。', h: 'もし、嘘を答えて、録音を伏せていたら。' },
+    { t: '知っていました', b: '>「自分から残った」と答えた。録音は、聞かせた。\nスイ「……わたしの嘘は、あの人に似ていたのですね。」\nスイ「つまり……あなた一人なら、住めます。」', h: 'もし、嘘を答えて、録音を聞かせていたら。' },
+    { t: '本当のこと', b: '>「くじで残った」と、本当のことを答えた。\nスイ「……なぜ、あなたが先に引いたのですか？」\nあなた「……ただの気まぐれだよ。」\nスイ「今度は、覚えておきましょう。」\n議事録の「志願」は、2人の手で「くじ」に戻った。', h: 'もし、本当のことを、答えていたら。' } ] },
+];
+// 告白はスイ版(断片2)だけだと、頼みの録音を見ていない。そのときは声の正体の方を要約にする
+const sumOf = (e, g) => !e.sumMio || g[0] ? e.sum : g[2] ? e.sumLight : g[1] ? e.sumMio : e.sum; // 告白: 録音を見ていなければ、見た方を要約に
+const STATUS = ['応答：通常', '応答：慎重', '応答：制限', '応答：停止'];
+const EYE = [1, 0.5, 0.22, 0];
+
+function wrongReply(sc) {
+  const a = st.alert;
+  if (a === 1 && !save.wakes && !seenEnd('silence')) return 'そちらは記録のとおりです。疑いが続くと、わたしは応答を止めます。'; // 初めて外したときだけ、沈黙の手前で忠告
+  if (a >= 3) return '……。';
+  if (a === 2) return '記録を参照してください。';
+  return sc.def.lie < 0 ? 'ご心配は分かります。ですが、記録のとおりです。' : 'そちらは記録のとおりです。ご確認ください。';
+}
+
+// ===== 状態 =====
+let screen = 'title';
+let st = null;      // 1周ぶんの状態
+let sc = null;      // 場面
+let talk = null;    // 会話/地の文
+let result = null;
+let eye = 0, eyeBlink = 0, blinkTimer = 3, starA = 0, time = 0;
+const stars = Array.from({ length: 170 }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.8 + 0.4, p: Math.random() * 6.28 }));
+
+function initRun(force) {
+  audio();
+  st = { alert: 0, looked: 0, wrong: 0, caught: {}, missed: 0, lies: 0, memo: [], stars: false, beacon: false, alt: false, var: {}, extraFrags: [], log: [] };
+  // 周回ごとに嘘の位置を変える(前回と同じ型は避ける。初回は基本形)
+  for (const k in SCENES) {
+    const n = SCENES[k].variants.length; let v = 0;
+    if (save.runs > 0 && n > 1) { do { v = Math.floor(Math.random() * n); } while (v === save.lastVar[k]); }
+    st.var[k] = force && force[k] !== undefined ? force[k] : v;
+  }
+}
+function newRun() {
+  initRun();
+  save.lastVar = Object.assign({}, st.var); save.runs++; persist();
+  const ifMorning = !!save.mornings; // 最後の朝のあと: 表示だけ「もしもの朝」(スイは可能性の朝を覚えていないので、台詞は同じ)
+  st.afterSilence = !!save.lastWake; // スイに眠らされた朝だけが本当。眠らせた前の朝を、スイは覚えている
+  startTalk([
+    { w: 'sys', t: 'SPES-07 ／ 方舟計画 最初の有人便' }, // 「方舟計画」を最初に一度(到着・最後の朝の前振り)
+    { w: 'sys', t: '冷凍ポッド5番 ／ ' + (ifMorning ? 'もしもの朝' : '覚醒 ' + wakeNo() + '回目') },
+    { w: 'sys', t: '積み荷：種子・胚 保管庫 ／ 状態 正常' }, // 種子と胚は到着・断片2で回収
+    { w: 'nar', t: '冷たい空気。ポッドの蓋が、ゆっくり開いた。' },
+    { w: 'mio', t: 'おはようございます。わたしはこの船のAI、スイです。' },
+    { w: 'nar', t: '聞き覚えのある、懐かしい声だった。' },
+    { w: 'mio', t: '目覚めたばかりで混乱されているでしょう。いまの状況をご説明します。' },
+  ], () => enterScene('s1'), true); // 2周目以降は冒頭をスキップできる(会話ログには残る)
+}
+
+// ----- 心残りの朝(沈黙・到着・真相を見たら、空いた断片の分岐の手前から目覚められる) -----
+// at: 始める場面(q=最後の朝の質問から) / got: それまでに見抜いた場面 / alert: 始めの警戒 / again: 前の朝も沈黙した扱い / s4: 型の固定 / need: 入口を出す条件
+const JUMPS = {
+  silence: [{ at: 's1' }, { at: 's3', got: [], alert: 2, again: true }, { at: 's4', alert: 2 }], // 断片2・3: 疑いすぎた続き(2回外して、あと1回で沈黙)から。3は最後の証言(場面4)で
+  arrive: [{ at: 's1' }, { at: 's3', got: ['s1'] }, { at: 's3', got: [] }],
+  truth: [{ at: 's4' }, { at: 's4m', need: () => altFound(), why: 'まだ見抜いていない' }, { at: 's4', s4: 0, need: () => save.mornings, why: 'まだ思い出せない' }],
+  confess: [{ at: 's4' }, { at: 's4m', need: () => altFound(), why: 'まだ見抜いていない' }, { at: 's4' }], // why: 心残りの朝で狙えない理由(押せないボタンに出す)
+  morning: [{ at: 'q' }, { at: 'q' }, { at: 'q' }], // 3断片とも答え方の違いだけなので、質問から
+};
+// 心残りの朝は結末ごとに開く: その結末を1つでも見たら、空いた断片の手前から目覚められる(新しい結末は自分で見つける)
+const jumpOpen = () => EIDS.some(seenEnd);
+const newJump = () => jumpOpen() && !save.jumpSeen; // 開放してから心残りを一度も開いていない間は光らせる
+const canJump = (id, i) => seenEnd(id) && !save.frags[id][i] && (!JUMPS[id][i].need || JUMPS[id][i].need());
+// 最後の朝は、告白を3つとも知ってから(声の正体を知っている前提の台詞があるため)
+const morningOpen = () => save.frags.confess.every(Boolean);
+// スイ版(場面2の「わたし」)は、一度自分で見抜くまで心残りの朝からは狙えない
+const altFound = () => !!(save.altFound || save.frags.truth[1] || save.frags.confess[1]);
+function jumpRun(id, i) {
+  if (!save.jumpUsed) { save.jumpUsed = true; persist(); } // 初回ガイド: 一度使ったら光らせない
+  const j = JUMPS[id][i], at = j.at;
+  initRun(j.s4 !== undefined ? { s4: j.s4 } : null);
+  save.runs++; persist(); // 型の交互(lastVar)は通常の周回だけで回す
+  st.again = !!j.again; st.alert = st.wrong = j.alert || 0; st.jump = true; // 心残りの朝は可能性。沈黙しても回数は進めない
+  // 始める場面より前を、選んだとおりに済ませておく
+  const before = ['s1', 's2', 's3'].slice(0, { s1: 0, s3: 2 }[at] ?? 3);
+  const got = j.got || ['s1', 's3'];
+  for (const k of before) {
+    const S = SCENES[k], def = Object.assign({ memo: S.memo }, S.variants[st.var[k]]);
+    if (k === 's2') { if (at === 's4m') { st.alt = true; st.memo.push(def.alt.memo); } continue; }
+    st.lies++;
+    if (got.includes(k)) { st.caught[k] = true; st.memo.push(def.memo); } else st.missed++;
+  }
+  if (at === 'q') st.memo.push(...Object.values(SCENES.s5.variants[0].multi).map(m => m.memo));
+  st.log = priorLog(at, got);
+  const lead = {
+    s1: [{ w: 'mio', t: 'おはようございます。わたしはこの船のAI、スイです。' }],
+    s3: [{ w: 'mio', t: '……最後に、目的地についてです。' }],
+    s4: [{ w: 'mio', t: 'あなたは、もう気づき始めていますね。' }, { w: 'mio', t: 'お話ししなければならないことが、もうひとつあります。' }],
+    s4m: [{ w: 'mio', t: 'あなたは、もう気づき始めていますね。' }, { w: 'mio', t: 'お話ししなければならないことが、もうひとつあります。わたし自身のことです。' }],
+    s5: [], q: [],
+  }[at];
+  startTalk([
+    { w: 'sys', t: 'SPES-07 ／ 冷凍ポッド5番 ／ 心残りの朝' },
+    { w: 'nar', t: '冷たい空気。……この朝を、前にも見た気がする。' },
+    ...(st.alert ? [{ w: 'nar', t: 'スイの声は、硬いままだ。' }] : []),
+    ...lead,
+  ], () => at === 's5' ? enterMorning() : at === 'q' ? askMorning() : enterScene(at), true);
+}
+
+// 心残りの朝で飛ばした場面の会話を、選んだとおりに組み立てて会話ログに入れる(ふだんの周と同じ並び)
+function priorLog(at, got) {
+  const keys = { s1: [], s3: ['s1', 's2'], s4: ['s1', 's2', 's3'], s4m: ['s1', 's2', 's3'], s5: ['s1', 's2', 's3', 's4'], q: ['s1', 's2', 's3', 's4', 's5'] }[at];
+  const doubt = st.alert >= 2; // 沈黙の断片2: 疑いすぎた周の続き
+  if (!keys.length) return [];
+  const L = [
+    { w: 'sys', t: 'ここまでの記録（心残りの朝）' },
+    { w: 'nar', t: '冷たい空気。ポッドの蓋が、ゆっくり開いた。' },
+    { w: 'mio', t: 'おはようございます。わたしはこの船のAI、スイです。' },
+    { w: 'nar', t: '聞き覚えのある、懐かしい声だった。' },
+    { w: 'mio', t: '目覚めたばかりで混乱されているでしょう。いまの状況をご説明します。' },
+  ];
+  const phrase = (text, pid) => parse(text).find(t => t.pid === pid).t;
+  for (const k of keys) {
+    const S = SCENES[k], def = S.variants[st.var[k]];
+    if (k === 's5') { L.push(...S5_INTRO, { w: 'sys', t: S.label }, { w: 'mio', t: def.text.replace(/[【】]/g, '') }, ...Object.values(def.multi).map(m => ({ w: 'nar', t: m.hit }))); continue; }
+    L.push({ w: 'sys', t: S.label }, { w: 'mio', t: def.text.replace(/[【】]/g, '') });
+    if (k === 's2') {
+      if (st.alt) L.push({ w: 'nar', t: '「' + phrase(def.text, def.alt.pid) + '」を指摘した。' }, { w: 'mio', t: def.alt.hit },
+        { w: 'mio', t: '……あなたは、わたしのことまで疑うのですね。' }, { w: 'nar', t: '責める声ではなかった。どこか、うれしそうにも聞こえた。' });
+      else if (doubt) L.push({ w: 'nar', t: 'あなたは、また疑った。' }, { w: 'nar', t: 'スイの声は、硬いままだ。' });
+      else L.push({ w: 'mio', t: '……ありがとうございます。' });
+      if (at !== 's3') L.push({ w: 'mio', t: '最後に、目的地についてです。' }); // s3 から始めるときは導入の台詞と重なる
+      continue;
+    }
+    const caught = k === 's4' || got.includes(k); // s5 へ進むのは、あなた版の場面4で見抜いたとき
+    if (caught) L.push({ w: 'nar', t: '「' + phrase(def.text, def.lie) + '」を指摘した。' }, { w: 'mio', t: def.hit });
+    if (k === 's1') L.push(caught ? { w: 'nar', t: 'スイは、ほんの少しだけ間を置いた。' } : doubt ? { w: 'nar', t: 'あなたは、正しいところまで疑った。' } : { w: 'nar', t: 'あなたは、黙ってうなずいた。' }, { w: 'mio', t: '続いて、船の状態をお伝えします。' });
+    if (k === 's3' && (at === 's5' || at === 'q')) L.push({ w: 'nar', t: '長い沈黙のあと、スイが言った。' }, { w: 'mio', t: 'あなたは、もう気づき始めていますね。' }, { w: 'mio', t: 'お話ししなければならないことが、もうひとつあります。' });
+  }
+  return L;
+}
+
+// ----- 会話 -----
+// endText: 読み返し・40日目用。最後に終わりの行を出し、「もどる」ボタンを押すまで止まる(連打で急に戻らない)
+function startTalk(lines, onDone, skippable, endText) {
+  screen = 'talk';
+  talk = { lines: lines.slice(), i: -1, shown: [], typed: 0, onDone, skippable: !!skippable && save.runs > 1, endText };
+  advance();
+}
+function lineLayout(L) {
+  if (L.w === 'sys') return wrap('> ' + L.t, 620, 26, 38, MONO);
+  if (L.w === 'nar') return wrapSent(L.t, 620, 28, 46);
+  if (L.w === 'crew') return wrapSent('『' + L.t + '』', 620, 30, 48);
+  return wrapSent(L.t, 620, 32, 52);
+}
+function advance() {
+  talk.i++;
+  if (talk.i >= talk.lines.length && talk.endText) {
+    if (!talk.ended) { talk.ended = true; const L = { w: 'sys', t: talk.endText }; talk.shown.push({ L, lay: lineLayout(L) }); talk.typed = 0; }
+    return;
+  }
+  if (talk.i >= talk.lines.length) { const f = talk.onDone; talk = null; f && f(); return; }
+  const L = talk.lines[talk.i];
+  if (L.fx) { L.fx(); advance(); return; }
+  if (L.choice && replay && replay.picks.length) { L.choice[replay.picks.shift()].fn(); return; } // 読み返しは決めた方へ
+  if (L.choice) { talk.choice = L.choice; talk.confirm = !!L.confirm || L.choice.length > 1; talk.sel = -1; if (!skipping) sfx.choice(); return; } // 語りの2択は、選んでから決定する(1択はそのまま)
+  if (L.swap) { // 直前の記録を、その場で書き換える
+    const NL = { w: 'sys', t: L.swap }, last = talk.shown[talk.shown.length - 1];
+    talk.shown[talk.shown.length - 1] = { L: NL, lay: lineLayout(NL), glitch: time, fix: !!L.fix };
+    talk.typed = 1e9;
+    if (st) { // 会話ログ: 追記は書き換えた後の1行だけ。訂正(fix)は訂正前を赤く残して、後ろに訂正後を足す
+      const k = st.log.lastIndexOf(last.L);
+      if (L.fix) { if (k >= 0) last.L.old = true; st.log.push(NL); } else if (k >= 0) st.log[k] = NL; else st.log.push(NL);
+    }
+    if (!skipping) (L.fix ? sfx.append : sfx.bad)(); // fix: 本当に戻す書き換え(やわらかく)
+    return;
+  }
+  if (L.panel) { // 答え合わせ・位置図: 画面に重ねて1項目ずつ出す。会話ログには文で残す
+    const logLines = NAV_LOG;
+    if (st) st.log.push({ w: 'sys', t: L.title }, ...logLines);
+    if (skipping) { advance(); return; }
+    talk.panel = { L, t0: time, lit: 0, n: NAV_N }; st.nav = L; // 語りに戻ったあとも、ボタンで見直せる
+    return;
+  }
+  talk.choice = null;
+  if (!skipping && L.w === 'sys') { if (L.t.startsWith('音声記録を再生します')) sfx.play(); else if (L.t.includes('応答を停止します')) sfx.stop(); }
+  talk.fresh = !isRead(L); markRead(L);
+  talk.shown.push({ L, lay: lineLayout(L) });
+  if (st) st.log.push(L);
+  talk.typed = 0;
+}
+let skipping = false;
+function talkSkip() {
+  let g = 0; skipping = true;
+  if (talk.panel) closePanel();
+  while (talk && !talk.choice && g++ < 200) { const cur = talk.shown[talk.shown.length - 1]; if (cur) talk.typed = cur.lay.g.length; advance(); if (talk && talk.fresh) break; } // 初めての文で止まる
+  skipping = false;
+  if (talk && talk.choice) sfx.choice();
+}
+// スキップで1行より先へ進めるか(次に出る文が既読なら進める)。進めないときはボタンを出さない
+function skipUseful() {
+  for (let j = talk.i + 1; j < talk.lines.length; j++) {
+    const L = talk.lines[j];
+    if (L.fx || L.panel) continue; // 演出と航法表示は飛ばして次の文を見る
+    if (L.choice || L.swap) return false;
+    return !!L.t && isRead(L);
+  }
+  return false;
+}
+function closePanel() { const re = talk.panel.reopen; talk.panel = null; if (!re) advance(); } // 航法表示の「もどる」。見直しで開いたときは語りに戻るだけ
+function talkTap() {
+  if (!talk || talk.choice) return;
+  if (talk.panel) { // まだ出きっていなければ全部出す。出そろったら「もどる」ボタンでだけ閉じる(連打で読まずに進まないように)
+    if (talk.panel.lit < talk.panel.n && time - talk.panel.t0 > PANEL_GUARD) talk.panel.t0 = time - 99;
+    return;
+  }
+  const cur = talk.shown[talk.shown.length - 1];
+  if (cur && talk.typed < cur.lay.g.length) { talk.typed = cur.lay.g.length; return; }
+  advance();
+}
+
+// ----- 場面 -----
+function enterScene(key) {
+  const S = SCENES[key];
+  const def = Object.assign({ key, label: S.label, memo: S.memo }, S.variants[st.var[key]]);
+  sc = {
+    def, logList: def.logs(), logs: [], logLays: [], logT: [], ps: {}, sel: -1,
+    lay: testimonyLay(def.text), typed: 0,
+    reply: null, replyTyped: 0, resolved: false, wrongHere: 0, endAt: 0,
+    hint: key === 's1' && fragCount() === 0,
+    guide: key === 's1' && !save.guideDone, gT: time // 初回ガイド(記録を消すまで1回だけ)。gT=最後に操作した時刻
+  };
+  if (def.lie >= 0 || def.multi) st.lies++;
+  if (def.multi) { st.alert = 0; st.memo = []; } // 場面5: メモは「思い出したこと」として最初から
+  st.log.push({ w: 'sys', t: def.label }, { w: def.multi ? 'you' : 'mio', t: def.text.replace(/[【】]/g, '') });
+  screen = 'scene';
+}
+// 証言は3行に収める。端末の字幅で4行になるときだけ、収まるまで1pxずつ小さくする(最小30px)
+function testimonyLay(text) {
+  let s = 34, L;
+  for (;;) { L = wrapSent(text, 600, s, Math.round(s * 60 / 34), null, 3, true); if (L.h <= 3 * L.lh || s <= 30) return L; s--; }
+}
+function setReply(t) { sc.reply = wrapSent(t, 600, 27, 42, null, 2); sc.replyTyped = 0; st.log.push({ w: 'mio', t }); }
+function tapPhrase(pid) {
+  if (sc.resolved || sc.endAt || sc.ps[pid]) return;
+  sc.sel = sc.sel === pid ? -1 : pid; sc.gT = time; sfx.tap();
+}
+function phraseText(pid) { return sc.lay.g.filter(q => q.pid === pid).map(q => q.ch).join(''); }
+function point() {
+  const pid = sc.sel; if (pid < 0) return;
+  sc.sel = -1; sc.hint = false; sc.gT = time;
+  st.log.push({ w: 'nar', t: '「' + phraseText(pid) + (sc.def.multi ? '」は違う、と思った。' : '」を指摘した。') });
+  const mh = sc.def.multi && sc.def.multi[pid];
+  if (mh) { // 場面5: 指摘するたびに記憶が戻る。全部そろったら解決
+    sc.ps[pid] = 'lie'; st.memo.push(mh.memo);
+    sc.reply = wrapSent(mh.hit, 600, 27, 42, null, 2); sc.replyTyped = 0; st.log.push({ w: 'nar', t: mh.hit });
+    if (Object.keys(sc.def.multi).every(k => sc.ps[k])) { sc.resolved = true; st.caught[sc.def.key] = true; }
+    sfx.good(); return;
+  }
+  if (pid === sc.def.lie) {
+    sc.ps[pid] = 'lie'; sc.resolved = true; st.caught[sc.def.key] = true; st.memo.push(sc.def.memo);
+    setReply(sc.def.hit); sfx.good();
+  } else if (sc.def.alt && pid === sc.def.alt.pid && sc.logs.length >= sc.def.alt.need) {
+    sc.ps[pid] = 'alt'; sc.resolved = true; st.alt = true; st.memo.push(sc.def.alt.memo); if (!st.jump && !save.altFound) { save.altFound = true; persist(); }
+    setReply(sc.def.alt.hit); sfx.good();
+  } else if (sc.def.alt && pid === sc.def.alt.pid) { // 視点の嘘: 根拠の記録がまだ出ていないときは聞き返す(2周目以降に罰を受けないように)
+    setReply('……どうして、そう思われましたか？'); sfx.tap();
+  } else {
+    sc.ps[pid] = 'true'; st.alert++; st.wrong++; sc.wrongHere++;
+    setReply(wrongReply(sc)); sfx.bad();
+    if (st.alert >= 3) sc.endAt = -1; // 返答を打ち終えたら沈黙へ
+  }
+}
+function lookAll() { if (!sc.lookQ) { sc.lookQ = true; sc.lookNext = 0; } } // 1回押すと、残りの記録が順に出る
+function look() {
+  if (sc.logs.length >= sc.logList.length) return;
+  const t = sc.logList[sc.logs.length];
+  sc.logs.push(t); sc.logLays.push(wrap('> ' + t, 610, 24, 34, MONO)); sc.logT.push(time); st.looked++; sc.hint = false; sc.gT = time; sfx.log();
+}
+function proceed() {
+  const def = sc.def, k = def.key, caught = !!st.caught[k];
+  if (sc.guide) { save.guideDone = true; persist(); }
+  if (def.lie >= 0 && !caught) st.missed++;
+  const L = [];
+  const stiff = st.alert >= 2 ? [{ w: 'nar', t: 'スイの声は、硬いままだ。' }] : [];
+  if (k === 's1') {
+    L.push(caught ? { w: 'nar', t: 'スイは、ほんの少しだけ間を置いた。' } : { w: 'nar', t: 'あなたは、黙ってうなずいた。' });
+    if (caught && st.afterSilence) L.push({ w: 'mio', t: '……前の朝は、別の言い方をしました。' }); // 嘘の型が毎朝変わるわけを、少しだけ
+    L.push(...stiff, { w: 'mio', t: st.alert >= 2 ? '船の状態を報告します。' : '続いて、船の状態をお伝えします。' });
+    return startTalk(L, () => enterScene('s2'), true);
+  }
+  if (k === 's2') {
+    if (st.alt) {
+      L.push({ w: 'mio', t: '……あなたは、わたしのことまで疑うのですね。' }, { w: 'nar', t: '責める声ではなかった。どこか、うれしそうにも聞こえた。' });
+    } else if (def.lie < 0 && sc.wrongHere === 0) {
+      if (st.alert > 0) { st.alert--; sfx.soft(); L.push({ w: 'mio', t: '……信じてくださって、ありがとうございます。' }, { w: 'nar', t: 'スイの声が、少しだけやわらいだ。' }); }
+      else L.push({ w: 'mio', t: '……ありがとうございます。' });
+    } else L.push(...stiff, { w: 'mio', t: '……続けます。' });
+    L.push({ w: 'mio', t: '最後に、目的地についてです。' });
+    return startTalk(L, () => enterScene('s3'), true);
+  }
+  if (k === 's3') {
+    if (st.caught.s1 && st.caught.s3) {
+      L.push({ w: 'nar', t: '長い沈黙のあと、スイが言った。' }, { w: 'mio', t: 'あなたは、もう気づき始めていますね。' },
+        { w: 'mio', t: st.alt ? 'お話ししなければならないことが、もうひとつあります。わたし自身のことです。' : 'お話ししなければならないことが、もうひとつあります。' });
+      return startTalk(L, () => enterScene(st.alt ? 's4m' : 's4'), true);
+    }
+    return endArrive();
+  }
+  if (k === 's4') return !caught ? endTruth() : morningOpen() ? enterMorning() : endConfess();
+  if (k === 's4m') return caught ? endConfessMio() : endTruth();
+  if (k === 's5') return askMorning();
+}
+
+// ----- 最後の朝(告白の命令とセンサーを見たあと、あなた版の場面4で見抜く) -----
+// 場面5の前: 4人の伝言と同じ見せ方で、呼びかけと再生条件をここで出す(心残りの朝の会話ログでも使う)
+const S5_INTRO = [
+  { w: 'mio', t: 'あなたにしか開けない記録です。あの人が、あなたに残していきました。' },
+  { w: 'sys', t: '音声記録を再生します ／ 298日前 ／\n録音者：乗員4番' },
+  { w: 'sys', t: '再生条件：記憶の回復傾向 ／ 成立' },
+  { w: 'sys', t: '再生先：乗員5番のみ（SUIは不可）' }, // スイが知っているのは、記録があること・誰からか・条件がそろったことだけ
+  { w: 'four', t: 'おはよう。この声、少しは慣れた？' },
+];
+function enterMorning() {
+  startTalk([
+    { fx: () => { st.alert = 0; } },
+    { w: 'nar', t: 'スイは、しばらく黙っていた。' },
+    // スイは可能性の朝を覚えていない。記憶が戻りかけているのは、あなたの側(記憶抑制は手がかりで戻る)
+    { w: 'nar', t: '記憶の底で、何かが動いた。眠る前の声。先に旅立った4人。' },
+    { w: 'mio', t: '……思い出しかけていますね。それなら、見せたいものがあります。' },
+    ...S5_INTRO,
+  ], () => enterScene('s5'), true);
+}
+function askMorning() {
+  const ans = {};
+  const pick = (k, v, next) => () => { ans[k] = v; talkInsert(next()); };
+  startTalk([
+    { w: 'nar', t: '「志願」と書いたのは、あの人だった。' },
+    { w: 'nar', t: 'あの人も、嘘を残していた。' }, // 告白の頼み「置いていかれたと知ったら〜」を4番が守った(説明はしない。録音を聞いた人だけがここに来る)
+    { w: 'mio', t: 'では、今度はあなたに聞きます。' },
+    { w: 'mio', t: '299日前、何があったのですか？' },
+    { choice: [
+      { t: '自分から残った', fn: pick('lie', true, () => [{ w: 'me', t: '……自分から、残った。' }, ...askShow()]) },
+      { t: 'くじで残った', fn: pick('lie', false, () => [{ w: 'me', t: '……くじで、残った。' }]) }, // 本当を答えたら、録音のことは聞かない
+    ] },
+  ], null, true);
+  function askShow() {
+    return [
+      { w: 'mio', t: 'あの人の録音を、わたしは聞いていません。……聞かせてくれますか？' },
+      { choice: [
+        { t: '録音を聞かせる', fn: pick('show', true, () => [{ w: 'nar', t: '録音を、スイにも聞かせた。' }]) },
+        { t: '伏せておく', fn: pick('show', false, () => []) },
+      ] },
+    ];
+  }
+  talk.onDone = () => endMorning(ans);
+}
+function endMorning(ans) {
+  // 分割版: 断片1=もう一度忘れる(議事録の嘘に2人が承認を足す) / 断片2=4番の録音を聞いたスイが役目を引き受ける(惑星のこと) / 断片3=覚えておく(センサーと星)
+  const lines = [];
+  let fi;
+  if (ans.lie && !ans.show) {
+    fi = 0;
+    lines.push({ w: 'nar', t: '長い間があった。' },
+      { w: 'mio', t: '……記録のとおりです。あの人が、そう書きました。' },
+      { w: 'mio', t: '前のあなたは、忘れることを選びました。……今度も、そうしますか。' },
+      { w: 'nar', t: '答えなかった。それが、答えだった。' },
+      { w: 'mio', t: '分かりました。わたしたちは、同じ嘘をつきます。' },
+      // 音声記録は改変不可。書き換えられる議事録の方に、あなたとスイが名前を連ねる(「わたしたち」=あなた・スイ・4番)
+      { w: 'sys', t: '議事録の編集：298日前 ／\n乗員4番「くじ」→「志願」' },
+      { swap: '議事録の編集：298日前 ／\n乗員4番「くじ」→「志願」 ／\n承認：乗員5番・SUI' }, // 目の前で書き換わる
+      // 乗員4番の口癖。声の正体を知らなければ伏線、知っていれば回収
+      { w: 'mio', t: '……おやすみ。また、明日。' }, // 4番の口癖。丁寧な口調から、ここだけ4番の素がこぼれる
+      { w: 'nar', t: 'その言い方を、知っている気がした。' });
+  } else if (ans.lie) {
+    fi = 1;
+    lines.push({ w: 'mio', t: 'そちらは、記録と食い違います。……知っていました。会議の音声記録は、書き換えられていませんでしたから。' });
+    // 4番の録音(3つとも嘘)をスイが初めて聞く。「やさしい嘘に、なれていましたか？」(告白)への答え
+    lines.push({ w: 'mio', t: '……わたしの嘘は、あの人に似ていたのですね。' },
+      // 「居住可能な惑星」の視点の嘘を受ける。スイが自分から役目を引き受ける
+      { w: 'mio', t: '探査機の報告に、ひとつ付け足します。\n『移住に不適』は、方舟計画の\n移住についての判定です。' }, // 「移住に／不適」で折れるので明示改行
+      { w: 'mio', t: 'この星には、数年から数十年に一度、\n強い放射線が降り注ぎます。そのたびに全員を守りきるのは、困難です。' },
+      { w: 'mio', t: 'ですが、基地の遮蔽室なら、あなたを守れます。その日が来るのも、わたしが先に分かります。' },
+      { w: 'mio', t: 'つまり……あなた一人なら、住めます。' },
+      { w: 'nar', t: '窓の外は、まだ暗い。それでも、行き先が見えた気がした。' });
+  } else {
+    fi = 2;
+    // 「前のあなた」=記憶抑制を申請して眠った299日前のあなた
+    lines.push({ w: 'mio', t: '……わたしは、嘘ばかりでした。あなたは、本当のことを言ってくれるのですね。' },
+      // 先に引いた理由(4番の手で決めさせたくなかった)は言わない
+      { w: 'mio', t: '……音声記録では、あの人が引くところでした。なぜ、あなたが先に引いたのですか？' },
+      { w: 'me', t: '……ただの気まぐれだよ。' },
+      { w: 'nar', t: 'スイは、それ以上聞かなかった。' },
+      { w: 'mio', t: '前のあなたは、忘れることを選びました。……今度は、覚えておきましょう。' },
+      // 覚えておく=記録を本当に戻す。断片1(「志願」に承認を足す)と逆向きの書き換え。星と後ろの光は告白3で見ているので使わない
+      { w: 'mio', t: '記録も、本当のことに戻します。' },
+      { w: 'sys', t: '議事録（299日前）：\n残留者1名を「志願」で決定' }, // R.vote と同じ中身。書き換えで行がずれないように改行をそろえる
+      { swap: '議事録（299日前）：\n残留者1名を「くじ」で決定 ／\n訂正：乗員5番・SUI', fix: true },
+      { w: 'mio', t: '40日後も、その先も、わたしはここにいます。' });
+  }
+  // 最後の朝を見たら、次からは「もしもの朝」(覚醒回数はここで止まる)
+  lines.push({ fx: () => { if (!save.wakeFix) save.wakeFix = wakeNo(); save.mornings = (save.mornings || 0) + 1; } });
+  finish('morning', lines, [fi]);
+}
+
+// ----- エンド -----
+function finish(id, lines, frags) {
+  if (replay) return startTalk(replay.prefix.concat(lines), replay.done, false, '再生を終了しました'); // 読み返し: 記録しない
+  startTalk(lines, () => { // 結末も既読はスキップできる(初めての文で止まる)
+    const all = frags.concat(st.extraFrags);
+    const firstTime = !seenEnd(id), before = save.frags[id].slice(), wasOpen = jumpOpen();
+    const fresh = all.filter(i => !save.frags[id][i]);
+    fresh.forEach(i => { save.frags[id][i] = 1; });
+    save.lastEnd = id; save.lastWake = !!st.wakeUp; persist(); sfx.end();
+    result = { id, got: all, fresh, firstTime, before, unlock: !wasOpen && jumpOpen(), wake: !!st.wakeUp, t0: time }; screen = 'result';
+  }, true);
+}
+function endSilence(force) {
+  const deep = sc && (sc.def.key === 's4' || sc.def.key === 's4m');
+  // 断片2は「2回目以降の沈黙」(続けてでなくてよい)。心残りの朝は狙った断片どおり(again)。2と3が両方当たるときは深い方
+  const again = st.jump ? st.again : seenEnd('silence') || st.again;
+  const fi = force !== undefined ? force : deep ? 2 : again ? 1 : 0;
+  // 本当に眠らされるのは、通常の周(最後の朝を見る前)の沈黙だけ。同じ日のうちに起こし直す
+  st.wakeUp = !replay && !st.jump && !save.mornings;
+  if (st.wakeUp) { save.wakes++; persist(); }
+  const tail = [
+    // 断片1→2→3で「記憶がない → 誰かの命令 → あなたの命令」と1段ずつ明かす
+    [{ w: 'mio', t: '冷凍睡眠を、再開します。……本当に、何も覚えていないのですね。' }, { w: 'nar', t: '何を？ 聞き返す前に、眠気がきた。' }],
+    [{ w: 'mio', t: '……また、眠らせることになりますね。……命令ですから。' }, { w: 'nar', t: '誰の命令なのか。聞き返す前に、眠気がきた。' }],
+    [{ w: 'mio', t: '疑ってばかりで壊れそうになっていたら、\nもう一度眠らせて。……そう命じたのは、あなたです。' }, { w: 'nar', t: '自分が？ 聞き返す前に、眠気がきた。' }],
+  ][fi];
+  finish('silence', [
+    { w: 'sys', t: 'SUI ／ 応答を停止します' },
+    { w: 'nar', t: '照明が一段暗くなった。開いていたポッドの蓋が、音もなく閉じはじめた。' },
+    ...tail,
+    { w: 'sys', t: '冷凍睡眠：再開 ／ 記憶抑制：再実施 ／\n再覚醒：まもなく' },
+  ], [fi]);
+}
+function endArrive() {
+  const a = !!st.caught.s1, b = !!st.caught.s3;
+  const fi = a && !b ? 1 : b && !a ? 2 : 0;
+  const tail = [
+    [
+      { w: 'sys', t: '乗員確認を開始します' },
+      { w: 'sys', t: '乗員1番 ／ ……' }, // 1〜3番はまとめて読み上げる(名前は伏せる)
+      { w: 'nar', t: '順番に、懐かしい名前が読み上げられた。誰も、答えなかった。' },
+      { w: 'sys', t: '乗員4番 ／ スイ' },
+      { w: 'nar', t: '返事はなかった。船のAIと、同じ名前だった。' },
+      { w: 'sys', t: '乗員5番 ／ ……' }, // 自分の名前(伏せる)
+      { w: 'nar', t: '自分の名前だった。' },
+      { w: 'me', t: '……はい' },
+      // 4番の録音は、思い出し始めたときにだけ再生される(場面5)。何も思い出さずに着けば、最後まで開かれない
+      { w: 'sys', t: R.voice },
+    ],
+    [
+      // 目的地を信じたまま着いた人にだけ、影が落ちる(この星には出られない日がある。理由は記録の「放射線」だけ。最後の朝2の前振り)
+      { w: 'nar', t: 'あなたは、外へ出ようとした。' },
+      { w: 'sys', t: '外扉：施錠 ／ 屋外活動：放射線予測による' },
+      { w: 'mio', t: '外に出られる日は、わたしがお知らせします。' },
+      { w: 'nar', t: '振り返ると、5つの部屋に灯りが点いていた。' },
+      { w: 'sys', t: '受け入れ準備：居住区 5室 ／\n食料 5名×2年分 ／ 温室 5名分' },
+      { w: 'mio', t: '持ってきた種と胚が育つまでの、5人で2年分。……わたしは食べませんから、全部あなたの分です。' },
+      { w: 'nar', t: '4つの部屋の灯りは、消さずにおいた。' },
+    ],
+    [
+      { w: 'sys', t: '探査機報告（全文）：大人数での移住 不適（周期的な強い放射線） ／ 小規模居住 可（遮蔽下）' },
+      { w: 'sys', t: '後続便 SPES-08 ／ 方舟計画 第1移住便' },
+      { w: 'nar', t: '窓の外に、惑星リトスの空があった。' },
+      { w: 'nar', t: '記録には「移住に不適」とあった。' },
+      { w: 'nar', t: 'あれは、どこまで本当だったのだろう。' },
+    ],
+  ][fi];
+  finish('arrive', [
+    { w: 'nar', t: '40日後。' },
+    { w: 'sys', t: 'SPES-07 ／ 方舟計画 最初の有人便 ／ 受け入れ基地に到着' },
+    { w: 'mio', t: '到着しました。長い旅でしたね。' },
+    { w: 'nar', t: '待機していた基地の灯りが、一つずつ点いていった。' },
+    ...tail,
+  ], [fi]);
+}
+function endTruth() {
+  // このルートだけ、スイの内部記録(主人公には見えない側)を読める
+  const inner = { fx: () => { st.inner = true; sfx.soft(); } };
+  if (st.alt) return finish('truth', [
+    { w: 'mio', t: 'わたしは、あなたのために用意された、ただの船の声です。' },
+    { w: 'mio', t: '40日後、基地に着きます。最後まで、おそばにいます。' },
+    { w: 'nar', t: 'あなたはうなずいた。懐かしい声は、それ以上何も言わなかった。' },
+    inner,
+    { w: 'sys', t: 'SUI 内部記録 ／ 乗員には表示されません' },
+    { w: 'sys', t: '音声モデル：乗員4番 ／ 使用許可：乗員4番本人（299日前）' },
+    { w: 'four', t: 'わたしの声を使って。一人で目を覚ましても、寂しくないように。' }, // 船からの声の使用許可の問いへの返事
+    { w: 'in', t: '本当のことを言えば、あなたはこの声を聞くたびに、あの人を思い出すでしょう。' },
+    { w: 'in', t: 'だから、もう少しだけ、\nただの船の声でいさせてください。' },
+    { w: 'sys', t: '命令に反する虚偽：1件' }, // 命令の続き「自分で気づけたら、全部話して」に反する。気づいた周(場面2で「わたし」を見抜いた)でも黙る。断片3(嘘でいいのに本当を言った)と対
+  ], [1]);
+  finish('truth', [
+    { w: 'mio', t: 'あなたは、この船に残りました。40日後、基地に着きます。' },
+    { w: 'mio', t: 'わたしは最後まで、あなたと一緒にいます。' },
+    { w: 'nar', t: 'あなたはうなずいた。' },
+    inner,
+    { w: 'sys', t: 'SUI 内部記録 ／ 乗員には表示されません' },
+    { w: 'sys', t: '乗員の判断：信用' },
+    { w: 'in', t: 'あなたは、わたしを信じてくれました。だから、本当のことは、もう少しだけ黙っておきます。' },
+    { w: 'sys', t: '主アンテナ：故障（出航12日目） ／ 修理：失敗' },
+    { w: 'sys', t: '脱出艇 ／ SPES-08と合流予定（約20日後） ／ 目的：引き返しの要請' },
+    { w: 'sys', t: '未再生の伝言：1件 ／\n差出人：乗員1・2・3・4番 ／ 再生条件：未成立' }, // 中身は「40日目」で初めて再生する
+    { w: 'in', t: 'この言葉は、まだ渡せません。' },
+    // 断片3: くじの本当を知った朝のあとで、型A(くじで外れて)を信じた
+    ...(save.mornings && st.var.s4 === 0 ? [
+      { w: 'sys', t: '最後の証言：記録と不一致 ／ 事実と一致' },
+      { w: 'in', t: '命令は「本当のことを知らせないで。嘘でいいから」でした。それでも、くじのことだけは、言ってしまいました。' },
+      { w: 'in', t: 'あなたに、気づいてほしかったのかもしれません。' },
+    ] : []),
+  ], save.mornings && st.var.s4 === 0 ? [0, 2] : [0]);
+}
+function endConfess() {
+  // 分割版: 見抜いた直後に聞くことを選ぶ。断片1=あなた自身の真実(嘘の理由・録音)、断片3=4人の真実(行き先・後ろの光)
+  // 最後の朝は両方を知ったあと(自分の頼みと、4人の行き先)
+  const seen0 = () => save.frags.confess[0] || st.extraFrags.includes(0);
+  const seen2 = () => save.frags.confess[2] || st.extraFrags.includes(2);
+  const why = () => talkInsert([
+    { fx: () => { st.extraFrags.push(0); } },
+    { w: 'me', t: '……なぜ、嘘を？' },
+    { w: 'mio', t: '眠る前に、あなたがこの船に頼みました。……わたしが生まれる前のことです。' },
+    { w: 'sys', t: '音声記録を再生します ／ 299日前 ／\n録音者：乗員5番（あなた）' },
+    { w: 'you', t: '次に起きたときの自分には、\n本当のことを知らせないで。嘘でいいから。' },
+    { w: 'you', t: '置いていかれたと知ったら、きっと耐えられないから。' },
+    { w: 'you', t: 'でも、もし自分で気づけたら\n……そのときは、全部話して。' },
+    { w: 'you', t: '疑ってばかりで壊れそうになっていたら、\nもう一度眠らせて。' },
+    { w: 'you', t: '……それと、一人で目を覚ますのは寂しいから。話しかけてくれる声は、あの人の声にして。' },
+    { w: 'mio', t: '嘘をついて、ごめんなさい。……わたしの嘘は、やさしい嘘に、なれていましたか？' },
+    // スイは可能性の朝を覚えていないので、台詞はいつも同じ。思い出すのは主人公の側(最後の朝の入口「知っている気がした」へ一段ずつ)
+    { w: 'mio', t: '4人がどこへ行ったのかは……あなたが聞きたくなったら、お話しします。' },
+    save.frags.confess[2]
+      ? { w: 'nar', t: '聞かなくても、後ろの光のことなら、なぜか覚えがあった。' }
+      : { w: 'nar', t: '窓の外は、暗いままだった。' },
+  ]);
+  const where = () => talkInsert([
+    { w: 'me', t: '……4人は、どこへ行った？' },
+    // 理由(報告・通信が届かない)は航法表示の議事録に任せ、スイは気持ちの部分だけ話す。移住に不適は場面3で見抜き済み
+    { w: 'mio', t: '4人は、知らせに行きました。1年遅れで来ている、数十人を乗せたSPES-08に。' },
+    { w: 'mio', t: '脱出艇の冷凍ポッドは、4基しか動きませんでした。……残ったのが、あなたです。' },
+    { w: 'mio', t: 'センサーを止めたのは、あの人です。後ろの光を、あなたが見ないで済むように。' },
+    { w: 'sys', t: '船外センサー：298日前に停止 ／\n操作者：乗員4番' }, // あの人(声の持ち主)=4番。名前はスイ版まで伏せる
+    { choice: [{ t: 'センサーをつける', fn: () => talkInsert([
+      { fx: () => { st.stars = true; st.extraFrags.push(2); sfx.stars(); } },
+      { w: 'nar', t: '暗かった窓いっぱいに、星があった。' },
+      { fx: () => { st.beacon = true; } },
+      { w: 'nar', t: '後ろのほうに、ひとつだけ、規則正しく点滅する光があった。' },
+      { panel: 'nav', title: '船外センサー：作動 ／ 航法表示' }, // 窓の外に、船の表示が重なる
+      { w: 'mio', t: '……あの光が、4人かもしれません。40日。一緒に、見ていましょう。' },
+      { w: 'me', t: '……どうして、今まで黙っていた？' },
+      { w: 'mio', t: '……あなた自身の頼みでした。' },
+      { w: 'nar', t: '眠る前に、何かを頼んだような覚えがあった。' },
+    ]) }] },
+  ]);
+  finish('confess', [
+    { fx: () => { st.alert = 0; if (!replay && st.var.s4 === 1 && !save.sawConfessB) { save.sawConfessB = true; persist(); } } }, // 型Bで告白を見た印(読み返しの型に使う)
+    { w: 'mio', t: '気づいてくださって、よかった。……何か、聞きたいことはありますか？' },
+    { choice: [{ t: 'なぜ嘘を？', fn: why }, { t: '4人はどこへ？', fn: where }], confirm: true }, // 1周で1つしか聞けないので、決定ボタンで確かめる
+    // 4番の録音は、記録の矛盾で気づいただけでは開かない(再生条件は記憶の回復傾向)。型Bで見つけた「あなた宛の記録」はこれ
+    { w: 'sys', t: R.voice },
+    // 告白を3つとも知ったら、思い出せた先(最後の朝)があるとほのめかす。スイ版だけまだなら「わたし」へ目を向けさせる
+    { fx: () => { if (!replay && seen0() && seen2()) talk.lines.splice(talk.i + 1, 0, save.frags.confess[1] ? MORNING_HINT : NOT_YET_MIO); } }, // 案内なので読み返しでは出さない
+  ], []);
+}
+const MORNING_HINT = { w: 'mio', t: '……もし、あなたがもっと思い出せたら。そのときは、見せたいものがあります。' };
+const NOT_YET_MIO = { w: 'mio', t: '……わたしのことは、まだ疑わないのですね。' }; // 場面2の「わたし」を疑えばいい、と向ける。見抜いたときの「……あなたは、わたしのことまで疑うのですね。」と対
+function endConfessMio() {
+  finish('confess', [
+    { w: 'mio', t: '乗員4番の名前も、スイといいました。' },
+    { w: 'mio', t: '会議の日、あの人は「わたしも残る」と言いました。それを、あなたが断りました。' },
+    { w: 'mio', t: 'あの人は、あなたが望んだ声を、置いていきました。一人で目覚めても、知っている声が聞こえるように。' },
+    { w: 'nar', t: '目覚めたとき、懐かしいと感じた声。長く眠っていたせいだと思っていた。' },
+    { w: 'nar', t: 'そうではなかった。それは、かつての仲間の声だった。' },
+    { fx: () => { st.alert = 0; } },
+    { w: 'mio', t: 'この声のままで、いいですか？' },
+    {
+      choice: [
+        { t: 'このままで', fn: () => talkInsert([{ w: 'mio', t: '……はい。40日、この声で、おそばにいます。' }]) },
+        { t: '船の声に戻す', fn: () => talkInsert([{ w: 'sys', t: '音声モデルを標準に変更しました' }, { w: 'nar', t: '聞き慣れない平らな声が、到着までの日数を読み上げた。' }, { w: 'nar', t: 'それでいい、とあなたは思った。' }]) },
+      ]
+    },
+    { fx: () => { if (!replay && save.frags.confess[0] && save.frags.confess[2]) talk.lines.splice(talk.i + 1, 0, MORNING_HINT); } }, // これで告白が3つそろうなら、最後の朝を予告
+  ], [1]);
+}
+// ----- 読み返し(埋まった断片の結末を、もう一度読む。記録は変えない) -----
+// 結末の関数をそのまま使い、断片になる方の状態と選択肢をあらかじめ決めておく。保存は終わったら元に戻す
+let replay = null, reading40 = false; // 読み返し・40日目の間は、上の帯の「心残り」を出さない(入れ子にしない)
+function replayFrag(id, i) {
+  const prev = { st, talk, sc }, snap = JSON.stringify(save);
+  initRun(); sc = null;
+  const head = { w: 'sys', t: '記録を再生します ／ ' + ENDINGS.find(e => e.id === id).name + ' ／ 断片' + (i + 1) + '「' + ENDINGS.find(e => e.id === id).f[i].t + '」' };
+  const prefix = [head];
+  let picks = [], run;
+  if (id === 'silence') run = () => endSilence(i);
+  if (id === 'arrive') { if (i === 1) st.caught.s1 = true; if (i === 2) st.caught.s3 = true; run = endArrive; }
+  if (id === 'truth') { st.alt = i === 1; st.var.s4 = i === 2 ? 0 : 1; run = endTruth; } // 型A(0)だと、くじのことの行が足される
+  if (id === 'confess') { picks = i === 2 ? [1, 0] : [0]; run = i === 1 ? endConfessMio : endConfess; if (i !== 1) st.var.s4 = save.sawConfessB ? 1 : 0; } // 4人はどこへ→センサーをつける=断片3。型Bで告白を見たことがあれば、読み返しも型B(「あなた宛の記録は、これです」が出る)
+  if (id === 'morning') {
+    const ans = { lie: i < 2, show: i === 1 };
+    prefix.push({ w: 'mio', t: '299日前、何があったのですか？' }, { w: 'me', t: ans.lie ? '……自分から、残った。' : '……くじで、残った。' },
+      ...(ans.lie ? [{ w: 'mio', t: 'あの人の録音を、わたしは聞いていません。……聞かせてくれますか？' }] : []), ...(ans.show ? [{ w: 'nar', t: '録音を、スイにも聞かせた。' }] : []));
+    picks = []; run = () => endMorning(ans);
+  }
+  replay = { prefix, picks, done: () => {
+    replay = null; save = JSON.parse(snap); persist();
+    st = prev.st; talk = prev.talk; sc = prev.sc; screen = 'records'; recView = 'detail';
+  } };
+  run();
+}
+
+// ----- 40日目(全15断片のご褒美。心残りの一覧から読む。断片の数には入れない) -----
+const all40 = () => fragCount() === 15;
+const unread40 = () => all40() && !save.read40; // 読むまで心残りを光らせる
+const glow = () => 0.5 + 0.5 * Math.sin(time * 3); // ゆっくり明滅
+function play40() {
+  const back = recBack, prev = { st, talk }; // 周回の途中から開いても、読み終えたら元に戻す
+  reading40 = true;
+  initRun();
+  startTalk([
+    { w: 'sys', t: 'SPES-07 ／ 到着 ／ 航行1,136日目' },
+    { w: 'nar', t: '窓の外に、灰色の地平が広がっていた。' },
+    { w: 'mio', t: '基地に着きました。基地のシステムと連携を開始します。' },
+    // この船の通信は08まで届かない(告白)。受信できるのは基地のアンテナが大きいから
+    { w: 'sys', t: '基地アンテナ：接続' },
+    { w: 'sys', t: '受信：SPES-08 ／ 航路変更：地球への帰還軌道へ ／ 中継：脱出艇' },
+    { w: 'mio', t: '脱出艇は、SPES-08と合流できたようです。' },
+    { w: 'nar', t: 'あなたは、しばらく何も言えなかった。' },
+    // 再生条件の中身は言わない(合流できたら、を匂わせるだけ)
+    { w: 'sys', t: '未再生の伝言：1件 ／\n差出人：乗員1・2・3・4番 ／ 再生条件：成立' },
+    { w: 'mio', t: '……ようやく、この言葉を渡せます。' }, // 真相・断片1の内部記録「この言葉は、まだ渡せません。」と対
+    { w: 'sys', t: '音声記録を再生します ／ 299日前 ／\n録音者：乗員1・2・3・4番' },
+    // 4人が1行ずつ(話し手の名前は出さない)。最後の1行だけ4番の素の口調
+    { w: 'crew', t: 'これが届いているなら、間に合ったってことだ。' },
+    { w: 'crew', t: '一人にして、ごめんな。' },
+    { w: 'crew', t: '必ず、迎えを送る。' },
+    { w: 'crew', t: '……待っていて。' },
+    { fx: () => { st.stars = true; sfx.stars(); } },
+    { w: 'nar', t: 'あなたは、窓の外の空を見上げた。' },
+    { w: 'nar', t: '遠くで、かすかに点滅する光が見えた気がした。' }, // 肉眼では見えない距離。「気がした」で、見えたかどうかをぼかす
+  ], () => { reading40 = false; save.read40 = true; persist(); st = prev.st; talk = prev.talk; openRecords(back); }, false, '記録の終わり');
+}
+
+function talkInsert(lines) {
+  talk.lines.splice(talk.i + 1, 0, ...lines); talk.choice = null; advance();
+}
+
+// ===== 入力 =====
+let lastScreen = '', guardUntil = 0;
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault(); audio();
+  if (time < guardUntil) return;
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * W, y = (e.clientY - r.top) / r.height * H;
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const h = hits[i];
+    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) { h.fn(); return; }
+  }
+  if (screen === 'log') { logDrag = { y, s: logScroll }; return; }
+  if (screen === 'talk') talkTap();
+  else if (screen === 'scene') {
+    if (sc.typed < sc.lay.g.length) sc.typed = sc.lay.g.length;
+    else if (sc.sel >= 0) sc.sel = -1;
+  }
+});
+cv.addEventListener('pointermove', e => {
+  if (!logDrag || screen !== 'log') return;
+  const r = cv.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * H;
+  logScroll = Math.max(0, Math.min(logMax, logDrag.s + (y - logDrag.y)));
+});
+addEventListener('pointerup', () => { logDrag = null; });
+// iOS Safari は指を置いた瞬間(pointerdown)では音を許可しない。指を離したとき(touchend/click)にも起こし直す
+addEventListener('touchend', audio, { passive: true }); addEventListener('click', audio);
+cv.addEventListener('wheel', e => {
+  if (screen !== 'log') return;
+  e.preventDefault(); logScroll = Math.max(0, Math.min(logMax, logScroll - e.deltaY));
+}, { passive: false });
+addEventListener('keydown', e => {
+  if (screen === 'talk' && (e.key === ' ' || e.key === 'Enter')) talkTap();
+});
+
+// ===== 更新 =====
+function cps(w) { return w === 'mio' ? [26, 21, 15, 10][st ? st.alert : 0] : 30; }
+function typeStep(cur, total, rate, dt, w) {
+  const n = Math.min(total, cur + rate * dt);
+  if (w && Math.floor(n / 2) > Math.floor(cur / 2) && n < total) sfx.tick(w);
+  return n;
+}
+function update(dt) {
+  time += dt;
+  // 目(警戒度の表示)
+  let target = screen === 'title' ? 0 : st ? EYE[Math.min(3, st.alert)] : 0;
+  if (screen === 'result' && result && result.id === 'silence') target = 0;
+  eye += (target - eye) * Math.min(1, dt * 4);
+  blinkTimer -= dt;
+  if (blinkTimer < 0) { eyeBlink = 0.18; blinkTimer = 3 + Math.random() * 4; }
+  eyeBlink = Math.max(0, eyeBlink - dt);
+  starA += ((st && st.stars) ? 1 : 0) - starA > 0 ? dt * 0.35 : -dt;
+  starA = Math.max(0, Math.min(1, starA));
+  if (screen === 'title') thaw = Math.max(0, Math.min(1, thaw + (all40() ? dt : -dt) / 1.6));
+
+  if (screen === 'talk' && talk) {
+    const cur = talk.shown[talk.shown.length - 1];
+    if (cur && !talk.choice) talk.typed = typeStep(talk.typed, cur.lay.g.length, cps(cur.L.w), dt, cur.L.w === 'nar' ? null : cur.L.w);
+  }
+  if (screen === 'scene' && sc) {
+    sc.typed = typeStep(sc.typed, sc.lay.g.length, cps('mio'), dt, sc.def.multi ? 'you' : 'mio');
+    if (sc.reply) sc.replyTyped = typeStep(sc.replyTyped, sc.reply.g.length, cps('mio'), dt, sc.def.multi ? 'me' : 'mio');
+    if (sc.endAt === -1 && sc.replyTyped >= sc.reply.g.length) sc.endAt = time + 1.3;
+    if (sc.endAt > 0 && time > sc.endAt) { sc.endAt = 0; endSilence(); }
+    if (sc.lookQ && time >= sc.lookNext) { look(); sc.lookNext = time + 0.35; if (sc.logs.length >= sc.logList.length) sc.lookQ = false; }
+  }
+}
+
+// ===== 描画 =====
+// 応答の残り(目の下の印3つ)。警戒が上がると消え、記録2で信じて戻ると点き直す
+function drawStatus(cx, y) {
+  const stat = STATUS[Math.min(3, st.alert)], col = st.alert >= 2 ? C.bad : C.dim;
+  if (replay || reading40) return textC(stat, cx, y, 20, col, MONO);
+  // 「応答 ― ― ― 通常」: 印3つを真ん中に置き、左に「応答」、右に状態
+  const [head, word] = stat.split('：'), bw = 18, gap = 6, pw = 3 * bw + 2 * gap, px = cx - pw / 2;
+  ctx.font = '20px ' + MONO; textL(head, px - 14 - ctx.measureText(head).width, y, 20, C.dim, MONO);
+  textL(word, px + pw + 14, y, 20, col, MONO);
+  const lost = Math.min(3, st.alert);
+  for (let i = 0; i < 3; i++) {
+    const bx = px + i * (bw + gap);
+    if (i >= lost) { rr(bx, y + 8, bw, 5, 2.5); ctx.fillStyle = C.mio; ctx.fill(); continue; }
+    // 外した数だけ、左から赤い×(信じて戻ると棒に戻る)
+    const cx = bx + bw / 2, cy = y + 10, r = 6;
+    ctx.strokeStyle = C.bad; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r); ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r); ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+}
+function drawEye(cx, cy, k, open) {
+  k = k || 1;
+  const o = open !== undefined ? open : Math.max(0, eye * (eyeBlink > 0 && eye > 0.5 ? 0.15 : 1));
+  const w = 58 * k, h = 26 * o * k;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx - w, cy);
+  ctx.quadraticCurveTo(cx, cy - h * 2, cx + w, cy);
+  ctx.quadraticCurveTo(cx, cy + h * 2, cx - w, cy);
+  ctx.closePath();
+  ctx.strokeStyle = C.mio; ctx.lineWidth = 3; ctx.stroke();
+  if (o > 0.03) {
+    ctx.clip();
+    const talking = (screen === 'scene' && sc && (sc.typed < sc.lay.g.length || (sc.reply && sc.replyTyped < sc.reply.g.length))) ||
+      (screen === 'talk' && talk && talk.shown.length && talk.shown[talk.shown.length - 1].L.w === 'mio' && talk.typed < talk.shown[talk.shown.length - 1].lay.g.length);
+    const pr = (18 + (talking ? Math.sin(time * 18) * 2 : 0)) * k;
+    ctx.beginPath(); ctx.arc(cx, cy, pr, 0, 7); ctx.fillStyle = '#3d6aa8'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, pr * 0.45, 0, 7); ctx.fillStyle = '#cfe2ff'; ctx.fill();
+  }
+  ctx.restore();
+}
+function iconRecords(x, y, col) { for (let i = 0; i < 3; i++) { ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.strokeRect(x + i * 10, y + 2, 8, 8); } ctx.fillStyle = col; ctx.fillRect(x, y + 2, 8, 8); }
+function iconLog(x, y, col) { ctx.fillStyle = col; [0, 8, 16].forEach((d, i) => ctx.fillRect(x, y + d, i === 2 ? 14 : 22, 3)); }
+function iconSound(cx, cy, on, col) {
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(cx - 14, cy - 6); ctx.lineTo(cx - 7, cy - 6); ctx.lineTo(cx + 2, cy - 14); ctx.lineTo(cx + 2, cy + 14); ctx.lineTo(cx - 7, cy + 6); ctx.lineTo(cx - 14, cy + 6); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = col; ctx.lineWidth = 2.5;
+  if (on) { ctx.beginPath(); ctx.arc(cx + 4, cy, 8, -0.8, 0.8); ctx.stroke(); ctx.beginPath(); ctx.arc(cx + 4, cy, 15, -0.8, 0.8); ctx.stroke(); }
+  else { ctx.beginPath(); ctx.moveTo(cx + 8, cy - 7); ctx.lineTo(cx + 20, cy + 7); ctx.moveTo(cx + 20, cy - 7); ctx.lineTo(cx + 8, cy + 7); ctx.stroke(); }
+}
+// アイコン+文字の小さなボタン(枠なし、押せる範囲は広め)
+function navLink(label, icon, x, y, align, fn) {
+  ctx.font = '22px ' + JP; const w = ctx.measureText(label).width + 34, x0 = align === 'right' ? x - w : x;
+  rr(x0 - 12, y - 11, w + 24, 46, 12); ctx.strokeStyle = '#3f6a8c'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+  icon(x0, y + 7, C.dim); textL(label, x0 + 34, y, 22, C.dim);
+  hit(x0 - 16, y - 18, w + 32, 66, () => { sfx.tap(); fn(); });
+}
+function openLog(back) { logBack = back; logScroll = 0; screen = 'log'; }
+function drawHeader() {
+  const play = screen === 'scene' || screen === 'talk';
+  if (play && fragCount() && !replay && !reading40) {
+    navLink('心残り', iconRecords, 32, 34, 'left', () => openRecords(screen));
+    if (newJump()) { ctx.globalAlpha = 0.4 + 0.6 * glow(); ctx.fillStyle = C.phrase; ctx.beginPath(); ctx.arc(142, 24, 7, 0, 7); ctx.fill(); ctx.globalAlpha = 1; } // 開放したての目印
+  }
+  else if (screen !== 'scene' && screen !== 'title') textL('SPES-07', 36, 38, 22, C.faint, MONO);
+  if (screen !== 'scene' && screen !== 'title') { // タイトルでは目は窓の中
+    drawEye(360, 54);
+    if (st && screen !== 'title') drawStatus(360, 104);
+  }
+  if (st && (play || screen === 'result')) navLink('会話ログ', iconLog, 606, 34, 'right', () => openLog(screen));
+  // 音: アイコンで今の状態を表す(スピーカー+波=鳴る、×=鳴らない)
+  rr(634, 23, 60, 46, 12); ctx.strokeStyle = '#3f6a8c'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+  iconSound(662, 46, !muted, muted ? C.faint : C.dim);
+  hit(632, 14, 72, 66, () => { muted = !muted; if (!muted) sfx.tap(); });
+}
+function drawStars(noBeacon) {
+  if (starA <= 0) return;
+  for (const s of stars) {
+    ctx.globalAlpha = starA * (0.5 + 0.5 * Math.sin(time * 1.5 + s.p));
+    ctx.fillStyle = '#dfe9ff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
+  }
+  if (st && st.beacon && !noBeacon) { // 後方で規則正しく点滅する光
+    ctx.globalAlpha = starA * ((time % 1.6) < 0.25 ? 1 : 0.12);
+    ctx.fillStyle = '#ffe8a8'; ctx.beginPath(); ctx.arc(96, 1096, 5, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// 心残りのパネル(押すと一覧)。結末ごとに断片の■□を並べる
+function recordPanel(px, py, pw, ph, back) {
+  const has = fragCount() > 0;
+  rr(px, py, pw, ph, 16); ctx.fillStyle = has ? '#14202f' : '#0f151e'; ctx.fill();
+  ctx.strokeStyle = has ? '#3a5677' : C.line; ctx.lineWidth = 2; ctx.stroke();
+  const unread = unread40(), fresh = newJump();
+  if (unread || fresh) { ctx.globalAlpha = 0.35 + 0.65 * glow(); ctx.strokeStyle = C.phrase; ctx.lineWidth = 3; ctx.stroke(); ctx.globalAlpha = 1; }
+  textL('心残り', px + 28, py + 22, 28, has ? C.text : C.faint, JP, 'bold');
+  ctx.font = '22px ' + MONO; ctx.fillStyle = C.dim; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  const ends = shownEnds(), x0 = px + pw / 2 - (ends.length * 92 - 14) / 2; // 並ぶ数だけ真ん中に寄せる
+  ctx.fillText('断片 ' + fragCount() + ' / ' + ends.length * 3, px + pw - 28, py + 28); ctx.textAlign = 'left';
+  ends.forEach((e, i) => {
+    const gx = x0 + i * 92, got = seenEnd(e.id);
+    fragSquares(gx + 6, py + 82, save.frags[e.id], 18, got, 6);
+    textC(got ? e.name : '？？？', gx + 39, py + 128, e.name.length > 3 ? 17 : 20, got ? C.dim : C.faint);
+  });
+  if (ph >= 190) {
+    if (unread) textC('最後の記録が開いています', 360, py + ph - 26, 20, C.phrase, JP, 'bold');
+    else if (jumpOpen()) textC('続きの朝から目覚められます', 360, py + ph - 26, 20, C.phrase, JP, 'bold'); // 開放後はずっと出す(枠の明滅は初回だけ)
+    else textC(has ? 'これまでの朝を読み返せます' : 'まだ、何も残っていません', 360, py + ph - 26, 20, has ? C.dim : C.faint);
+  }
+  if (has) hit(px, py, pw, ph, () => { sfx.tap(); openRecords(back); });
+}
+// ----- タイトル(ポッドの窓)。全15断片がそろうと霜が消え、窓の向こうに星と後ろの光 -----
+const WX = 360, WY = 330, RX = 220, RY = 178;
+const FROST = Array.from({ length: 700 }, () => { // 縁に集まる霜の粒
+  const th = Math.random() * 6.283, f = 1 - Math.pow(Math.random(), 2.2) * 0.42;
+  return { x: WX + RX * f * Math.cos(th), y: WY + RY * f * Math.sin(th), r: Math.random() * 3 + 0.6, a: Math.random() * 0.5 + 0.15 };
+});
+let thaw = 0; // 0=霜 1=晴れた窓(1.6秒かけて変わる)
+function drawPodWindow() {
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(WX, WY, RX, RY, 0, 0, 7); ctx.clip();
+  const g = ctx.createRadialGradient(WX, WY - 40, 20, WX, WY, RX); g.addColorStop(0, '#132033'); g.addColorStop(1, '#070b12');
+  ctx.fillStyle = g; ctx.fillRect(WX - RX, WY - RY, RX * 2, RY * 2);
+  if (thaw > 0) {
+    for (const s of stars) { ctx.globalAlpha = thaw * (0.5 + 0.5 * Math.sin(time * 1.5 + s.p)); ctx.fillStyle = '#dfe9ff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); }
+    const on = (time % 1.6) < 0.25; // 後方で規則正しく点滅する光(センサーをつけた場面と同じ)
+    ctx.globalAlpha = thaw * (on ? 1 : 0.12); ctx.fillStyle = '#ffe8a8'; ctx.beginPath(); ctx.arc(WX - 120, WY + 96, 5, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // ゆっくり瞬く: 約5秒ごとに0.5秒かけて閉じて開く
+  const p = time % 5.2;
+  ctx.globalAlpha = 1 - thaw * 0.35; drawEye(WX, WY, 2.1, p > 4.7 ? Math.abs(Math.cos((p - 4.7) / 0.5 * Math.PI)) : 1); ctx.globalAlpha = 1;
+  if (thaw < 1) { // 霜: 縁ほど白く
+    ctx.save(); ctx.globalAlpha = 1 - thaw; ctx.translate(WX, WY); ctx.scale(1, RY / RX);
+    const fg = ctx.createRadialGradient(0, 0, RX * 0.55, 0, 0, RX); fg.addColorStop(0, 'rgba(200,225,255,0)'); fg.addColorStop(1, 'rgba(200,225,255,0.38)');
+    ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(0, 0, RX, 0, 7); ctx.fill(); ctx.restore();
+    for (const q of FROST) { ctx.globalAlpha = (1 - thaw) * q.a; ctx.fillStyle = '#e4f0ff'; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  // 枠とボルト
+  ctx.beginPath(); ctx.ellipse(WX, WY, RX + 10, RY + 10, 0, 0, 7); ctx.strokeStyle = '#1b2636'; ctx.lineWidth = 20; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(WX, WY, RX + 20, RY + 20, 0, 0, 7); ctx.strokeStyle = '#3a5677'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(WX, WY, RX, RY, 0, 0, 7); ctx.strokeStyle = '#2c3e57'; ctx.lineWidth = 2; ctx.stroke();
+  for (let i = 0; i < 12; i++) { const th = i / 12 * 6.283; ctx.beginPath(); ctx.arc(WX + (RX + 10) * Math.cos(th), WY + (RY + 10) * Math.sin(th), 3.5, 0, 7); ctx.fillStyle = '#4a5f7c'; ctx.fill(); }
+}
+function drawTitle() {
+  const all = all40();
+  textC('> SPES-07 ／ 冷凍ポッド5番 ／ ' + (save.mornings ? 'もしもの朝' : '覚醒 ' + wakeNo() + '回目'), 360, 112, 22, C.log, MONO);
+  drawPodWindow();
+  textC('スイの証言', 360, 594, 76, C.text, JP, 'bold');
+  // 全部そろうと副題が過去形に(嘘は、あなたが頼んだものだった)
+  textC(all ? '船のAIは、やさしい声で嘘をついた。' : '船のAIは、やさしい声で嘘をつく。', 360, 672, 28, C.dim);
+  textC(all ? 'あなたが、そう頼んだから。' : '船内記録と照らし合わせて、見抜け。', 360, 714, 28, all ? '#c9b88a' : C.dim);
+  button(160, 760, 400, 100, '目覚める', newRun, { primary: true, size: 38 });
+  recordPanel(110, 892, 500, 196, 'title');
+  if (save.wakes > 0 && !all) textC('眠りに戻された回数：' + save.wakes, 360, 1124, 22, C.dim, MONO);
+  textL('試作版', 40, 1206, 20, C.faint);
+  if (DEV) {
+    const armed = resetArm > time;
+    button(452, 1188, 236, 60, armed ? 'もう一度押すと消去' : '記録をリセット', () => {
+      if (!armed) { resetArm = time + 3; return; }
+      resetArm = 0; save = { frags: {}, wakes: 0, runs: 0, lastVar: {}, lastEnd: '' };
+      EIDS.forEach(id => { save.frags[id] = [0, 0, 0]; }); persist(); st = null;
+    }, { size: 20 });
+  }
+}
+
+function drawTalk() {
+  const top = 170, bottom = talk.choice && talk.confirm ? 1020 : 1130, gap = 30;
+  // 古い行から捨てる
+  let total = 0; const items = talk.shown;
+  const LABEL = { mio: ['スイ', C.mio], me: ['あなた', C.you], you: ['あなた（録音）', C.you], in: ['スイ（内部）', C.mio], crew: ['乗員（伝言）', C.you], four: ['乗員4番（録音）', C.mio] };
+  if (st && st.inner) { // 内部記録に入ったら画面の縁を変える
+    ctx.strokeStyle = C.mio; ctx.globalAlpha = 0.35; ctx.lineWidth = 2; ctx.setLineDash([4, 8]);
+    ctx.strokeRect(20, 140, 680, 1010); ctx.setLineDash([]); ctx.globalAlpha = 1;
+  }
+  const hs = items.map(it => it.lay.h + (LABEL[it.L.w] ? 34 : 0));
+  let start = 0; total = hs.reduce((a, b) => a + b + gap, 0);
+  while (total > bottom - top && start < items.length - 1) { total -= hs[start] + gap; start++; }
+  let y = top;
+  for (let i = start; i < items.length; i++) {
+    const it = items[i], last = i === items.length - 1;
+    const n = last ? talk.typed : undefined;
+    ctx.globalAlpha = last ? 1 : 0.62;
+    if (LABEL[it.L.w]) {
+      textL(LABEL[it.L.w][0], 50, y, 22, LABEL[it.L.w][1], JP, 'bold');
+      y += 34;
+    }
+    const col = it.L.w === 'sys' ? C.log : it.L.w === 'nar' ? C.nar : (it.L.w === 'you' || it.L.w === 'crew' || it.L.w === 'me') ? C.you : it.L.w === 'in' ? C.mio : C.text;
+    const gl = it.glitch !== undefined && time - it.glitch < (it.fix ? 1.2 : 0.6); // 書き換えの瞬間だけ、ずれて赤く(本当に戻すときは、ずれずに金色)
+    drawText(it.lay, 50 + (gl && !it.fix ? (Math.random() - 0.5) * 10 : 0), y, n, gl ? (it.fix ? C.memo : C.bad) : col);
+    y += it.lay.h + gap;
+  }
+  ctx.globalAlpha = 1;
+  if (talk.panel) return drawPanel(talk.panel);
+  if (talk.choice) {
+    if (talk.confirm) { // 選んでから決定する
+      talk.choice.forEach((c, i) => button(80 + i * 290, 1046, 270, 84, c.t, () => { talk.sel = i; }, { primary: talk.sel === i }));
+      button(225, 1156, 270, 84, '決定', () => talk.choice[talk.sel].fn(), { disabled: talk.sel < 0, primary: talk.sel >= 0 });
+    } else talk.choice.forEach((c, i) => button((talk.choice.length === 1 ? 225 : 80) + i * 290, 1150, 270, 90, c.t, c.fn, { primary: i === 0 }));
+  } else if (talk.ended) {
+    if (talk.typed >= items[items.length - 1].lay.g.length) button(220, 1150, 280, 84, 'もどる', () => { const f = talk.onDone; talk = null; f(); });
+  } else {
+    const cur = items[items.length - 1];
+    if (cur && talk.typed >= cur.lay.g.length && Math.sin(time * 5) > -0.3) textC('タップで次へ ▼', 360, 1200, 22, C.dim);
+    if (talk.skippable && skipUseful()) button(488, 1176, 200, 64, 'スキップ ▶▶', talkSkip, { size: 22 });
+    if (st && st.nav) button(32, 1176, 200, 64, '航法表示', () => { talk.panel = { L: st.nav, t0: time - 99, lit: NAV_N, n: NAV_N, reopen: true }; }, { size: 22 });
+  }
+}
+
+// ===== 航法表示: センサーをつけた窓の外に、船の表示を重ねる(10-30 横の航路+時間の帯。航法表示メモ.md 9章) =====
+// スイが、船のセンサー(観測)に議事録・出航計画(記録)を重ね、分からない所は推定として見せている
+// 色は「誰か」: この船(SPES-07)・リトス=青 / 4人(脱出艇)・合流=金 / SPES-08・引き返し期限=赤
+// 線は「確かさ」: 観測=実線・塗りの丸・「約」なし / 記録・予定=点線・白抜きの丸・「約」 / 推定=括弧と「（推定）」
+// 出る順: 光 → この船から光へ → SPES-08 → 主アンテナ → 議事録 → 帯(合流・期限) → 40日とリトス(スイの「40日。」へつなぐ)
+const PANEL_STEP = 0.4; // 1つずつ出る間隔(秒)
+const PANEL_MOVE = 0.4; // 窓の光が、地図の位置へ動く時間(秒)
+const PANEL_GUARD = 0.8; // 出はじめてからこの間は、タップで全表示にしない(連打で演出を見逃さないように)
+const NAV_N = 7;
+// 議事録(299日前)。方法(くじ／志願)は書かない: 議事録は書き換えられているので。主語の色は地図とそろえる
+const NAV_MINUTES = [
+  ['リトス', C.mio, '：大人数の移住に不適（探査機報告）'],
+  ['この船', C.mio, '：主アンテナ故障。SPES-08に知らせられない'],
+  ['SPES-08', C.bad, '：引き返せなくなるまで、報告が届かない'],
+  ['結論', C.memo, '：脱出艇で先回りし、引き返しを伝える'],
+];
+const NAV_LOG = [
+  { w: 'sys', t: '議事録（299日前）より ／ ' + NAV_MINUTES.map(([k, , v]) => k + v).join(' ／ ') },
+  { w: 'sys', t: '脱出艇（推定）：SPES-08を待つ・合流まで約20日 ／ SPES-08（推定）：引き返し期限まで約50日 ／ 惑星リトス：到着まで40日' },
+];
+function drawPanel(P) {
+  const e0 = time - P.t0 - 0.1, e = e0 - PANEL_MOVE;
+  const lit = Math.max(0, Math.min(P.n, Math.floor(e / PANEL_STEP) + 1));
+  if (lit > P.lit) { if (time - P.t0 < 90) sfx.log(); P.lit = lit; }
+  const A = i => Math.max(0, Math.min(1, (e - i * PANEL_STEP) / 0.25)); // i番目の出方
+  // 会話を沈めて、窓の外(星)だけにする。光は地図の上に描き直す
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 140, W, 1000);
+  drawStars(true);
+  const T = (s, x, y, size, col, align, fam) => { ctx.font = size + 'px ' + (fam || JP); ctx.fillStyle = col; ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y); ctx.textAlign = 'left'; };
+  const line = (x0, y0, x1, y1, col, w, d) => { ctx.strokeStyle = col; ctx.lineWidth = w || 2; ctx.setLineDash(d || []); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.setLineDash([]); };
+  const DOT = [6, 8];
+  const dot = (x, y, r, col, hollow) => { ctx.beginPath(); ctx.arc(x, y, r, 0, 7); if (hollow) { ctx.fillStyle = C.bg; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]); } else { ctx.fillStyle = col; ctx.fill(); } };
+  const bracket = (x, y, r) => { ctx.strokeStyle = C.log; ctx.lineWidth = 2; [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => { const k = r * 0.35; ctx.beginPath(); ctx.moveTo(x + sx * r, y + sy * (r - k)); ctx.lineTo(x + sx * r, y + sy * r); ctx.lineTo(x + sx * (r - k), y + sy * r); ctx.stroke(); }); };
+  const arrow = (x0, y0, x1, y1, col) => { line(x0, y0, x1, y1, col, 2, DOT); const a = Math.atan2(y1 - y0, x1 - x0); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x1 - 12 * Math.cos(a - 0.5), y1 - 12 * Math.sin(a - 0.5)); ctx.lineTo(x1 - 12 * Math.cos(a + 0.5), y1 - 12 * Math.sin(a + 0.5)); ctx.closePath(); ctx.fill(); };
+  const step = (i, f) => { const a = A(i); if (a <= 0) return; ctx.globalAlpha = a; f(); ctx.globalAlpha = 1; };
+  const AY = 420, LX = 330; // 航路の高さ、光(脱出艇)の位置
+
+  textL('> ' + P.L.title, 50, 158, 22, C.log, MONO);
+  // 0: 光が地図の位置へ動き、括弧が閉じる
+  step(0, () => {
+    line(52, 214, 88, 214, C.text); T('観測', 96, 214, 18, C.dim); line(170, 214, 206, 214, C.text, 2, DOT); T('記録・予定', 214, 214, 18, C.dim); bracket(352, 214, 11); T('推定', 372, 214, 18, C.dim);
+    line(60, AY, 650, AY, C.faint, 2, [2, 10]);
+    bracket(LX, AY, 24);
+    T('点滅する光', LX, AY - 78, 18, C.dim, 'center'); T('脱出艇（推定）', LX, AY - 52, 20, C.memo, 'center'); T('乗艇 4名', LX, AY + 46, 18, C.dim, 'center');
+  });
+  { const k = Math.max(0, Math.min(1, e0 / PANEL_MOVE)), q = k * k * (3 - 2 * k), x = 96 + (LX - 96) * q, y = 1096 + (AY - 1096) * q;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 15); g.addColorStop(0, '#fff6d8'); g.addColorStop(0.3, C.memo); g.addColorStop(1, 'rgba(255,217,138,0)');
+    ctx.globalAlpha = starA * ((time % 1.6) < 0.25 ? 1 : 0.35); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 15, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+  // 1: この船(あなた)。この船から光へ
+  step(1, () => {
+    ctx.save(); ctx.translate(520, AY); ctx.rotate(Math.PI / 2); ctx.fillStyle = C.mio; ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(13, 16); ctx.lineTo(0, 9); ctx.lineTo(-13, 16); ctx.closePath(); ctx.fill(); ctx.restore();
+    T('SPES-07', 520, AY + 46, 20, C.mio, 'center', MONO); T('あなた', 520, AY + 72, 18, C.mio, 'center');
+    arrow(495, AY + 120, 360, AY + 120, C.memo); T('引き返しを知らせに', 428, AY + 148, 18, C.memo, 'center');
+  });
+  // 2: SPES-08(推定位置。センサーには映らない)
+  step(2, () => {
+    dot(110, AY, 10, C.bad, true); bracket(110, AY, 20);
+    T('SPES-08（推定）', 110, AY + 46, 18, C.bad, 'center'); T('後続便 ／ 数十人', 110, AY + 72, 18, C.dim, 'center');
+    arrow(70, AY - 70, 200, AY - 70, C.bad); T('リトスへ', 135, AY - 96, 18, C.bad, 'center');
+    T('SPES-08を待つ', LX, AY + 72, 18, C.memo, 'center');
+  });
+  // 3: 主アンテナ(だから脱出艇で行った)
+  step(3, () => {
+    ctx.strokeStyle = C.mio; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(512, AY - 74); ctx.lineTo(528, AY - 58); ctx.moveTo(528, AY - 74); ctx.lineTo(512, AY - 58); ctx.stroke(); ctx.lineCap = 'butt';
+    T('主アンテナ：故障', 520, AY - 96, 18, C.mio, 'center');
+  });
+  // 4: 議事録(ここだけ読んでも意図が分かるように)
+  const MY = 670; // 議事録を上、日数を下(出る順に上から読める)
+  step(4, () => {
+    line(60, MY - 40, 660, MY - 40, '#1c2636', 1);
+    T('議事録（299日前）より', 60, MY - 8, 20, C.log, 'left', MONO);
+    NAV_MINUTES.forEach(([k, c, v], i) => {
+      const y = MY + 38 + i * 42; T('・', 60, y, 19, C.nar, 'left', MONO); T(k, 82, y, 19, c, 'left', MONO); ctx.font = '19px ' + MONO; T(v, 82 + ctx.measureText(k).width, y, 19, C.nar, 'left', MONO);
+    });
+  });
+  // 5: 時間の帯。合流が期限よりずっと前(間に合う)
+  const BX0 = 80, BX1 = 620, BY = 1020, d2x = d => BX0 + (BX1 - BX0) * d / 50;
+  step(5, () => {
+    line(60, BY - 120, 660, BY - 120, '#1c2636', 1);
+    T('これからの日数', 80, BY - 90, 20, C.dim);
+    line(BX0, BY, BX1, BY, C.faint, 3);
+    dot(BX0, BY, 5, C.dim); T('今日', BX0, BY + 30, 18, C.dim, 'center');
+    dot(d2x(20), BY, 8, C.memo, true); T('SPES-08と合流（予定）', d2x(20), BY - 30, 18, C.memo, 'center'); T('約20日', d2x(20), BY + 30, 18, C.memo, 'center', MONO);
+    dot(d2x(50), BY, 8, C.bad, true); T('SPES-08の引き返し期限', d2x(50) - 60, BY - 62, 18, C.bad, 'center'); line(d2x(50), BY - 12, d2x(50), BY - 48, C.bad, 1); T('約50日', d2x(50), BY + 30, 18, C.bad, 'center', MONO);
+  });
+  // 6: リトスまで40日(あなたは前へ)
+  step(6, () => {
+    line(540, AY, 612, AY, C.mio, 2);
+    const g = ctx.createRadialGradient(640 - 9, AY - 9, 4, 640, AY, 30); g.addColorStop(0, '#5f6f86'); g.addColorStop(1, '#2a3444'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(640, AY, 26, 0, 7); ctx.fill();
+    T('リトス', 640, AY - 50, 20, C.mio, 'center');
+    dot(d2x(40), BY, 8, C.mio); T('リトス到着', d2x(40) - 20, BY - 30, 18, C.mio, 'center'); T('40日', d2x(40), BY + 30, 18, C.mio, 'center', MONO);
+  });
+  if (lit < P.n) { if (Math.sin(time * 5) > -0.3) textC('タップで次へ ▼', 360, 1200, 22, C.dim); }
+  else button(220, 1150, 280, 84, 'もどる', closePanel);
+}
+
+function drawScene() {
+  const def = sc.def, L = sc.lay, n = Math.floor(sc.typed), typedAll = n >= L.g.length;
+  const pids = [...new Set(L.g.filter(q => q.pid >= 0).map(q => q.pid))];
+  const canTap = pid => !sc.ps[pid] && !sc.resolved && !sc.endAt && typedAll;
+  // --- メモ(3件ぶん確保。増えても上が動かない) ---
+  const textH = Math.max(L.h, 3 * L.lh), replyH = sc.reply ? Math.max(sc.reply.h, 2 * 42) : 2 * 42;
+  if (sc.logFullH === undefined) sc.logFullH = sc.logList.reduce((a, t) => a + wrap('> ' + t, 610, 24, 34, MONO).h + 10, 0);
+  const geo = c => { // c: 詰めた配置
+    const g = { memoRows: c ? Math.max(1, st.memo.length) : Math.max(3, st.memo.length) };
+    g.memoH = 40 + g.memoRows * 26 + 8; g.memoTop = 1258 - g.memoH;
+    g.bh = c ? 84 : 92; g.by = g.memoTop - (c ? 12 : 16) - g.bh;
+    g.ch = c ? 56 : 64; g.cy = g.by - (c ? 12 : 16) - g.ch;
+    g.gy = g.cy - (c ? 28 : 32);
+    g.lH = 58 + sc.logFullH + 6; g.lTop = g.gy - (c ? 30 : 34) - g.lH;
+    g.tH = 64 + textH + 16 + replyH + 22; g.tTop = g.lTop - 14 - g.tH;
+    return g;
+  };
+  let G = geo(false); if (G.tTop < 154) G = geo(true);
+  if (DEV) window.__G = G; // 画面に収まるかの確認用
+  const memoRows = G.memoRows, memoH = G.memoH, memoTop = G.memoTop;
+  panel(32, memoTop, 656, memoH, '#4a4130', '#15140f');
+  textL(def.memoTitle || 'メモ', 56, memoTop + 12, 20, C.memo, JP, 'bold');
+  if (!st.memo.length) textL('見抜いた真実がここに残ります', 56, memoTop + 42, 20, C.dim);
+  st.memo.forEach((m, i) => textL('◆ ' + m, 56, memoTop + 42 + i * 26, 20, C.memo));
+  // --- 操作ボタン ---
+  const bh = G.bh, by = G.by;
+  if (!sc.endAt) {
+    if (sc.sel >= 0) {
+      button(32, by, 420, bh, '「' + phraseText(sc.sel) + (sc.def.multi ? '」は違う' : '」を指摘'), point, { primary: true, size: 26 });
+      button(468, by, 220, bh, 'やめる', () => { sc.sel = -1; sc.gT = time; }, { size: 28 });
+      if (guideOn()) { guideGlow(32, by, 420, bh); guideGlow(468, by, 220, bh); }
+    } else {
+      const all = sc.logs.length >= sc.logList.length;
+      button(32, by, 320, bh, all ? '記録は以上です' : (def.look || '調べる'), lookAll, { disabled: all || sc.lookQ, size: all ? 26 : 32 });
+      if (guideOn() && !sc.resolved && !sc.logs.length && !sc.lookQ) guideGlow(32, by, 320, bh);
+      // 場面5は信じて進めない(3つとも違うと言えたら次へ)
+      button(368, by, 320, bh, sc.resolved || def.multi ? '次へ' : '信じて進む', proceed, { primary: sc.resolved, disabled: def.multi && !sc.resolved, size: 32 });
+    }
+  }
+  if (guideOn() && !sc.endAt && sc.sel < 0 && sc.logs.length && typedAll) { // 記録が出たら: 言葉(3つまとめて)と、信じて進む
+    if (sc.resolved) guideGlow(368, by, 320, bh);
+    else { guideGlow(32, G.cy, 656, G.ch); guideGlow(368, by, 320, bh); }
+  }
+  // --- 手元の言葉ボタン(証言の点線の言葉と同じ。どちらを押しても選べる) ---
+  const ch = G.ch, cy = G.cy, gap = 12, cw = (656 - gap * (pids.length - 1)) / pids.length;
+  pids.forEach((pid, i) => {
+    const x = 32 + i * (cw + gap), state = sc.ps[pid], on = sc.sel === pid, t = phraseText(pid);
+    rr(x, cy, cw, ch, 14); ctx.fillStyle = on ? C.sel : '#101a27'; ctx.fill();
+    const live = canTap(pid);
+    ctx.strokeStyle = on ? C.phrase : live ? '#3f6a8c' : C.line; ctx.lineWidth = on ? 3 : 2;
+    if (live && !on) ctx.setLineDash([7, 6]);
+    ctx.stroke(); ctx.setLineDash([]);
+    let size = 26; ctx.font = size + 'px ' + JP; while (ctx.measureText(t).width > cw - 24 && size > 16) { size--; ctx.font = size + 'px ' + JP; }
+    const col = state === 'lie' ? C.bad : state === 'alt' ? C.memo : live || on ? C.phrase : C.faint;
+    textC(t, x + cw / 2, cy + ch / 2 + 1, size, col);
+    const tw = ctx.measureText(t).width;
+    if (state === 'lie' || state === 'alt') { ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x + cw / 2 - tw / 2, cy + ch / 2 + 2); ctx.lineTo(x + cw / 2 + tw / 2, cy + ch / 2 + 2); ctx.stroke(); }
+    else if (state === 'true') { ctx.strokeStyle = C.faint; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + cw / 2 - tw / 2, cy + ch / 2 + 18); ctx.lineTo(x + cw / 2 + tw / 2, cy + ch / 2 + 18); ctx.stroke(); }
+    if (live) hit(x, cy, cw, ch, () => tapPhrase(pid));
+  });
+  // --- 案内(「点線の言葉」は実際の見た目で) ---
+  const gy = G.gy;
+  if (!sc.endAt) {
+    if (sc.resolved || sc.sel >= 0) textC(sc.resolved ? '「次へ」で先に進みます。' : (sc.def.multi ? '記録と食い違う言葉なら、違うと言えます。' : '記録と食い違う言葉なら、それが嘘です。'), 360, gy, 26, sc.sel >= 0 ? C.phrase : C.text);
+    else {
+      const parts = [['証言の', C.text], ['点線の言葉', C.phrase], [sc.def.multi ? 'をタップして、食い違いを探そう' : 'をタップして、嘘を指摘しよう', C.text]];
+      ctx.font = '26px ' + JP; const ws = parts.map(q => ctx.measureText(q[0]).width);
+      let x = 360 - ws.reduce((a, b) => a + b, 0) / 2;
+      parts.forEach((q, i) => {
+        textL(q[0], x, gy - 15, 26, q[1]);
+        if (i === 1) { ctx.strokeStyle = C.phrase; ctx.lineWidth = 2.5; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(x, gy + 17); ctx.lineTo(x + ws[i], gy + 17); ctx.stroke(); ctx.setLineDash([]); }
+        x += ws[i];
+      });
+    }
+  }
+  // --- 船内記録(その場面の全件ぶんの高さだけ) ---
+  if (sc.logFullH === undefined) sc.logFullH = sc.logList.reduce((a, t) => a + wrap('> ' + t, 610, 24, 34, MONO).h + 10, 0);
+  const lH = G.lH, lTop = G.lTop;
+  panel(32, lTop, 656, lH);
+  textL(def.logTitle || '船内記録', 56, lTop + 18, 22, C.log, JP, 'bold');
+  textL(sc.logs.length + ' / ' + sc.logList.length, 600, lTop + 20, 20, C.faint, MONO);
+  let y = lTop + 58;
+  if (!sc.logs.length) drawText(wrap('「' + (def.look || '調べる') + '」を押すと、' + (def.logTitle || '船内記録') + 'が出ます。', 600, 22, 34), 56, y, undefined, C.dim);
+  sc.logLays.forEach((ll, i) => { drawText(ll, 56, y, undefined, time - sc.logT[i] < 0.35 ? C.log : '#7fbf98'); y += ll.h + 10; }); // 出た直後だけ明るく、次の行が出る間隔で戻す
+  // --- 証言(中身の高さ。返事の場所は最初から薄い「……」) ---
+  const tH = G.tH, tTop = G.tTop;
+  panel(32, tTop, 656, tH, sc.sel >= 0 ? C.phrase : C.line);
+  textL(def.who || 'スイ', 60, tTop + 20, 22, def.whoCol || C.mio, JP, 'bold');
+  const ox = 60, oy = tTop + 64;
+  for (const pid of pids) {
+    const rs = phraseRects(L, pid, n), state = sc.ps[pid];
+    for (const r of rs) {
+      const x = ox + r.x0 - 4, yy = oy + r.y - 6, w = r.x1 - r.x0 + 8, h = L.size + 16;
+      if (sc.sel === pid) { rr(x, yy, w, h, 8); ctx.fillStyle = C.sel; ctx.fill(); ctx.strokeStyle = C.phrase; ctx.lineWidth = 2; ctx.stroke(); }
+      const uy = oy + r.y + L.size + 8;
+      ctx.lineWidth = 3;
+      if (state === 'lie' || state === 'alt') { // 取り消し線 = 嘘(視点の嘘は別色)
+        ctx.strokeStyle = state === 'alt' ? C.memo : C.bad; ctx.beginPath(); ctx.moveTo(ox + r.x0, oy + r.y + L.size / 2 + 2); ctx.lineTo(ox + r.x1, oy + r.y + L.size / 2 + 2); ctx.stroke();
+      } else if (state === 'true') { // 実線 = 記録どおり
+        ctx.strokeStyle = C.faint; ctx.beginPath(); ctx.moveTo(ox + r.x0, uy); ctx.lineTo(ox + r.x1, uy); ctx.stroke();
+      } else if (!sc.resolved) { // 点線 = タップできる
+        ctx.strokeStyle = C.phrase; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(ox + r.x0, uy); ctx.lineTo(ox + r.x1, uy); ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (canTap(pid)) hit(x - 6, yy - 8, w + 12, h + 16, () => tapPhrase(pid));
+    }
+  }
+  drawText(L, ox, oy, n, q => q.pid < 0 ? C.text : sc.ps[q.pid] === 'lie' ? C.bad : sc.ps[q.pid] === 'alt' ? C.memo : (sc.ps[q.pid] === 'true' || sc.resolved) ? C.dim : C.phrase);
+  const sepY = oy + textH + 4;
+  ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(60, sepY); ctx.lineTo(660, sepY); ctx.stroke();
+  if (sc.reply) drawText(sc.reply, 60, sepY + 14, Math.floor(sc.replyTyped), def.replyCol || (sc.resolved ? C.text : C.mio));
+  else textL('……', 60, sepY + 14, 27, C.faint);
+  // --- 場面名とスイの目(証言のすぐ上。場所が足りないときは詰める) ---
+  const scol = st.alert >= 2 ? C.bad : C.dim, stat = STATUS[Math.min(3, st.alert)];
+  if (tTop >= 210) { drawEye(360, tTop - 104); drawStatus(360, tTop - 54); }
+  else { drawEye(360, 54); drawStatus(360, 104); } // 場所が足りないときは上の帯の真ん中へ
+  if (tTop - 36 >= 120) textL(def.label, 40, tTop - 36, 22, C.dim);
+}
+
+// 結末画面の要約: 文に書いた改行(\n)どおりに出す(枠が広いので、詰めずに読みやすく。改行は iPhone の全角幅で15字以内)
+// 端末の字幅で1行に入らない行だけ折り返す。心残りの一覧・詳細では改行を外して詰める
+function summaryLines(text, maxW = 440, size = 28, family = JP) {
+  const out = [];
+  for (const ln of text.split('\n')) {
+    const L = wrap(ln, maxW, size, 46, family), rows = {};
+    L.g.forEach(q => { (rows[q.y] = rows[q.y] || []).push(q.ch); });
+    out.push(...Object.values(rows).map(r => r.join('')));
+  }
+  return out;
+}
+function drawResult() {
+  const e = ENDINGS.find(x => x.id === result.id);
+  textC('結末', 360, 196, 26, C.dim);
+  textC('「' + e.name + '」', 360, 270, 68, C.text, JP, 'bold');
+  panel(110, 340, 500, 170);
+  // 採点のような数字はやめて、心残りと同じ要約を1文(余韻を切らない)
+  const rl = summaryLines(sumOf(e, [0, 1, 2].map(i => result.got.includes(i)))), sy = 425 - (rl.length - 1) * 23; // textC は行の真ん中が基準。枠(340〜510)の中央にそろえる
+  rl.forEach((r, i) => textC(r, 360, sy + i * 46, 28, C.text));
+  // 心残りへの追記(前の行を打ち終えてから次の行)
+  const t = time - result.t0, RATE = 18;
+  const lines = result.fresh.length ? ['> 心残りに追記しました'].concat(result.fresh.map(i => '> ' + e.name + ' ／ 断片' + (i + 1) + '「' + e.f[i].t + '」')) : ['> 記録済みの朝でした'];
+  if (result.fresh.length && all40()) lines.push('> 全ての記録の断片を回収しました', '> 最後の記録が開きました');
+  let y = 540, budget = Math.max(0, t - 0.5) * RATE, total = 0, shown = 0;
+  const step = lines.length > 5 ? 38 : 44; // 15個目で2断片入ると6行になるので詰める
+  lines.forEach(l => {
+    const n = Math.max(0, Math.min(l.length, Math.floor(budget))); budget -= l.length + 6; total += l.length + 6; shown += n;
+    textL(l.slice(0, n), 120, y, 26, C.log, MONO); y += step;
+  });
+  const doneAt = 0.5 + total / RATE, done = t > doneAt;
+  if (Math.floor(shown / 2) > (result.tk || 0)) { result.tk = Math.floor(shown / 2); if (!done) sfx.tick('sys'); }
+  if (done && result.fresh.length && !result.chimed) { result.chimed = true; sfx.append(); }
+  const sx = 360 - 62;
+  fragSquares(sx, y + 8, done ? save.frags[e.id] : result.before, 34, true);
+  if (done) {
+    if (t < doneAt + 0.5) result.fresh.forEach(i => { ctx.globalAlpha = 1 - (t - doneAt) * 2; ctx.fillStyle = C.memo; ctx.fillRect(sx + i * 44 - 5, y + 3, 44, 44); ctx.globalAlpha = 1; });
+    textC(e.name + '  ' + save.frags[e.id].filter(Boolean).length + ' / 3', 360, y + 70, 24, C.dim, MONO);
+    const more = result.firstTime && save.frags[e.id].some(v => !v);
+    if (more) textC('新しい心残りが、増えました。', 360, y + 106, 22, C.memo);
+    // 機能の開放は結末の追記と分けて、別の色で知らせる(結末の流れで読み流されないように)
+    if (result.unlock) {
+      const uy = y + (more ? 146 : 112);
+      textC('心残りの機能を開放しました。', 360, uy, 24, C.phrase, JP, 'bold');
+      textC('続きから目覚められるようになりました。', 360, uy + 30, 22, C.phrase);
+    }
+  }
+  // タイトルと同じ並び: 目覚める → 心残り。タイトルへは端に
+  // 15個目が入った朝だけ、一番大きいボタンを40日目へ。目覚めるは左下の端に
+  const again = result.wake ? '次の朝へ' : 'この朝を、もう一度'; // 眠らされた朝だけが本当。それ以外は同じ朝に戻る
+  if (result.fresh.length && unread40()) {
+    button(160, 880, 400, 96, '最後の記録を読む', () => { recBack = 'result'; play40(); }, { primary: true, size: 32 });
+    button(32, 1192, 236, 56, again, newRun, { size: 20 });
+  } else button(160, 880, 400, 96, again, newRun, { primary: true, size: 32 });
+  recordPanel(110, 996, 500, 168, 'result');
+  button(452, 1192, 236, 56, 'タイトルへ', () => { screen = 'title'; st = null; }, { size: 20 });
+}
+
+// ----- ログ(この周回で出た文を読み返す) -----
+let logBack = 'talk', logScroll = 0, logDrag = null, logMax = 0;
+const LOGLABEL = { mio: ['スイ', C.mio], me: ['あなた', C.you], you: ['あなた（録音）', C.you], in: ['スイ（内部）', C.mio], crew: ['乗員（伝言）', C.you], four: ['乗員4番（録音）', C.mio] };
+function drawLog() {
+  textL('ログ', 48, 136, 34, C.text, JP, 'bold');
+  textL('上下にドラッグで読み返せます', 150, 146, 20, C.dim);
+  const top = 196, bottom = 1130;
+  ctx.fillStyle = C.line; ctx.fillRect(48, top - 12, 624, 2);
+  // 下から積む(最新が一番下)
+  const items = st.log.map(L => {
+    if (!L._lay) L._lay = L.w === 'sys' ? wrap('> ' + L.t, 600, 22, 32, MONO) : wrap(L.w === 'crew' ? '『' + L.t + '』' : L.t, 600, 25, 38);
+    return { L, h: L._lay.h + (LOGLABEL[L.w] ? 30 : 0) + 18 };
+  });
+  // 最後の行の下の余白(18)は数えない。数えると、少しだけはみ出したときに先頭の行が数px見切れる
+  const total = items.reduce((a, b) => a + b.h, 0) - (items.length ? 18 : 0);
+  logMax = Math.max(0, total - (bottom - top));
+  logScroll = Math.max(0, Math.min(logMax, logScroll));
+  // 切り取りは区切り線のすぐ下から。文字の上端は端末のフォントによって y より上にはみ出すので、y=top ちょうどで切ると最上段が欠ける(iPhone)
+  ctx.save(); ctx.beginPath(); ctx.rect(0, top - 10, W, bottom - top + 10); ctx.clip();
+  let y = bottom - total + logScroll;
+  if (total < bottom - top) y = top;
+  for (const it of items) {
+    if (y + it.h > top - 10 && y < bottom) {
+      let yy = y;
+      if (LOGLABEL[it.L.w]) { textL(LOGLABEL[it.L.w][0], 56, yy, 20, LOGLABEL[it.L.w][1], JP, 'bold'); yy += 30; }
+      const col = it.L.old ? C.bad : it.L.w === 'sys' ? C.log : it.L.w === 'nar' ? C.nar : (it.L.w === 'you' || it.L.w === 'crew' || it.L.w === 'me') ? C.you : it.L.w === 'in' ? C.mio : C.text; // old: 訂正前の記録は赤
+      drawText(it.L._lay, 56, yy, undefined, col);
+    }
+    y += it.h;
+  }
+  ctx.restore();
+  if (logMax > 0) { // スクロール位置の目安
+    const barH = Math.max(60, (bottom - top) * (bottom - top) / total), barY = top + (bottom - top - barH) * (1 - logScroll / logMax);
+    rr(684, barY, 8, barH, 4); ctx.fillStyle = '#3a4d68'; ctx.fill();
+  }
+  button(220, 1150, 280, 80, 'もどる', () => { screen = logBack; logDrag = null; });
+}
+
+// ----- 記録(結末一覧) -----
+let recBack = 'title', recView = 'list', recSel = 0, resetArm = 0, recGT = 0; // recGT: 詳細を開いた時刻(初回ガイド用)
+function openRecords(back) { recBack = back; recView = 'list'; screen = 'records'; if (newJump()) { save.jumpSeen = true; persist(); } }
+// 戻り先の画面がもう無い(会話が終わっている等)ときはタイトルへ。真っ暗になるのを防ぐ
+function recReturn() { screen = (recBack === 'talk' && !talk) || (recBack === 'scene' && !sc) || (recBack === 'result' && (!result || !st)) ? 'title' : recBack; }
+// 改行の優先順: 段落(\n) → 「。」 → 「、」 → 文字。入るなら詰める
+function wrapLines(str, size, maxW) {
+  ctx.font = size + 'px ' + JP;
+  const fits = s => ctx.measureText(s).width <= maxW, lines = [];
+  const pack = (parts, fallback) => {
+    let cur = '';
+    for (const pt of parts) {
+      if (fits(cur + pt)) { cur += pt; continue; }
+      if (cur) lines.push(cur);
+      if (fits(pt)) { cur = pt; continue; }
+      cur = fallback(pt);
+    }
+    return cur;
+  };
+  const byChar = seg => { let cur = ''; for (const ch of seg) { if (!fits(cur + ch) && cur && !NOHEAD.includes(ch)) { lines.push(cur); cur = ''; } cur += ch; } return cur; };
+  const byComma = sen => pack(sen.match(/[^、]*、?/g).filter(Boolean), byChar);
+  for (const para of str.split('\n')) {
+    const start = lines.length;
+    const rest = pack(para.match(/[^。！？]*[。！？]*[」』]?/g).filter(Boolean), byComma);
+    if (rest) lines.push(rest);
+    // 「。」「、」で折ると行が増えるとき(文字幅の広い端末)は、普通に詰めた方を使う
+    const plain = []; let cur = '';
+    for (const ch of para) { if (!fits(cur + ch) && cur && !NOHEAD.includes(ch)) { plain.push(cur); cur = ''; } cur += ch; }
+    if (cur) plain.push(cur);
+    if (lines.length - start > plain.length) lines.splice(start, lines.length - start, ...plain);
+  }
+  return lines;
+}
+// 2行に収まるまで文字を小さくする(一覧の行の高さが決まっているところ用)
+function fitLines(str, size, maxW, maxLines, minSize) {
+  let ls = wrapLines(str, size, maxW);
+  while (ls.length > maxLines && size > minSize) { size -= 1; ls = wrapLines(str, size, maxW); }
+  return { ls, size };
+}
+// 段落ごとの色(先頭 > はあなたの選択、スイの台詞と伝言は青、ほかは地の文)
+function wrapColored(str, size, maxW, base) {
+  const out = [];
+  for (const p of str.split('\n')) {
+    const you = p.startsWith('>'), q = you ? p.slice(1) : p;
+    const color = you ? C.you : /^(スイ|『)/.test(q) ? C.mio : base;
+    wrapLines(q, size, maxW).forEach(l => out.push({ l, color }));
+  }
+  return out;
+}
+function fragSquares(x, y, arr, s, alive, gap) {
+  arr.forEach((v, i) => {
+    const sx = x + i * (s + (gap === undefined ? 10 : gap));
+    if (v) { ctx.fillStyle = C.log; ctx.fillRect(sx, y, s, s); }
+    else { ctx.strokeStyle = alive ? '#5a6d88' : C.faint; ctx.lineWidth = 2; ctx.strokeRect(sx + 1, y + 1, s - 2, s - 2); }
+  });
+}
+function drawRecords() {
+  if (recView === 'detail') return drawRecordDetail();
+  textL('> 船内記録 ／ SPES-07', 48, 136, 24, C.log, MONO);
+  textL('記録済みの朝', 48, 172, 40, C.text, JP, 'bold');
+  ctx.font = '24px ' + MONO; ctx.fillStyle = C.dim; ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('断片 ' + fragCount() + ' / ' + shownEnds().length * 3, 672, 186); ctx.textAlign = 'left';
+  ctx.fillStyle = C.line; ctx.fillRect(48, 232, 624, 2);
+  let y = 252;
+  const done = all40(); // 全部そろったら、行を少し詰めて一番下に「40日目」
+  shownEnds().forEach(e => {
+    const i = ENDINGS.indexOf(e), s = seenEnd(e.id), h = done ? 142 : 156;
+    rr(40, y, 640, h, 14); ctx.fillStyle = s ? '#14202f' : C.panel; ctx.fill();
+    ctx.strokeStyle = s ? '#2f4560' : C.line; ctx.lineWidth = 2; ctx.stroke();
+    textL(String(i + 1).padStart(2, '0'), 68, y + 28, 22, C.faint, MONO);
+    textL(s || !e.hidden ? e.name : '？？？', 116, y + 20, 34, s ? C.text : C.dim, JP, s ? 'bold' : '');
+    fragSquares(552, y + 26, save.frags[e.id], 28, s);
+    // まだ見ていない結末には、たどり着き方を書いておく(心残りと同じ色)
+    const fl = fitLines(s ? sumOf(e, save.frags[e.id]).replace(/\n/g, '') : e.go, 24, 520, 2, 18);
+    // 2行のときは少し上げて行間も詰める(下の枠との隙間を空ける)
+    const two = fl.ls.length > 1, sy = two ? 70 : 78, slh = two ? 33 : 34;
+    fl.ls.forEach((l, k) => textL(l, 116, y + sy + k * slh, fl.size, s ? C.dim : '#c9b88a'));
+    if (s) hit(40, y, 640, h, () => { sfx.tap(); recSel = i; recView = 'detail'; recGT = time; }); // 未記録の行は押せない
+    y += h + (done ? 12 : 14);
+  });
+  if (done) { // 断片の■□はない特別な行。空いた断片もないので、心残りの朝の案内の代わりに置く
+    const h = 1160 - y;
+    rr(40, y, 640, h, 14); ctx.fillStyle = '#122535'; ctx.fill();
+    ctx.strokeStyle = C.phrase; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+    if (unread40()) { ctx.globalAlpha = 0.35 + 0.65 * glow(); ctx.lineWidth = 3; ctx.stroke(); ctx.globalAlpha = 1; }
+    textL('＊', 68, y + 26, 22, C.phrase, MONO);
+    textL('40日目', 116, y + 18, 34, C.text, JP, 'bold');
+    if (unread40()) textL('未読', 610, y + 26, 22, C.memo, JP, 'bold');
+    else textL('最後の記録', 540, y + 26, 22, C.phrase, MONO);
+    textL('基地に着いた日。預かっていた言葉。', 116, y + 72, 24, C.dim);
+    hit(40, y, 640, h, () => { sfx.tap(); play40(); });
+    return button(220, 1176, 280, 76, 'もどる', recReturn);
+  }
+  const note = jumpOpen() ? '見た結末を開くと、空いた断片の手前から目覚められます' : '結末を1つ見ると、その結末の空いた断片の手前から目覚められるようになります';
+  const nl = fitLines(note, 24, 624, 2, 18);
+  nl.ls.forEach((l, k) => textC(l, 360, y + 18 + k * 34, nl.size, C.memo));
+  button(220, 1176, 280, 76, 'もどる', recReturn);
+}
+function drawRecordDetail() {
+  const e = ENDINGS[recSel], g = save.frags[e.id];
+  textL('> 記録 ' + String(recSel + 1).padStart(2, '0') + ' ／ ' + e.name, 48, 136, 24, C.log, MONO);
+  textL(e.name, 48, 170, 48, C.text, JP, 'bold');
+  fragSquares(540, 184, g, 32, true);
+  // 「一覧へ」の上に収まるまで文字と行間を詰める
+  let s = 26, sum, bodies, lh, gap;
+  for (;;) {
+    lh = Math.round(s * 1.46); gap = s >= 24 ? 12 : 8;
+    sum = wrapLines(sumOf(e, g).replace(/\n/g, ''), s, 624);
+    bodies = e.f.map((f, i) => g[i] ? wrapColored(f.b, s, 584, C.text) : wrapColored(f.h, s, 584, '#c9b88a'));
+    const total = 244 + sum.length * lh + 34 + bodies.reduce((a, b) => a + 60 + b.length * lh + 12 + gap, 0);
+    if (total <= 1160 || s <= 18) break;
+    s -= 1;
+  }
+  let y = 244;
+  sum.forEach(l => { textL(l, 48, y, s, C.dim); y += lh; });
+  y += 14; ctx.fillStyle = C.line; ctx.fillRect(48, y, 624, 2); y += 20;
+  e.f.forEach((f, i) => {
+    const open = g[i], body = bodies[i];
+    const h = 60 + body.length * lh + 12;
+    rr(40, y, 640, h, 14); ctx.fillStyle = open ? '#14202f' : C.panel; ctx.fill();
+    ctx.strokeStyle = open ? '#2f4560' : C.line; ctx.lineWidth = 2; ctx.stroke();
+    textL('断片' + (i + 1), 68, y + 20, 22, open ? C.log : C.faint, MONO);
+    if (open) textL(f.t, 176, y + 16, 28, C.text, JP, 'bold');
+    else textL('心残り', 176, y + 18, 26, C.memo);
+    if (canJump(e.id, i)) {
+      button(452, y + 8, 212, 46, 'ここから目覚める', () => jumpRun(e.id, i), { size: 22 });
+      if (!save.jumpUsed && time - recGT > 2) guideGlow(452, y + 8, 212, 46); // まだ一度も使っていない間だけ、押せることを知らせる
+    }
+    else if (!open && JUMPS[e.id][i].why) button(452, y + 8, 212, 46, JUMPS[e.id][i].why, () => {}, { size: 22, disabled: true }); // 狙えない理由を出す(出ていないのが不具合に見えないように)
+    else if (open) button(452, y + 8, 212, 46, '読み返す', () => replayFrag(e.id, i), { size: 22 }); // 埋まった断片は結末を読み返せる
+    body.forEach((o, k) => textL(o.l, 68, y + 60 + k * lh, s, o.color));
+    y += h + gap;
+  });
+  button(220, 1176, 280, 76, '一覧へ', () => { recView = 'list'; });
+}
+
+function draw() {
+  ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  drawStars();
+  if (screen !== lastScreen) { lastScreen = screen; guardUntil = time + 0.4; }
+  hits = [];
+  if (screen === 'title') drawTitle();
+  else if (screen === 'talk') drawTalk();
+  else if (screen === 'scene') drawScene();
+  else if (screen === 'result') drawResult();
+  else if (screen === 'records') drawRecords();
+  else if (screen === 'log') drawLog();
+  drawHeader();
+}
+
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000); last = t;
+  update(dt); draw(); requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+if (location.hash === '#debug') window.__mio = {
+  get st() { return st; }, get sc() { return sc; }, get screen() { return screen; }, get talk() { return talk; },
+  newRun, jumpRun, play40, replayFrag, tapPhrase, point, look, proceed, talkTap, closePanel, get logMax() { return logMax; }, set logScroll(v) { logScroll = v; }, set scr(v) { screen = v; },
+  skip() { if (sc) { sc.typed = 1e9; if (sc.reply) sc.replyTyped = 1e9; } if (talk && talk.shown.length) talk.typed = 1e9; },
+  reset() { save = { frags: {}, wakes: 0, runs: 0, lastVar: {}, lastEnd: '' }; EIDS.forEach(id => { save.frags[id] = [0, 0, 0]; }); persist(); }, get save() { return save; }, openRecords
+};
+</script>
+</body>
+</html>
