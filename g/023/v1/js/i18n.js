@@ -39,9 +39,9 @@ const I18N = {
     hintAct: (cat, left) => cat === 'born' ? 'あと' + left + 'ひき うまれたら' : I18N.ja.cat[cat] + 'を あと' + left + I18N.ja.unit[cat]
   },
   en: {
-    pageTitle: 'Duck Maker',
-    title: 'Duck Maker', order: 'Order', score: 'Stamps', album: 'Album', achTitle: '★ Achievement ★',
-    cvAria: 'Duck Maker game screen',
+    pageTitle: 'Ducklace',
+    title: 'Ducklace', order: 'Order', score: 'Stamps', album: 'Album', achTitle: '★ Achievement ★',
+    cvAria: 'Ducklace game screen',
     mix: 'Mix', mixD: 'Connect two different ducks\nto hatch a new one', stamp: 'Stamp', stampD: 'Make the ordered duck\nand hand it in',
     limitH: 'Tub full at 50! Then…', outing: 'Outing', outingD: 'Connect two identical ducks', outingD2: 'You may get a souvenir!', nap: 'Nap', napD: 'Drag a duck to the house',
     red: 'Red', blue: 'Blue', yellow: 'Yellow', legendT: 'Colour key:', cPurple: 'Purple', cOrange: 'Orange', cGreen: 'Green', cBrown: 'Brown', patS: 'Stripes', patD: 'Dots', patB: 'Mottled',

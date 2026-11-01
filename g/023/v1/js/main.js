@@ -945,7 +945,7 @@ function blockSize(c, s, maxW, size, weight, lh) {
 
 /* ---- vector art: the pictures (title art, medals, bottles, icons) are kept as small SVG-style shape lists and
    drawn straight onto the canvas with Path2D / arc / fillText / gradients. No image is created and nothing is fetched. ---- */
-const DK_DEFS = '<defs><symbol id="dk" viewBox="0 0 44 36"><ellipse cx="17" cy="24" rx="14" ry="10" fill="currentColor" stroke="#4a3a30" stroke-width="2"/><path d="M9 24 q6 6 13 0" fill="none" stroke="#4a3a30" stroke-width="1.6" stroke-linecap="round" opacity=".45"/><circle cx="28" cy="12" r="8" fill="currentColor" stroke="#4a3a30" stroke-width="2"/><path d="M35 11 l7 2.5 l-7 3.5 z" fill="#ff9a2e" stroke="#4a3a30" stroke-width="1.6" stroke-linejoin="round"/><circle cx="30" cy="10" r="1.7" fill="#4a3a30"/></symbol></defs>';
+const DK_DEFS = '<defs><symbol id="dk" viewBox="0 0 44 36"><g transform="translate(21.7 22.2) scale(.37)"><g transform="translate(0 -4)" stroke="#4a3a30" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"><path d="M-40 -2 Q-56 -16 -46 -28 Q-32 -24 -24 -10 Z" fill="currentColor"/><ellipse cx="-4" cy="10" rx="40" ry="26" fill="currentColor"/><circle cx="22" cy="-16" r="19" fill="currentColor"/><path d="M-20 12 Q-6 0 10 13" fill="none" stroke-width="4.5"/><circle cx="29" cy="-21" r="3.4" fill="#4a3a30" stroke="none"/><circle cx="26" cy="-8" r="4.5" fill="rgba(255,138,160,.55)" stroke="none"/><path d="M38 -17 Q55 -18 53 -9 Q49 -3 38 -6 Z" fill="#ff9a3c" stroke-width="4"/></g></g></symbol></defs>';
 /* parse the markup once into a tree of { tag, a: attributes, k: children, t: text } */
 function vecParse(src) {
   const root = { tag: '#root', a: {}, k: [] }, stack = [root], re = /<(\/?)([a-zA-Z][\w:-]*)((?:\s+[\w:-]+="[^"]*")*)\s*(\/?)>|([^<]+)/g;
@@ -1149,12 +1149,12 @@ function patIcon(c, kind, x, y, r) {
 }
 
 /* ---- artwork (SVG sources) ---- */
-const SVG_HERO = '<svg viewBox="0 8 320 108"><rect x="6" y="64" width="308" height="50" rx="24" fill="#fdf6ec" stroke="#4a3a30" stroke-width="4"/><rect x="16" y="72" width="288" height="34" rx="17" fill="#bfe9f5" stroke="#4a3a30" stroke-width="3"/><path d="M40 90 q8 -6 16 0 M130 98 q8 -6 16 0 M250 88 q8 -6 16 0" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".8"/><use href="#dk" x="22" y="42" width="58" height="48" style="color:#e8564a"/><use href="#dk" x="112" y="42" width="58" height="48" style="color:#3f7fd6"/><path d="M56 84 C 74 101, 102 101, 119 82" fill="none" stroke="#ff7aa8" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 9"/><path d="M178 66 h22 m-8 -8 l8 8 l-8 8" fill="none" stroke="#4a3a30" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><g transform="translate(212 22) scale(1.9)"><use href="#dk" x="0" y="0" width="44" height="36" style="color:#9a5bd0"/></g><g transform="translate(0 -8)"><rect x="50.7" y="30.8" width="16.6" height="14.4" rx="7.2" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="1.80"/><path d="M59.0 33.0 L64.2 42.0 L53.8 42.0 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="1.35" stroke-linejoin="round"/></g><g transform="translate(0 -8)"><rect x="140.7" y="30.8" width="16.6" height="14.4" rx="7.2" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="1.80"/><rect x="144.9" y="34.0" width="8.1" height="8.1" fill="#2f6fc9" stroke="#4a3a30" stroke-width="1.35"/></g><g transform="translate(0 -8)"><rect x="250.6" y="22.8" width="28.8" height="14.4" rx="7.2" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="1.80"/><path d="M258.9 25.1 L264.1 34.0 L253.7 34.0 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="1.35" stroke-linejoin="round"/><rect x="267.0" y="25.9" width="8.1" height="8.1" fill="#2f6fc9" stroke="#4a3a30" stroke-width="1.35"/></g><g fill="#ffd23f" stroke="#4a3a30" stroke-width="1.5" stroke-linejoin="round"><path d="M296 20 l3 7 l7 3 l-7 3 l-3 7 l-3 -7 l-7 -3 l7 -3 z"/><path d="M206 12 l2 5 l5 2 l-5 2 l-2 5 l-2 -5 l-5 -2 l5 -2 z"/></g></svg>';
-const SVG_TILE1 = '<svg viewBox="0 0 84 44"><use href="#dk" x="0" y="14" width="24" height="20" style="color:#e8564a"/><use href="#dk" x="25" y="14" width="24" height="20" style="color:#3f7fd6"/><path d="M11 33.5 C 16 40.5, 28 40.5, 33 33" fill="none" stroke="#ff7aa8" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="0.1 4.6"/><path d="M51 24 h8 m-3 -3 l3 3 l-3 3" fill="none" stroke="#4a3a30" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><use href="#dk" x="60" y="12" width="24" height="20" style="color:#9a5bd0"/><g><rect x="11.1" y="5.6" width="7.8" height="6.7" rx="3.4" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="0.84"/><path d="M15.0 6.7 L17.4 10.9 L12.6 10.9 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="0.63" stroke-linejoin="round"/></g><g><rect x="36.1" y="5.6" width="7.8" height="6.7" rx="3.4" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="0.84"/><rect x="38.1" y="7.1" width="3.8" height="3.8" fill="#2f6fc9" stroke="#4a3a30" stroke-width="0.63"/></g><g><rect x="68.3" y="3.1" width="13.4" height="6.7" rx="3.4" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="0.84"/><path d="M72.2 4.2 L74.6 8.4 L69.7 8.4 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="0.63" stroke-linejoin="round"/><rect x="75.9" y="4.6" width="3.8" height="3.8" fill="#2f6fc9" stroke="#4a3a30" stroke-width="0.63"/></g></svg>';
+const SVG_HERO = '<svg viewBox="0 8 320 108"><rect x="6" y="64" width="308" height="50" rx="24" fill="#fdf6ec" stroke="#4a3a30" stroke-width="4"/><rect x="16" y="72" width="288" height="34" rx="17" fill="#bfe9f5" stroke="#4a3a30" stroke-width="3"/><path d="M40 90 q8 -6 16 0 M130 98 q8 -6 16 0 M250 88 q8 -6 16 0" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".8"/><use href="#dk" x="22" y="42" width="58" height="48" style="color:#e8564a"/><use href="#dk" x="112" y="42" width="58" height="48" style="color:#3f7fd6"/><path d="M62 83 C 76 97, 111 97, 125 83" fill="none" stroke="#ff7aa8" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 9"/><circle cx="125" cy="83" r="2.5" fill="#ff7aa8"/><path d="M178 84 h22 m-8 -8 l8 8 l-8 8" fill="none" stroke="#4a3a30" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><g transform="translate(212 27) scale(1.9)"><use href="#dk" x="0" y="0" width="44" height="36" style="color:#9a5bd0"/></g><g transform="translate(0 -3)"><rect x="50.7" y="30.8" width="16.6" height="14.4" rx="7.2" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="1.80"/><path d="M59.0 33.0 L64.2 42.0 L53.8 42.0 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="1.35" stroke-linejoin="round"/></g><g transform="translate(0 -3)"><rect x="140.7" y="30.8" width="16.6" height="14.4" rx="7.2" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="1.80"/><rect x="144.9" y="34.0" width="8.1" height="8.1" fill="#2f6fc9" stroke="#4a3a30" stroke-width="1.35"/></g><g transform="translate(0 -3)"><rect x="250.6" y="22.8" width="28.8" height="14.4" rx="7.2" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="1.80"/><path d="M258.9 25.1 L264.1 34.0 L253.7 34.0 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="1.35" stroke-linejoin="round"/><rect x="267.0" y="25.9" width="8.1" height="8.1" fill="#2f6fc9" stroke="#4a3a30" stroke-width="1.35"/></g><g fill="#ffd23f" stroke="#4a3a30" stroke-width="1.5" stroke-linejoin="round"><path d="M296 20 l3 7 l7 3 l-7 3 l-3 7 l-3 -7 l-7 -3 l7 -3 z"/><path d="M206 12 l2 5 l5 2 l-5 2 l-2 5 l-2 -5 l-5 -2 l5 -2 z"/></g></svg>';
+const SVG_TILE1 = '<svg viewBox="0 0 84 44"><use href="#dk" x="0" y="14" width="24" height="20" style="color:#e8564a"/><use href="#dk" x="25" y="14" width="24" height="20" style="color:#3f7fd6"/><path d="M11 33.5 C 16 40.5, 28 40.5, 33 33" fill="none" stroke="#ff7aa8" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="0.1 4.6"/><path d="M51 24 h8 m-3 -3 l3 3 l-3 3" fill="none" stroke="#4a3a30" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><use href="#dk" x="60" y="14.5" width="24" height="20" style="color:#9a5bd0"/><g><rect x="11.1" y="5.6" width="7.8" height="6.7" rx="3.4" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="0.84"/><path d="M15.0 6.7 L17.4 10.9 L12.6 10.9 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="0.63" stroke-linejoin="round"/></g><g><rect x="36.1" y="5.6" width="7.8" height="6.7" rx="3.4" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="0.84"/><rect x="38.1" y="7.1" width="3.8" height="3.8" fill="#2f6fc9" stroke="#4a3a30" stroke-width="0.63"/></g><g transform="translate(0 2.5)"><rect x="68.3" y="3.1" width="13.4" height="6.7" rx="3.4" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="0.84"/><path d="M72.2 4.2 L74.6 8.4 L69.7 8.4 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="0.63" stroke-linejoin="round"/><rect x="75.9" y="4.6" width="3.8" height="3.8" fill="#2f6fc9" stroke="#4a3a30" stroke-width="0.63"/></g></svg>';
 const SVG_STAMP = '<svg viewBox="0 0 64 64"><g fill="#ff7aa8" stroke="#4a3a30" stroke-width="3"><circle cx="32" cy="12" r="9"/><circle cx="46" cy="18" r="9"/><circle cx="52" cy="32" r="9"/><circle cx="46" cy="46" r="9"/><circle cx="32" cy="52" r="9"/><circle cx="18" cy="46" r="9"/><circle cx="12" cy="32" r="9"/><circle cx="18" cy="18" r="9"/></g><circle cx="32" cy="32" r="15" fill="#fffaf0" stroke="#4a3a30" stroke-width="3"/><path d="M32 32 a3 3 0 1 1 6 0 a6 6 0 1 1 -12 0 a9 9 0 1 1 18 0" fill="none" stroke="#e0475b" stroke-width="3.5" stroke-linecap="round"/></svg>';
 const SVG_STAMP_THIN = SVG_STAMP.replace(/stroke-width="3"/g, 'stroke-width="2"').replace('stroke-width="3.5"', 'stroke-width="2.5"');
 const SVG_TILE2 = '<svg viewBox="0 0 72 44"><rect x="4" y="1" width="38" height="36" rx="9" fill="#fff" stroke="#4a3a30" stroke-width="2.5"/><use href="#dk" x="9" y="13" width="28" height="23" style="color:#9a5bd0"/><g transform="translate(42 17) scale(0.42)">' + SVG_STAMP.replace(/^<svg[^>]*>|<\/svg>$/g, '') + '</g><g><rect x="19.6" y="5.3" width="14.7" height="7.4" rx="3.7" fill="#fff" fill-opacity=".94" stroke="#4a3a30" stroke-width="0.92"/><path d="M23.9 6.5 L26.6 11.1 L21.2 11.1 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="0.69" stroke-linejoin="round"/><rect x="28.0" y="6.9" width="4.1" height="4.1" fill="#2f6fc9" stroke="#4a3a30" stroke-width="0.69"/></g></svg>';
-const SVG_LIM_OUT = '<svg viewBox="0 0 64 44"><path d="M32 22 L16 28 M32 22 L48 28" stroke="#4a3a30" stroke-width="1.6" fill="none"/><ellipse cx="32" cy="11" rx="9" ry="10" fill="#ff9ec1" stroke="#4a3a30" stroke-width="2"/><path d="M30 21 L32 24 L34 21 Z" fill="#ff9ec1" stroke="#4a3a30" stroke-width="1.5" stroke-linejoin="round"/><ellipse cx="29" cy="8" rx="2" ry="3.2" fill="#fff" opacity=".7"/><use href="#dk" transform="translate(31 26) scale(-1 1)" width="26" height="21" style="color:#ffd23f"/><use href="#dk" transform="translate(33 26)" width="26" height="21" style="color:#ffd23f"/></svg>';
+const SVG_LIM_OUT = '<svg viewBox="0 0 64 44"><path d="M32 24 Q24 25 19.1 34.5 M32 24 Q40 25 44.9 34.5" stroke="#4a3a30" stroke-width="1.6" stroke-linecap="round" fill="none"/><ellipse cx="32" cy="11" rx="9" ry="10" fill="#ff9ec1" stroke="#4a3a30" stroke-width="2"/><path d="M30 21 L32 24 L34 21 Z" fill="#ff9ec1" stroke="#4a3a30" stroke-width="1.5" stroke-linejoin="round"/><ellipse cx="29" cy="8" rx="2" ry="3.2" fill="#fff" opacity=".7"/><use href="#dk" transform="translate(31 26) scale(-1 1)" width="26" height="21" style="color:#ffd23f"/><use href="#dk" transform="translate(33 26)" width="26" height="21" style="color:#ffd23f"/><g transform="translate(19.1 34.5)" fill="#ff9ec1" stroke="#4a3a30" stroke-width="1" stroke-linejoin="round"><ellipse cx="-2" cy="-.5" rx="2.1" ry="1.5" transform="rotate(-25 -2 -.5)"/><ellipse cx="2" cy="-.5" rx="2.1" ry="1.5" transform="rotate(25 2 -.5)"/><circle r="1.2"/></g><g transform="translate(44.9 34.5)" fill="#ff9ec1" stroke="#4a3a30" stroke-width="1" stroke-linejoin="round"><ellipse cx="-2" cy="-.5" rx="2.1" ry="1.5" transform="rotate(-25 -2 -.5)"/><ellipse cx="2" cy="-.5" rx="2.1" ry="1.5" transform="rotate(25 2 -.5)"/><circle r="1.2"/></g></svg>';
 const SVG_LIM_NAP = '<svg viewBox="0 0 64 44"><rect x="14" y="20" width="32" height="22" rx="5" fill="#fdf0d5" stroke="#4a3a30" stroke-width="2.5"/><path d="M9 22 L30 4 L51 22 Z" fill="#e0483a" stroke="#4a3a30" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 42 v-9 a6 6 0 0 1 12 0 v9 z" fill="#8b5a3c" stroke="#4a3a30" stroke-width="2"/><text x="50" y="14" font-size="12" font-weight="900" fill="#5b6fb0" font-family="sans-serif">z</text><text x="56" y="7" font-size="9" font-weight="900" fill="#5b6fb0" font-family="sans-serif">z</text></svg>';
 const SVG_SPK_ON = '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9z" fill="#ffd23f" stroke="#4a3a30" stroke-width="2" stroke-linejoin="round"/><path d="M15.5 8.5c1.6 1.8 1.6 5.2 0 7M18.3 5.8c3.2 3.4 3.2 9 0 12.4" fill="none" stroke="#4a3a30" stroke-width="2" stroke-linecap="round"/></svg>';
 const SVG_SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9z" fill="#ffd23f" stroke="#4a3a30" stroke-width="2" stroke-linejoin="round"/><path d="M16 9l6 6M22 9l-6 6" stroke="#e0475b" stroke-width="2.6" stroke-linecap="round"/></svg>';
@@ -1536,6 +1536,7 @@ function menuRect() {
   const w = 3 + 8 + 30 + 6 + tw(ctx, L().menu) + 12 + 3;
   return { x: 348 - w, y: 34, w, h: 44 };
 }
+const menuFadeCv = document.createElement('canvas'), menuFadeCtx = menuFadeCv.getContext('2d');
 let dotOn = false;
 function updateDot() { dotOn = unlockedKeys().some(k => !unlSeen.has(k)); }
 function drawHud(c) {
@@ -1577,16 +1578,23 @@ function drawHud(c) {
   drawSvg(c, soundOn ? SVG_SPK_ON : SVG_SPK_OFF, SND.x + 6, SND.y + 6, 22, 22);
   c.restore();
   hit(SND.x - 4, SND.y - 4, SND.w + 8, SND.h + 8, () => setSound(!soundOn), { key: 'snd' });
-  /* menu button */
-  c.save(); if (guide) c.globalAlpha = 0.35;
-  const md = isDown('menu') ? 2 : 0, bk = boingScale('boing_menu');
-  c.save(); c.translate(mr.x + mr.w / 2, mr.y + mr.h / 2); c.scale(bk, bk); c.translate(-mr.w / 2, -mr.h / 2 + md);
-  box(c, 0, 0, mr.w, mr.h, 22, { fill: CARD, lw: 3, shadow: OUT, sy: 3 - md });
-  drawSvg(c, SVG_MENU, 11, (mr.h - 26) / 2, 30, 26);
-  txt(c, L().menu, 47, mr.h / 2 + 0.5, { size: 14, color: INK });
-  if (dotOn) { c.fillStyle = DANGER; c.beginPath(); c.arc(mr.w - 4, 4, 8, 0, TAU); c.fill(); c.lineWidth = 2.5; c.strokeStyle = OUT; c.stroke(); }
-  c.restore();
-  c.restore();
+  /* menu button (while a tutorial guide is up it is drawn opaque offscreen, then faded as one piece so overlapping parts don't show through) */
+  const drawMenuBtn = t => {
+    const md = isDown('menu') ? 2 : 0, bk = boingScale('boing_menu');
+    t.save(); t.translate(mr.x + mr.w / 2, mr.y + mr.h / 2); t.scale(bk, bk); t.translate(-mr.w / 2, -mr.h / 2 + md);
+    box(t, 0, 0, mr.w, mr.h, 22, { fill: CARD, lw: 3, shadow: OUT, sy: 3 - md });
+    drawSvg(t, SVG_MENU, 11, (mr.h - 26) / 2, 30, 26);
+    txt(t, L().menu, 47, mr.h / 2 + 0.5, { size: 14, color: INK });
+    if (dotOn) { t.fillStyle = DANGER; t.beginPath(); t.arc(mr.w - 4, 4, 8, 0, TAU); t.fill(); t.lineWidth = 2.5; t.strokeStyle = OUT; t.stroke(); }
+    t.restore();
+  };
+  if (guide) {
+    const m = 14, k = dpr * S, ox = mr.x - m, oy = mr.y - m, ow = mr.w + m * 2, oh = mr.h + m * 2;
+    menuFadeCv.width = Math.max(1, Math.ceil(ow * k)); menuFadeCv.height = Math.max(1, Math.ceil(oh * k));
+    menuFadeCtx.setTransform(k, 0, 0, k, -ox * k, -oy * k);
+    drawMenuBtn(menuFadeCtx);
+    c.save(); c.globalAlpha = 0.35; c.drawImage(menuFadeCv, ox, oy, ow, oh); c.restore();
+  } else drawMenuBtn(c);
   if (!guide) hit(mr.x, mr.y, mr.w, mr.h, () => { if (zOpen) closeZukan(); else openZukan(); }, { key: 'menu' });
 }
 
@@ -3583,9 +3591,14 @@ function drawGame() {
       const fade = p > 0.85 ? 1 - (p - 0.85) / 0.15 : 1;
       const cx = f.mx, cy = f.my - rise - geo.r * 3.4, br = geo.r * 1.15 * bs;
       ctx.globalAlpha = fade;
+      /* the strings are tied in a little bow on top of each head (the head sits ahead of the body centre) */
+      const TIE_X = -4, TIE_Y = 20;   /* body top; head top was 22 / 38 */
+      const ha = { x: ax + (f.fa ? -1 : 1) * TIE_X * k, y: ay - TIE_Y * k }, hb = { x: bx + (f.fa ? 1 : -1) * TIE_X * k, y: by - TIE_Y * k };
       if (bs > 0) {
-        ctx.strokeStyle = OUT; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(cx, cy + br * 1.2); ctx.lineTo(ax, ay - geo.r * 1.1); ctx.moveTo(cx, cy + br * 1.2); ctx.lineTo(bx, by - geo.r * 1.1); ctx.stroke();
+        ctx.strokeStyle = OUT; ctx.lineWidth = 2; ctx.lineCap = 'round';
+        ctx.beginPath();
+        for (const h of [ha, hb]) { ctx.moveTo(cx, cy + br * 1.45); ctx.quadraticCurveTo((cx + h.x) / 2 + (h.x < cx ? 1 : -1) * geo.r * 0.2, (cy + h.y) / 2 - geo.r * 0.1, h.x, h.y); }
+        ctx.stroke();
         ctx.fillStyle = f.col; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.ellipse(cx, cy, br, br * 1.2, 0, 0, TAU); ctx.fill(); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(cx - br * 0.2, cy + br * 1.2); ctx.lineTo(cx, cy + br * 1.45); ctx.lineTo(cx + br * 0.2, cy + br * 1.2); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -3594,6 +3607,14 @@ function drawGame() {
       }
       drawDuck(ctx, f.g, ax, ay, k, f.fa, Math.sin(p * 9) * 0.08, 1);
       drawDuck(ctx, f.g, bx, by, k, !f.fa, Math.sin(p * 9 + 1) * 0.08, 1);
+      if (bs > 0) {
+        const s = geo.r * 0.17 * bs;
+        ctx.fillStyle = f.col; ctx.strokeStyle = OUT; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+        for (const h of [ha, hb]) {
+          for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(h.x + sd * s * 1.15, h.y - s * 0.25, s * 1.1, s * 0.75, sd * -0.45, 0, TAU); ctx.fill(); ctx.stroke(); }
+          ctx.beginPath(); ctx.arc(h.x, h.y, s * 0.6, 0, TAU); ctx.fill(); ctx.stroke();
+        }
+      }
       ctx.globalAlpha = 1;
     } else if (f.kind === 'heart') {
       ctx.globalAlpha = 1 - p * p;
@@ -3964,11 +3985,12 @@ function drawGuide(c) {
   }
   if (g.ph === 'tip' && g.t > 1.0) {   /* above the drum, clear of the ball and the prize that pops out under it */
     const k = easeOutBack(clamp((g.t - 1.0) / 0.35, 0, 1)), al = g.t > 4.8 ? (5.2 - g.t) / 0.4 : 1;
-    const h = HOME_D(), lines = [L().tutTip1, L().tutTip2], bw = 128, bh = 44, bx = h.x - 46 - bw, by = h.y - 44;
+    const h = HOME_D(), lines = [L().tutTip1, L().tutTip2], bh = 44, by = h.y - 44;
+    setFont(c, 12.5, 900); const bw = Math.min(h.x - 46 - 6, Math.max(128, Math.ceil(Math.max(tw(c, lines[0]), tw(c, lines[1]))) + 24)), bx = h.x - 46 - bw;
     c.save(); c.globalAlpha = Math.max(0, al); c.translate(bx + bw, by + bh / 2); c.scale(k, k); c.translate(-bx - bw, -by - bh / 2);
     box(c, bx, by, bw, bh, 14, { fill: '#fffaf0', lw: 2.5, shadow: SHADOW, sy: 3 });
     c.fillStyle = '#fffaf0'; c.strokeStyle = OUT; c.lineWidth = 2.5; c.beginPath(); c.moveTo(bx + bw - 1, by + 24); c.lineTo(bx + bw + 12, by + 34); c.lineTo(bx + bw - 1, by + 34); c.fill(); c.stroke(); c.fillRect(bx + bw - 3.5, by + 23, 3, 12);
-    txt(c, lines[0], bx + bw / 2, by + 14, { size: 12, align: 'center' }); txt(c, lines[1], bx + bw / 2, by + 30, { size: 12.5, color: '#b02560', align: 'center' });
+    txt(c, lines[0], bx + bw / 2, by + 14, { size: 12, align: 'center', maxW: bw - 16 }); txt(c, lines[1], bx + bw / 2, by + 30, { size: 12.5, color: '#b02560', align: 'center', maxW: bw - 16 });
     c.restore();
   }
   if (g.ph === 'nap' && a) {   /* the house has just appeared: lead one duck home */
