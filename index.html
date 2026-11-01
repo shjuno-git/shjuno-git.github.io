@@ -264,8 +264,9 @@
 
     <script>
         // ===== ゲームデータ =====
-        // id: kshukshu.comのフォルダ名／ num: 作品の通し番号（GitHub Pagesの /g/NNN/ になる。一度振ったら変えない）／ ver: GitHub Pagesに置いたリメイク版の版番号（リメイク版があれば2、なければ省略）／ date: 公開年月（一覧の表示用）／ remake: リメイク作品（バッジ表示）／ remakeDate: リメイク公開年月（PCのみ表示）／ engine: JavaScript以外の場合のみ記入
+        // id: kshukshu.comのフォルダ名／ num: 作品の通し番号（GitHub Pagesの /g/NNN/ になる。一度振ったら変えない）／ ghOnly: GitHub Pagesにだけ置いた作品（kshukshu.comからもGitHub Pagesへ）／ ver: GitHub Pagesに置いたリメイク版の版番号（リメイク版があれば2、なければ省略）／ date: 公開年月（一覧の表示用）／ remake: リメイク作品（バッジ表示）／ remakeDate: リメイク公開年月（PCのみ表示）／ engine: JavaScript以外の場合のみ記入
         const GAMES = [
+            { id: "duck", num: "023", title: "つなげてアヒルメーカー", desc: "2匹をつなげてお題のアヒルを作ったり、着せ替えたりしよう！", genre: "パズル", date: "2026-11", img: "linkcard_duck.png", ghOnly: true },
             { id: "kurage", num: "022", title: "バイバイクラゲ", desc: "水鉄砲で倍々に増えるクラゲを退治しよう！", genre: "アクション", date: "2026-10", img: "linkcard_kurage.png" },
             { id: "kiki", num: "021", title: "機器一発！", desc: "表裏を見極めて、機器を一発で接続しよう！", genre: "アクション", engine: "Godot", date: "2026-09", img: "linkcard_kiki.png" },
             { id: "meteor", num: "020", title: "受けとメテオ！", desc: "タップで隕石を操作、器で受け止めよう！", genre: "アクション", date: "2026-08", img: "linkcard_meteor.png" },
@@ -302,7 +303,7 @@
         const ON_GH = location.hostname.endsWith("github.io") || new URLSearchParams(location.search).get("site") === "gh";
         const gameDir = (g, v) => `g/${g.num}/v${v}/`;
         const remakeUrl = g => g.ver > 1 ? (ON_GH ? `./${gameDir(g, g.ver)}` : `${GH}${gameDir(g, g.ver)}`) : null;
-        const urlOf = g => ON_GH ? `./${gameDir(g, 1)}` : `${KS}${g.id}/`; // 旧版（リメイクがなければ通常版）
+        const urlOf = g => ON_GH ? `./${gameDir(g, 1)}` : g.ghOnly ? `${GH}${gameDir(g, 1)}` : `${KS}${g.id}/`; // 旧版（リメイクがなければ通常版）
         const playOf = g => remakeUrl(g) || urlOf(g);
         const fmtDate = d => d.replace("-", ".");
         const titleOf = g => g.title + (g.engine ? `<span class="engine">（${g.engine}）</span>` : "");
