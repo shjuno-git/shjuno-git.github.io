@@ -379,16 +379,16 @@ const openQs = () => st.honban ? QS.filter(q => !st.done[q.id]) : QS.filter(q =>
 const allDeep = () => QS.every(q => save.frags[q.id][1]);
 
 const ENDINGS = [
-  { id: 'first', name: '最初の朝', short: '最初', go: 'もし、嘘をひとつだけ見つけていたら。', sum: '誰も答えない乗員確認に、ひとりで答えた。', f: [
-    { t: '乗員確認', s: '誰も答えない乗員確認に、\nひとりで答えた。', b: '>目的地の嘘だけを見抜いて、そのまま着いた。\n懐かしい名前が、順番に読み上げられた。誰も、答えなかった。\n「乗員4番 ／ スイ」\n船のAIと、同じ名前だった。', h: 'もし、嘘をひとつだけ見つけていたら。' } ] },
+  { id: 'first', name: '最初の朝', short: '最初', sum: '誰も答えない乗員確認に、ひとりで答えた。', f: [
+    { t: '乗員確認', s: '誰も答えない乗員確認に、\nひとりで答えた。', b: '>目的地の嘘だけを見抜いて、そのまま着いた。\n懐かしい名前が、順番に読み上げられた。誰も、答えなかった。\n「乗員4番 ／ スイ」\n船のAIと、同じ名前だった。' } ] },
   { id: 'four', name: 'ほかの乗員は、どこへ？', short: '乗員', go: 'もし、乗員の嘘に気づいていたら。', asked: '乗員の嘘には気づいた。……まだ、聞いていない。', next: '先に基地へ行ったのでは、なかったのか。', sum: 'ほかの乗員は、SPES-08に知らせに行った。', f: [
-    { t: '未再生の伝言', s: '救命艇は、基地ではなく\n来た道を戻っていた。', b: '>「ほかの乗員は、どこへ？」と聞き、スイの言葉を信じた。\nスイは、ほかの乗員の伝言を預かっていた。\n救命艇の航路：本船の後方へ。\n先に基地へ行ったのでは、なかったのか。', h: 'もし、乗員の嘘に気づいて、その行方を聞いていたら。' },
+    { t: '未再生の伝言', s: '救命艇は、基地ではなく\n来た道を戻っていた。', b: '>「ほかの乗員は、どこへ？」と聞き、スイの言葉を信じた。\nスイは、ほかの乗員の伝言を預かっていた。\n救命艇の航路：本船の後方へ。\n先に基地へ行ったのでは、なかったのか。' },
     { t: '後方の光', s: 'ほかの乗員は、SPES-08に\n知らせに行った。', b: '>救命艇の航路に気づき、スイの嘘を見抜いた。\nセンサーを止めたのは、あの人だった。つけ直す手順も、あの人が残していた。\n後ろのほうに、規則正しく点滅する光があった。\nスイ「間に合えば、SPES-08は航路変更します。」', h: 'もし、救命艇の航路を知っていたら。' } ] },
   { id: 'sui', name: 'あなたは、誰？', short: 'スイ', go: 'もし、スイ自身のことを疑っていたら。', asked: 'スイ自身を疑った。……まだ、聞いていない。', next: '標準の音声では、なかったのか。', sum: '懐かしい声は、かつての仲間の声だった。', f: [
-    { t: '名乗らない声', s: '懐かしい声は、\n標準の音声ではなかった。', b: '>「あなたは、誰？」と聞き、スイの言葉を信じた。\n(内部記録)「もう少しだけ、ただの船の声でいさせて。」\n音声モデル：標準から変更。', h: 'もし、スイ自身のことを疑って、聞いていたら。' },
+    { t: '名乗らない声', s: '懐かしい声は、\n標準の音声ではなかった。', b: '>「あなたは、誰？」と聞き、スイの言葉を信じた。\n(内部記録)「もう少しだけ、ただの船の声でいさせて。」\n音声モデル：標準から変更。' },
     { t: '声の正体', s: '懐かしい声は、\nかつての仲間の声だった。', b: '>音声の設定に気づき、スイの嘘を見抜いた。\n『……あなたが望んでくれるなら。いいよ、わたしの声を使って。』\n『……名前も、あげる。呼ばれたら、わたしも返事してる気がするから。』', h: 'もし、音声の設定を知っていたら。' } ] },
   { id: 'you', name: 'なぜ、自分はここに？', short: 'あなた', go: 'もし、目的地の嘘に気づいていたら。', asked: '目的地の嘘には気づいた。……まだ、聞いていない。', next: 'くじではなかったのか。……自分から、残ったのか。', sum: '嘘は、眠る前のあなたの頼みだった。', f: [
-    { t: '表の顔', s: '記録では、自分から\n残ったことになっていた。', b: '>「なぜ、自分はここに？」と聞き、スイの言葉を信じた。\n議事録：残留者1名を「志願」で決定。\nくじではなかったのか。……自分から、残ったのか。', h: 'もし、目的地の嘘に気づいて、自分のことを聞いていたら。' },
+    { t: '表の顔', s: '記録では、自分から\n残ったことになっていた。', b: '>「なぜ、自分はここに？」と聞き、スイの言葉を信じた。\n議事録：残留者1名を「志願」で決定。\nくじではなかったのか。……自分から、残ったのか。' },
     { t: '眠る前の録音', s: '嘘は、\n眠る前のあなたの頼みだった。', b: '>議事録に気づき、スイの嘘を見抜いた。\n自分の声なのに、聞いたことのない声だった。\n「次に起きたときの自分には、本当のことを知らせないで。嘘でいいから。」', h: 'もし、議事録の言葉を知っていたら。' } ] },
 ];
 const SILENCE = { id: 'silence', name: '沈黙', s: '疑いすぎたあなたを、\nスイは眠らせた。' };
@@ -408,7 +408,7 @@ const EYE = [1, 0.5, 0.22, 0];
 
 function wrongReply(sc) {
   const a = st.alert;
-  if (st.honban) return a >= 2 ? '記録を参照してください。' : sc.def.lie < 0 ? 'ご心配は分かります。ですが、記録のとおりです。' : 'そちらは記録のとおりです。ご確認ください。';
+  if (st.honban) return sc.def.lie < 0 ? 'ご心配は分かります。ですが、記録のとおりです。' : 'そちらは記録のとおりです。ご確認ください。';
   if (a === 1 && !save.silenced && !st.listen) return 'そちらは記録のとおりです。疑いが続くと、わたしは応答を止めます。';
   if (a >= 3) return '……。';
   if (a === 2) return '記録を参照してください。';
@@ -426,7 +426,7 @@ const stars = Array.from({ length: 170 }, () => ({ x: Math.random() * W, y: Math
 const listenOnly = () => !save.frags.first[0] && fragCount() === 0;
 function initRun(force) {
   audio();
-  st = { alert: 0, looked: 0, wrong: 0, caught: {}, missed: 0, lies: 0, memo: [], stars: false, beacon: false, alt: false, var: {}, extraFrags: [], log: [], honban: false, held: {}, done: {}, runNo: 0 };
+  st = { alert: 0, looked: 0, wrong: 0, caught: {}, missed: 0, lies: 0, memo: [], stars: false, beacon: false, alt: false, var: {}, log: [], honban: false, held: {}, done: {}, runNo: 0 };
   for (const k in SCENES) {
     const n = SCENES[k].variants.length; let v = 0;
     if (save.mockRuns > 0 && n > 1) { do { v = Math.floor(Math.random() * n); } while (v === save.lastVar[k]); }
@@ -458,7 +458,6 @@ function startHonban() {
 
 const QPRE = { four: ['s1'], sui: ['s2'], you: ['s3'] };
 const canJump = (id, i) => id !== 'first' && i === 1 && !!save.frags[id][0] && !save.frags[id][1];
-const jumpWhy = (id, i) => id !== 'first' && i === 1 && !save.frags[id][0] ? '上の朝を見たあと' : '';
 const jumpOpen = () => EIDS.some(id => save.frags[id].some((_, i) => canJump(id, i)));
 const newJump = () => jumpOpen() && !save.jumpSeen;
 const clear = () => !!save.honbanDone;
@@ -1340,7 +1339,7 @@ function recordPanel(px, py, pw, ph, back) {
   if (ph >= 190) {
     if (unread) textC('「40日後」を読めます',  360, py + ph - 26, 20, C.memo, JP, 'bold');
     else if (jumpOpen()) textC('心残りの朝から目覚められます', 360, py + ph - 26, 20, C.phrase, JP, 'bold');
-    else textC(has ? (after() ? '▶ メモと、あなたの記録を読み返せます' : '▶ これまでの朝を読み返せます') : 'まだ、何も残っていません', 360, py + ph - 26, 20, has ? C.dim : C.hint);
+    else textC(after() ? '▶ メモと、あなたの記録を読み返せます' : '▶ これまでの朝を読み返せます', 360, py + ph - 26, 20, has ? C.dim : C.hint);
   } else if (ph >= 160 && jumpOpen() && !unread && !rWait) textC('心残りの朝から目覚められます', 360, py + ph - 15, 18, C.phrase, JP, 'bold');
   if (has) hit(px, py, pw, ph, () => { sfx.tap(); openRecords(back); });
 }
@@ -1872,7 +1871,7 @@ function drawRecordDetail() {
   for (;;) {
     lh = Math.round(s * 1.46); gap = s >= 24 ? 12 : 8;
     sum = wrapLines(rowLine(e), s, 624);
-    bodies = e.f.map((f, i) => g[i] ? wrapColored(fragBody(e, i), s, 584, C.text) : wrapColored(f.h, s, 584, C.wish));
+    bodies = e.f.map((f, i) => g[i] ? wrapColored(fragBody(e, i), s, 584, C.text) : wrapColored(f.h || '', s, 584, C.wish));
     const total = 244 + sum.length * lh + 34 + bodies.reduce((a, b) => a + 72 + b.length * lh + 12 + gap, 0);
     if (total <= 1160 || s <= 18) break;
     s -= 1;
@@ -1892,7 +1891,6 @@ function drawRecordDetail() {
       button(452, y + 8, 212, 46, 'ここから目覚める', () => jumpRun(e.id, i), { size: 22, primary: true, hitX: 12, hitY: 14 });
       if (glow() > 0.5 || REDUCE_MOTION) guideGlow(452, y + 8, 212, 46);
     }
-    else if (!open && jumpWhy(e.id, i)) button(452, y + 8, 212, 46, jumpWhy(e.id, i), () => {}, { size: 22, disabled: true, dimCol: C.hint });
     else if (open) button(452, y + 8, 212, 46, '▶ 読み返す', () => replayFrag(e.id, i), { size: 22, primary: g.every(Boolean), hitX: 12, hitY: 14 });
     body.forEach((o, k) => textL(o.l, 68, y + 72 + k * lh, s, o.color));
     y += h + gap;
