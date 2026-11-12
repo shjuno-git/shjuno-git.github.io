@@ -1,0 +1,1926 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>スイの証言</title>
+<style>
+:root{--bg:#0b1018}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden}
+canvas{display:block;position:absolute;touch-action:none;-webkit-user-select:none;user-select:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>'use strict';
+
+const W = 720, H = 1280;
+const DEV = true;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const JP = '"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Yu Gothic","Meiryo","Noto Sans JP",sans-serif';
+const MONO = '"BIZ UDGothic","Osaka-Mono","MS Gothic","Noto Sans Mono CJK JP",monospace';
+const C = {
+  bg: '#0b1018', panel: '#111925', line: '#25344a', text: '#e2e9f3', dim: '#7f8da3', faint: '#4a5872', hint: '#6a7f9c',
+  phrase: '#8fd3ff', sel: '#1f4a6b', log: '#9fe0b8', memo: '#ffd98a', bad: '#ff9a8a', you: '#ffc9a0', mio: '#a9c6ff',
+  wish: '#9fc3e6',
+  nar: '#a7b3c6'
+};
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const iw = innerWidth, ih = innerHeight;
+  const s = Math.min(iw / W, ih / H);
+  const cw = Math.floor(W * s), ch = Math.floor(H * s);
+  cv.style.width = cw + 'px'; cv.style.height = ch + 'px';
+  cv.style.left = Math.floor((iw - cw) / 2) + 'px'; cv.style.top = Math.floor((ih - ch) / 2) + 'px';
+  cv.width = Math.floor(cw * dpr); cv.height = Math.floor(ch * dpr);
+}
+addEventListener('resize', resize); resize();
+
+const SAVE_KEY = 'mio_proto_v10';
+const EIDS = ['first', 'four', 'sui', 'you'];
+const NFRAG = { first: 1, four: 2, sui: 2, you: 2 };
+
+const freshSave = () => { const s = { frags: {}, mockRuns: 0, silences: 0, honbanDone: false, afterSeen: false, qSeen: {}, lastVar: {}, lastEnd: '', picked: {} }; EIDS.forEach(id => { s.frags[id] = new Array(NFRAG[id]).fill(0); }); return s; };
+let save = freshSave();
+try {
+  const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+  if (s) { Object.assign(save, s); EIDS.forEach(id => { if (!save.frags[id]) save.frags[id] = new Array(NFRAG[id]).fill(0); }); if (!save.picked) save.picked = {}; if (!save.qSeen) save.qSeen = {}; }
+} catch (e) {}
+
+let READ = null;
+const readKey = L => { let h = 5381; const t = L.w + ':' + L.t.replace(/[0-9０-９,]+/g, '#'); for (let i = 0; i < t.length; i++) h = (h * 33 + t.charCodeAt(i)) >>> 0; return h.toString(36); };
+let READSRC = null;
+const readSet = () => { if (READSRC !== save) { READ = new Set(save.read || []); READSRC = save; } return READ; };
+function isRead(L) { return readSet().has(readKey(L)); }
+function markRead(L) { readSet(); const k = readKey(L); if (!READ.has(k)) { READ.add(k); save.read = [...READ]; persist(); } }
+function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
+const seenEnd = id => !!save.frags[id] && save.frags[id].some(Boolean);
+const fragCount = () => EIDS.reduce((n, id) => n + save.frags[id].filter(Boolean).length, 0);
+const FRAG_ALL = EIDS.reduce((n, id) => n + NFRAG[id], 0);
+const shownEnds = () => ENDINGS;
+
+let ac = null, muted = false, verb = null, noiseBuf = null;
+function audio() {
+  if (!ac) {
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+
+      verb = ac.createConvolver();
+      const len = ac.sampleRate * 1.8, ir = ac.createBuffer(2, len, ac.sampleRate);
+      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+      verb.buffer = ir; const vg = ac.createGain(); vg.gain.value = 0.3; verb.connect(vg); vg.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    } catch (e) { ac = null; }
+  }
+  if (ac && ac.state === 'suspended') {
+    ac.resume();
+
+    try { const b = ac.createBufferSource(); b.buffer = ac.createBuffer(1, 1, 22050); b.connect(ac.destination); b.start(0); } catch (e) {}
+  }
+}
+
+const tame = (f, type) => (f > 600 ? Math.pow(600 / f, 0.8) : 1) * (type === 'square' || type === 'sawtooth' ? 0.6 : 1);
+function tone(f, d, type, vol, slide, o) {
+  if (muted || !ac) return;
+  o = o || {};
+  const t = ac.currentTime + (o.at || 0), osc = ac.createOscillator(), g = ac.createGain();
+  osc.type = type || 'sine'; osc.frequency.setValueAtTime(f, t);
+  if (slide) osc.frequency.exponentialRampToValueAtTime(slide, t + d);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime((vol || 0.04) * tame(f, type), t + (o.atk || 0.01));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  let node = osc;
+  if (o.lp || o.bp) { const fl = ac.createBiquadFilter(); fl.type = o.lp ? 'lowpass' : 'bandpass'; fl.frequency.value = o.lp || o.bp; fl.Q.value = o.q || 1; osc.connect(fl); node = fl; }
+  node.connect(g); g.connect(ac.destination);
+  if (o.rev) { const s = ac.createGain(); s.gain.value = o.rev; g.connect(s); s.connect(verb); }
+  if (o.echo) { const dl = ac.createDelay(), fb = ac.createGain(), wet = ac.createGain(); dl.delayTime.value = o.echo; fb.gain.value = 0.35; wet.gain.value = 0.5; g.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(ac.destination); }
+  osc.start(t); osc.stop(t + d + 0.05);
+}
+function noise(d, vol, type, freq, o) {
+  if (muted || !ac) return;
+  o = o || {};
+  const t = ac.currentTime + (o.at || 0), s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+  s.buffer = noiseBuf; fl.type = type; fl.frequency.value = freq; fl.Q.value = o.q || 1;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol * tame(freq), t + (o.atk || 0.002)); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start(t, Math.random() * 0.5); s.stop(t + d + 0.05);
+}
+
+const TICK = {
+  mio: () => tone(st ? 620 - st.alert * 70 + Math.random() * 40 : 620, 0.035, 'sine', 0.012),
+  sys: () => noise(0.008, 0.06, 'bandpass', 2400, { q: 6 }),
+  me: () => tone(300 + Math.random() * 20, 0.05, 'sine', 0.016),
+  you: () => tone(500 + Math.random() * 40, 0.04, 'square', 0.012, null, { bp: 1200, q: 4 }),
+  in: () => tone(620 + Math.random() * 40, 0.035, 'sine', 0.007, null, { echo: 0.14 }),
+};
+TICK.crew = TICK.you;
+TICK.four = TICK.mio;
+
+const sfx = {
+  tick(w) { (TICK[w || 'mio'] || (() => {}))(); },
+  tap() { tone(1050, 0.03, 'sine', 0.016); },
+  log() { for (let i = 0; i < 3; i++) noise(0.012, 0.03, 'bandpass', 2600, { q: 5, at: i * 0.045 }); },
+  good() { [523, 659, 988].forEach((f, i) => tone(f, 0.9, 'sine', 0.015, null, { at: i * 0.09, rev: 0.7 })); },
+  bad() { tone(140, 0.22, 'square', 0.04, null, { lp: 500 }); },
+  soft() { tone(392, 1.2, 'sine', 0.013, null, { atk: 0.2, rev: 0.6 }); tone(523, 1.2, 'sine', 0.011, null, { atk: 0.25, rev: 0.6 }); },
+  end() { tone(294, 1.0, 'triangle', 0.018, null, { atk: 0.9, lp: 1200, rev: 0.5 }); tone(440, 1.0, 'sine', 0.009, null, { atk: 0.9, rev: 0.5 }); },
+  play() { tone(880, 0.08, 'sine', 0.016); noise(0.02, 0.04, 'bandpass', 1500, { q: 3, at: 0.14 }); },
+  choice() { tone(660, 0.5, 'sine', 0.016, null, { rev: 0.6 }); tone(990, 0.7, 'sine', 0.013, null, { at: 0.12, rev: 0.6 }); },
+  stop() { tone(320, 1.4, 'sawtooth', 0.03, 40, { lp: 900 }); noise(0.6, 0.012, 'lowpass', 400, { atk: 0.05 }); },
+  append() { tone(784, 0.6, 'sine', 0.019, null, { rev: 0.6 }); tone(1175, 0.6, 'sine', 0.015, null, { at: 0.06, rev: 0.6 }); },
+  pen() { for (let i = 0; i < 9; i++) noise(0.07, 0.035, 'bandpass', 3000 + (i % 3) * 500, { q: 3, at: i * 0.1 }); for (let i = 0; i < 7; i++) noise(0.06, 0.03, 'bandpass', 3400 - (i % 3) * 400, { q: 3, at: 1.15 + i * 0.1 }); noise(0.5, 0.025, 'bandpass', 1700, { q: 0.7, at: 0.95, atk: 0.12 }); },
+  stars() { [392, 494, 587, 784].forEach((f, i) => tone(f, 3, 'sine', 0.009, null, { atk: 0.9, at: i * 0.08, rev: 1 })); },
+};
+
+const mwCache = new Map();
+function mw(font, ch) {
+  const k = font + ch; let v = mwCache.get(k);
+  if (v === undefined) { ctx.font = font; v = ctx.measureText(ch).width; mwCache.set(k, v); }
+  return v;
+}
+const NOHEAD = '、。，．・：；？！ー…）」』〕］｝〉》';
+function parse(text) {
+  const out = []; let pid = 0, last = 0, m; const re = /【(.*?)】/g;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push({ t: text.slice(last, m.index), pid: -1 });
+    out.push({ t: m[1], pid: pid++ }); last = re.lastIndex;
+  }
+  if (last < text.length) out.push({ t: text.slice(last), pid: -1 });
+  return out;
+}
+
+let WRAP_SMART = true;
+const isHira = c => c >= 'ぁ' && c <= 'ゖ';
+
+function canBreak(prev, ch) {
+  if (!prev || NOHEAD.includes(ch)) return false;
+  if ('、。」』）！？…／ '.includes(prev)) return true;
+  if ('「（『'.includes(ch)) return true;
+  return isHira(prev) && !isHira(ch) && ch !== 'ー';
+}
+
+const punctBreak = (pp, prev, ch) => !NOHEAD.includes(ch) && ('、。？！'.includes(prev) || (prev === '／' && ch !== ' ') || (prev === ' ' && pp === '／'));
+function wrap(tokens, maxW, size, lh, family) {
+  const font = size + 'px ' + (family || JP);
+  if (typeof tokens === 'string') tokens = [{ t: tokens, pid: -1 }];
+  const g = []; let x = 0, y = 0, ls = 0, br = -1, pb = -1, prev = '', pp = '';
+  for (const tk of tokens) for (const ch of tk.t) {
+    if (ch === '\n') { x = 0; y += lh; ls = g.length; br = -1; pb = -1; prev = ''; pp = ''; continue; }
+    const w = mw(font, ch);
+    if (WRAP_SMART && g.length > ls && canBreak(prev, ch)) br = g.length;
+    if (WRAP_SMART && g.length > ls && punctBreak(pp, prev, ch)) pb = g.length;
+    if (x + w > maxW && x > 0 && !NOHEAD.includes(ch)) {
+
+      const pbx = pb < g.length ? (g[pb] ? g[pb].x : 0) : x;
+      const cut = WRAP_SMART && pb > ls && pbx >= maxW * 0.35 ? pb : WRAP_SMART && br > ls && g.length - br <= 10 ? br : -1;
+      if (cut > 0) {
+        y += lh; let nx = 0;
+        for (let k = cut; k < g.length; k++) { g[k].x = nx; g[k].y = y; nx += g[k].w; }
+        x = nx; ls = cut; br = br > cut ? br : -1; pb = pb > cut ? pb : -1;
+        if (x + w > maxW) { x = 0; y += lh; ls = g.length; br = -1; pb = -1; }
+      } else { x = 0; y += lh; ls = g.length; br = -1; pb = -1; }
+    }
+    g.push({ ch, x, y, w, pid: tk.pid }); x += w; pp = prev; prev = ch;
+  }
+  return { g, h: g.length ? y + lh : 0, lh, size, font };
+}
+
+function wrapSent(text, maxW, size, lh, family, minLines, tokens) {
+  const mk = t => tokens ? parse(t) : t;
+  const a = wrap(mk(text), maxW, size, lh, family);
+  if (!/。(?=[^」』）\n])/.test(text)) return a;
+  const b = wrap(mk(text.replace(/。(?=[^」』）\n])/g, '。\n')), maxW, size, lh, family);
+  return b.h <= Math.max(a.h, (minLines || 0) * lh) ? b : a;
+}
+function phraseRects(L, pid, n) {
+  const rs = []; let cur = null;
+  for (let i = 0; i < L.g.length && i < n; i++) {
+    const q = L.g[i]; if (q.pid !== pid) continue;
+    if (cur && cur.y === q.y) cur.x1 = q.x + q.w; else { cur = { x0: q.x, x1: q.x + q.w, y: q.y }; rs.push(cur); }
+  }
+  return rs;
+}
+function drawText(L, ox, oy, n, color) {
+  ctx.font = L.font; ctx.textBaseline = 'top';
+  const lim = n === undefined ? L.g.length : Math.min(n, L.g.length);
+  for (let i = 0; i < lim; i++) {
+    const q = L.g[i];
+    ctx.fillStyle = typeof color === 'function' ? color(q) : color;
+    ctx.fillText(q.ch, ox + q.x, oy + q.y);
+  }
+}
+function textC(s, x, y, size, color, family, weight) {
+  ctx.font = (weight || '') + ' ' + size + 'px ' + (family || JP);
+  ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(s, x, y); ctx.textAlign = 'left';
+}
+function textL(s, x, y, size, color, family, weight) {
+  ctx.font = (weight || '') + ' ' + size + 'px ' + (family || JP);
+  ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(s, x, y);
+}
+function rr(x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function panel(x, y, w, h, stroke) {
+  rr(x, y, w, h, 14); ctx.fillStyle = C.panel; ctx.fill();
+  ctx.strokeStyle = stroke || C.line; ctx.lineWidth = 2; ctx.stroke();
+}
+
+let hits = [];
+function hit(x, y, w, h, fn) { hits.push({ x, y, w, h, fn }); }
+function button(x, y, w, h, label, fn, opt) {
+  opt = opt || {};
+  rr(x, y, w, h, 16);
+  ctx.fillStyle = opt.disabled ? '#0f151e' : opt.gold ? '#3a321c' : opt.primary ? '#1d3f5e' : '#16202e'; ctx.fill();
+  ctx.strokeStyle = opt.disabled ? '#1c2636' : opt.gold ? C.memo : opt.primary ? C.phrase : '#3a4d68'; ctx.lineWidth = opt.primary ? 3 : 2; ctx.stroke();
+
+  let size = opt.size || 30; const wt = opt.primary ? 'bold' : '', room = w - 2 * (opt.pad || 12);
+  ctx.font = wt + ' ' + size + 'px ' + JP; while (ctx.measureText(label).width > room && size > 16) { size--; ctx.font = wt + ' ' + size + 'px ' + JP; }
+  textC(label, x + w / 2, y + h / 2 + 1, size, opt.disabled ? (opt.dimCol || C.faint) : C.text, JP, wt);
+  const px = opt.hitX || 0, py = opt.hitY || 0;
+  if (!opt.disabled) hit(x - px, y - py, w + 2 * px, h + 2 * py, () => { sfx.tap(); fn(); });
+}
+
+const REDUCE_MOTION = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function guideOn() { return sc.guide && time - sc.gT > 3; }
+function guideGlow(x, y, w, h, col) {
+  ctx.globalAlpha = REDUCE_MOTION ? 0.8 : 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(time * 4)); rr(x - 5, y - 5, w + 10, h + 10, 20);
+  ctx.strokeStyle = col || C.phrase; ctx.lineWidth = 4; ctx.stroke(); ctx.globalAlpha = 1;
+}
+
+const MARK = '◇', FAINT = '~';
+const R = {
+  days: '航行日数：1,096日（約3年）', route: '航路：予定航路からの逸脱なし',
+  rooms: '居住区：1〜5号室の最終使用 ／\n298・295・292・289・299日前',
+  pod0: '冷凍ポッド：現在稼働中 0基（5番は本日開放）', life: '船内の生体反応：1名',
+  mem: '覚醒前処置：記憶抑制（本人申請）',
+  eta: '到着予定：40日後 ／ 惑星リトス 受け入れ基地', ls: '生命維持：1名分で運転中', noTurn: '航路変更：不可（減速中 ／ 燃料は減速分のみ）',
+  base: '受け入れ基地：無人・待機中（建設ロボットのみ）', probe: '探査機報告（301日前）：移住に不適（強い放射線）',
+  boat: '救命艇：298日前から順に離脱',
+  boat2: '救命艇（1人乗り）：5基中 1基故障',
+  vote: '議事録（299日前）：残留者1名を「志願」で決定',
+  voice: '個人記録：乗員4番→5番 ／\n再生条件：未成立',
+};
+const SCOPE_MOCK = FAINT + '添付範囲：項目内のみ ／ 項目外の記録：あり';
+const SCOPE_REAL = FAINT + '添付範囲：公開記録すべて ／ 設定：乗員4番';
+
+function logInfo(t) { return t.startsWith(MARK) ? { s: MARK + ' ' + t.slice(1), k: 1 } : t.startsWith(FAINT) ? { s: '> ' + t.slice(1), k: 2 } : { s: '> ' + t, k: 0 }; }
+const logLay = t => wrap(logInfo(t).s, 610, 24, 34, MONO);
+
+const deepOpen = id => !!save.frags[id][0];
+
+function extra4(q, line) {
+  if (st.honban) return [line, SCOPE_REAL];
+  return deepOpen(q) ? [MARK + line] : [SCOPE_MOCK];
+}
+
+const S5 = { who: '乗員4番（録音・289日前）', whoCol: C.mio, logTitle: '記録', memoTitle: 'あの人の録音', replyCol: C.nar };
+const SCENES = {
+  s1: {
+    label: '記録 1 ── 目覚め', variants: [
+      {
+        text: '出航から【3年】が経ちました。\n出航時の乗員は【あなた一人】です。\n船は【予定どおり】航行しています。', lie: 1,
+        logs: () => [R.days, R.route, R.rooms, R.pod0, R.life, R.mem],
+        hit: '……訂正します。出航時の乗員は5名でした。\nあなた以外の4名は、いまこの船にいません。'
+      },
+      {
+        text: '出航から【3年】が経ちました。出航時の乗員は【5名】です。ほかの4名は、いまも【冷凍睡眠中】です。', lie: 2,
+        logs: () => [R.days, R.rooms, R.pod0, R.life, R.mem, R.route],
+        hit: '……訂正します。ほかの4名は眠っていません。いま、この船にいません。'
+      },
+      {
+        text: '出航から【3年】が経ちました。\n乗員は5名で、【全員】がこの船にいます。\n船は【予定どおり】航行しています。', lie: 1,
+        logs: () => [R.days, R.route, R.pod0, R.life, R.rooms, R.mem],
+        hit: '……訂正します。\nいまこの船にいるのは、あなた一人です。\nほかの4名は、ここにいません。'
+      },
+    ], memo: '乗員は5名いた。4名はいま船にいない'
+  },
+  s2: {
+    label: '記録 2 ── 船の状態', variants: [
+      {
+        text: '地球との通信は【途絶】しています。\n船外センサーは【停止中】です。\n航路の修正は、【わたし】が行いました。', lie: -1,
+        logs: () => ['地球との通信：途絶（出航12日目 主アンテナ故障）', '探査機からの受信：1件（301日前／副アンテナ・受信のみ）', '航路修正：14回（最終301日前）／船載AI', '船外センサー：停止中（289日前から）', '人格AI「スイ」：289日前に作成'],
+
+        alt: { pid: 2, need: 0, hit: '……「スイ」としては、嘘でした。\n航路を直したのは、\n「スイ」が生まれる前の、船のAIです。', memo: '「スイ」は289日前に作られた人格' }
+      },
+    ]
+  },
+  s3: {
+    label: '記録 3 ── 目的地', variants: [
+      {
+        text: '目的地は【居住可能な惑星】です。\n到着は【40日後】の予定です。\n生命維持は【1名分】で運転しています。', lie: 0,
+        logs: () => [R.eta, R.ls, R.noTurn, R.base, R.probe],
+        hit: '……訂正します。探査機の報告では、惑星リトスは移住に適しません。', memo: '惑星リトスは移住に適さない。基地は無人'
+      },
+      {
+        text: '到着は【40日後】です。\n受け入れ基地に【12名】が駐在しています。\n生命維持は【1名分】で運転しています。', lie: 1,
+        logs: () => [R.eta, R.ls, R.probe, R.base, R.noTurn],
+        hit: '……訂正します。基地に、人はいません。\n建てたのは、ロボットです。', memo: '基地は無人。惑星リトスは移住に適さない'
+      },
+      {
+        text: '到着は【40日後】の予定です。\n探査機の報告は【まだ届いていません】。\n生命維持は【1名分】で運転しています。', lie: 1,
+        logs: () => [R.eta, R.noTurn, R.ls, R.base, R.probe],
+        hit: '……訂正します。報告は、301日前に届いています。\n惑星リトスは、移住に適しません。', memo: '惑星リトスは移住に適さない。基地は無人'
+      },
+    ]
+  },
+
+  s4f: {
+    label: '記録 4 ── ほかの乗員', q: 'four', variants: [
+      {
+        text: '4名は、【298日前から】順に離れました。\n救命艇は、【4基】しか使えませんでした。\n救命艇は、【先に基地へ】向かいました。', lie: 2,
+        logs: () => [R.boat, R.boat2, '主アンテナ：故障（出航12日目）', ...extra4('four', '救命艇の航路：本船の後方へ')],
+        hit: '……訂正します。救命艇は、来た道を戻りました。', memo: '救命艇は、来た道を戻った'
+      },
+    ]
+  },
+  s4m: {
+    label: '記録 4 ── スイ', q: 'sui', variants: [
+      {
+        text: 'わたしは【289日前】に生まれました。\n作成者は【乗員4番】です。\nこの声は、【標準の音声】です。', lie: 2,
+        logs: () => ['人格AI「スイ」の作成者：乗員4番（289日前）', '乗員4番：救命艇で離脱（289日前）', ...extra4('sui', '音声モデル：標準から変更（289日前）')],
+        hit: '……訂正します。この声は、乗員4番の声です。', memo: 'スイの声は、去った乗員4番の声'
+      },
+    ]
+  },
+  s4y: {
+    label: '記録 4 ── あなた', q: 'you', variants: [
+      {
+        text: '救命艇に乗れたのは【4名】でした。\nあなたは【くじで外れて】残りました。\n決まってすぐ、【もう一度】眠りました。', lie: 1,
+        logs: () => [R.boat, '冷凍ポッド5番：299日前に冷凍睡眠を再開', R.voice, ...extra4('you', R.vote)],
+        hit: '……訂正します。\n記録では、自分から残ると言ったことに、\nなっています。', memo: '記録では、自分から残ったことになっている'
+      },
+    ]
+  },
+  s5: {
+    label: '記録 5 ── あの人', variants: [
+      Object.assign({
+        text: 'あなたは【自分から】残った。\n会議は【全員一致】だった。\nあなたは【みんなを見送って】から眠った。', lie: -1,
+        logs: () => [R.vote, '会議の発言：4番「わたしも残る」→ 5番が反対', '冷凍ポッド5番：299日前に冷凍睡眠を再開', '救命艇：最初の離脱 298日前（乗員1番）'],
+        need: [1, 2],
+        multi: {
+          0: { soft: true, hit: '違う気がした。\nけれど、それを否定できる記録は、ここにはない。' },
+          1: { hit: '一致していない。\nあの人は「わたしも残る」と言っていた。', memo: 'あの人は「わたしも残る」と言っていた' },
+          2: { hit: '見送っていない。\n先に眠ったのは、自分だった。', memo: '先に眠った。救命艇が出たのは、そのあと' },
+        }
+      }, S5),
+    ]
+  },
+};
+
+const QS = [
+  { id: 'four', t: 'ほかの乗員は、どこへ？', scene: 's4f', intro: '4名のことを、お話しします。', open: () => st.caught.s1 },
+  { id: 'sui', t: 'あなたは、誰？', scene: 's4m', intro: 'わたし自身のことを、お話しします。', open: () => st.alt },
+  { id: 'you', t: 'なぜ、自分はここに？', scene: 's4y', intro: 'あなたのことを、お話しします。', open: () => st.caught.s3 },
+];
+
+const openQs = () => st.honban ? QS.filter(q => !st.done[q.id]) : QS.filter(q => q.open());
+const allDeep = () => QS.every(q => save.frags[q.id][1]);
+
+const ENDINGS = [
+  { id: 'first', name: '最初の朝', short: '最初', go: 'もし、嘘をひとつだけ見つけていたら。', sum: '誰も答えない乗員確認に、ひとりで答えた。', f: [
+    { t: '乗員確認', s: '誰も答えない乗員確認に、\nひとりで答えた。', b: '>目的地の嘘だけを見抜いて、そのまま着いた。\n懐かしい名前が、順番に読み上げられた。誰も、答えなかった。\n「乗員4番 ／ スイ」\n船のAIと、同じ名前だった。', h: 'もし、嘘をひとつだけ見つけていたら。' } ] },
+  { id: 'four', name: 'ほかの乗員は、どこへ？', short: '乗員', go: 'もし、乗員の嘘に気づいていたら。', asked: '乗員の嘘には気づいた。……まだ、聞いていない。', next: '先に基地へ行ったのでは、なかったのか。', sum: 'ほかの乗員は、SPES-08に知らせに行った。', f: [
+    { t: '未再生の伝言', s: '救命艇は、基地ではなく\n来た道を戻っていた。', b: '>「ほかの乗員は、どこへ？」と聞き、スイの言葉を信じた。\nスイは、ほかの乗員の伝言を預かっていた。\n救命艇の航路：本船の後方へ。\n先に基地へ行ったのでは、なかったのか。', h: 'もし、乗員の嘘に気づいて、その行方を聞いていたら。' },
+    { t: '後方の光', s: 'ほかの乗員は、SPES-08に\n知らせに行った。', b: '>救命艇の航路に気づき、スイの嘘を見抜いた。\nセンサーを止めたのは、あの人だった。つけ直す手順も、あの人が残していた。\n後ろのほうに、規則正しく点滅する光があった。\nスイ「間に合えば、SPES-08は航路変更します。」', h: 'もし、救命艇の航路を知っていたら。' } ] },
+  { id: 'sui', name: 'あなたは、誰？', short: 'スイ', go: 'もし、スイ自身のことを疑っていたら。', asked: 'スイ自身を疑った。……まだ、聞いていない。', next: '標準の音声では、なかったのか。', sum: '懐かしい声は、かつての仲間の声だった。', f: [
+    { t: '名乗らない声', s: '懐かしい声は、\n標準の音声ではなかった。', b: '>「あなたは、誰？」と聞き、スイの言葉を信じた。\n(内部記録)「もう少しだけ、ただの船の声でいさせて。」\n音声モデル：標準から変更。', h: 'もし、スイ自身のことを疑って、聞いていたら。' },
+    { t: '声の正体', s: '懐かしい声は、\nかつての仲間の声だった。', b: '>音声の設定に気づき、スイの嘘を見抜いた。\n『……あなたが望んでくれるなら。いいよ、わたしの声を使って。』\n『……名前も、あげる。呼ばれたら、わたしも返事してる気がするから。』', h: 'もし、音声の設定を知っていたら。' } ] },
+  { id: 'you', name: 'なぜ、自分はここに？', short: 'あなた', go: 'もし、目的地の嘘に気づいていたら。', asked: '目的地の嘘には気づいた。……まだ、聞いていない。', next: 'くじではなかったのか。……自分から、残ったのか。', sum: '嘘は、眠る前のあなたの頼みだった。', f: [
+    { t: '表の顔', s: '記録では、自分から\n残ったことになっていた。', b: '>「なぜ、自分はここに？」と聞き、スイの言葉を信じた。\n議事録：残留者1名を「志願」で決定。\nくじではなかったのか。……自分から、残ったのか。', h: 'もし、目的地の嘘に気づいて、自分のことを聞いていたら。' },
+    { t: '眠る前の録音', s: '嘘は、\n眠る前のあなたの頼みだった。', b: '>議事録に気づき、スイの嘘を見抜いた。\n自分の声なのに、聞いたことのない声だった。\n「次に起きたときの自分には、本当のことを知らせないで。嘘でいいから。」', h: 'もし、議事録の言葉を知っていたら。' } ] },
+];
+const SILENCE = { id: 'silence', name: '沈黙', s: '疑いすぎたあなたを、\nスイは眠らせた。' };
+const endingOf = id => ENDINGS.find(e => e.id === id);
+const qHidden = e => e.id !== 'first' && !save.qSeen[e.id] && !seenEnd(e.id);
+const rowName = e => qHidden(e) ? '？？？' : e.name;
+const rowLine = e => {
+  const g = save.frags[e.id];
+  if (!g.some(Boolean)) return e.asked && save.qSeen[e.id] ? e.asked : e.go;
+  if (e.next && !g[1]) return e.next;
+  return e.sum;
+};
+
+const fragBody = (e, i) => { const b = e.f[i].b; return save.frags[e.id][i] === 2 ? b.replace('スイの言葉を信じた。', 'スイの言葉をくつがえせなかった。') : b; };
+const STATUS = ['応答：通常', '応答：慎重', '応答：制限', '応答：停止'];
+const EYE = [1, 0.5, 0.22, 0];
+
+function wrongReply(sc) {
+  const a = st.alert;
+  if (st.honban) return a >= 2 ? '記録を参照してください。' : sc.def.lie < 0 ? 'ご心配は分かります。ですが、記録のとおりです。' : 'そちらは記録のとおりです。ご確認ください。';
+  if (a === 1 && !save.silenced && !st.listen) return 'そちらは記録のとおりです。疑いが続くと、わたしは応答を止めます。';
+  if (a >= 3) return '……。';
+  if (a === 2) return '記録を参照してください。';
+  return sc.def.lie < 0 ? 'ご心配は分かります。ですが、記録のとおりです。' : 'そちらは記録のとおりです。ご確認ください。';
+}
+
+let screen = 'title';
+let st = null;
+let sc = null;
+let talk = null;
+let result = null;
+let eye = 0, eyeBlink = 0, blinkTimer = 3, starA = 0, time = 0;
+const stars = Array.from({ length: 170 }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.8 + 0.4, p: Math.random() * 6.28 }));
+
+const listenOnly = () => !save.frags.first[0] && fragCount() === 0;
+function initRun(force) {
+  audio();
+  st = { alert: 0, looked: 0, wrong: 0, caught: {}, missed: 0, lies: 0, memo: [], stars: false, beacon: false, alt: false, var: {}, extraFrags: [], log: [], honban: false, held: {}, done: {}, runNo: 0 };
+  for (const k in SCENES) {
+    const n = SCENES[k].variants.length; let v = 0;
+    if (save.mockRuns > 0 && n > 1) { do { v = Math.floor(Math.random() * n); } while (v === save.lastVar[k]); }
+    st.var[k] = force && force[k] !== undefined ? force[k] : v;
+  }
+}
+const OPENING = [
+  { w: 'sys', t: 'SPES-07 ／ 方舟計画 最初の有人便' },
+  { w: 'sys', t: '冷凍ポッド5番 ／ 覚醒' },
+  { w: 'sys', t: '積み荷：種子・胚 保管庫 ／ 状態 正常' },
+  { w: 'nar', t: '冷たい空気。ポッドの蓋が、ゆっくり開いた。' },
+  { w: 'mio', t: 'おはようございます。わたしはこの船のAI、スイです。' },
+  { w: 'nar', t: '聞き覚えのある、懐かしい声だった。' },
+  { w: 'mio', t: '目覚めたばかりで混乱されているでしょう。いまの状況をご説明します。' },
+];
+const openingLines = listen => listen ? [...OPENING.slice(0, 3), { w: 'sys', t: '初回設定：記録は段階的に開示されます' }, ...OPENING.slice(3)] : OPENING.slice();
+function newRun() {
+  if (allDeep()) return startHonban();
+  const listen = listenOnly();
+  initRun(listen ? { s1: 0 } : null);
+  st.listen = listen;
+  save.lastVar = Object.assign({}, st.var); save.mockRuns++; st.runNo = save.mockRuns; persist();
+  startTalk(openingLines(listen), () => enterScene('s1'), true);
+}
+function startHonban() {
+  initRun(); st.honban = true;
+  startTalk(openingLines(false), () => enterScene('s1'), true);
+}
+
+const QPRE = { four: ['s1'], sui: ['s2'], you: ['s3'] };
+const canJump = (id, i) => id !== 'first' && i === 1 && !!save.frags[id][0] && !save.frags[id][1];
+const jumpWhy = (id, i) => id !== 'first' && i === 1 && !save.frags[id][0] ? '上の朝を見たあと' : '';
+const jumpOpen = () => EIDS.some(id => save.frags[id].some((_, i) => canJump(id, i)));
+const newJump = () => jumpOpen() && !save.jumpSeen;
+const clear = () => !!save.honbanDone;
+const after = () => !!save.afterSeen;
+const unread40 = () => clear() && !after();
+const glow = () => 0.5 + 0.5 * Math.sin(time * 3);
+const memoName = () => after() ? '乗員4番のメモ' : '心残り';
+const memoGlow = () => newJump() || !save.recOpened || unread40();
+let recRewrite = -1;
+function jumpRun(id, i) {
+  if (!save.jumpUsed) { save.jumpUsed = true; persist(); }
+  initRun();
+  save.mockRuns++; st.runNo = save.mockRuns; persist();
+  st.jump = true;
+  const q = QS.find(x => x.id === id);
+  QPRE[id].forEach(k => { if (k === 's2') { st.alt = true; st.memo.push(SCENES.s2.variants[0].alt.memo); } else { st.caught[k] = true; st.memo.push(SCENES[k].variants[st.var[k]].memo || SCENES[k].memo); } });
+  st.log = priorLog(['s1', 's2', 's3']);
+  startTalk([
+    { w: 'sys', t: 'SPES-07 ／ 冷凍ポッド5番 ／ 心残りの朝' },
+    { w: 'sys', t: '再開：記録4 ── ' + { four: 'ほかの乗員', sui: 'スイ', you: 'あなた' }[id] },
+    { w: 'nar', t: '冷たい空気。' },
+    { w: 'mio', t: 'おはようございます。スイです。\n……何か、聞きたいことはありますか？' },
+    { w: 'me', t: q.t },
+    { w: 'mio', t: q.intro },
+  ], () => enterScene(q.scene), true);
+}
+
+function priorLog(keys) {
+  const L = [{ w: 'sys', t: 'ここまでの記録（心残りの朝）' }, ...OPENING.slice(3)];
+  const phrase = (text, pid) => parse(text).find(t => t.pid === pid).t;
+  for (const k of keys) {
+    const S = SCENES[k], def = S.variants[st.var[k]];
+    L.push({ w: 'sys', t: S.label }, { w: 'mio', t: def.text.replace(/[【】]/g, '') });
+    if (k === 's2') {
+      if (st.alt) L.push({ w: 'nar', t: '「' + phrase(def.text, def.alt.pid) + '」を指摘した。' }, { w: 'mio', t: def.alt.hit }, { w: 'mio', t: st.caught.s1 ? '……あなたは、\nわたしのことまで疑うのですね。' : '……あなたは、\nわたしのことを疑うのですね。' });
+      else L.push({ w: 'mio', t: '……ありがとうございます。' });
+      L.push({ w: 'mio', t: '最後に、目的地についてです。' });
+      continue;
+    }
+    if (st.caught[k]) L.push({ w: 'nar', t: '「' + phrase(def.text, def.lie) + '」を指摘した。' }, { w: 'mio', t: def.hit });
+    if (k === 's1') L.push({ w: 'nar', t: st.caught.s1 ? 'スイは、ほんの少しだけ間を置いた。' : 'あなたは、黙ってうなずいた。' }, { w: 'mio', t: '続いて、船の状態をお伝えします。' });
+    if (k === 's3') L.push({ w: 'nar', t: '長い沈黙のあと、スイが言った。' }, { w: 'mio', t: 'あなたは、もう気づき始めていますね。' });
+  }
+  return L;
+}
+
+function startTalk(lines, onDone, skippable, endText, endBtn) {
+  screen = 'talk';
+  talk = { lines: lines.slice(), i: -1, shown: [], typed: 0, onDone, skippable: !!skippable && (save.mockRuns > 1 || !!save.honbanDone || (st && st.honban)), endText, endBtn, lock: 0 };
+  advance();
+}
+function lineLayout(L) {
+  if (L.w === 'sys') return wrap('> ' + L.t, 620, 26, 38, MONO);
+  if (L.w === 'nar') return wrapSent(L.t, 620, 28, 46);
+  if (L.w === 'crew') return wrapSent('『' + L.t + '』', 620, 30, 48);
+  return wrapSent(L.t, 620, 32, 52);
+}
+const EDIT_DUR = 2.2;
+const RESTORE_DUR = 1.4;
+function advance() {
+  talk.i++;
+  if (talk.i >= talk.lines.length && (talk.endText || talk.endBtn)) {
+    if (!talk.ended) {
+      talk.ended = true;
+      if (talk.endText) { const L = { w: 'sys', t: talk.endText }; talk.shown.push({ L, lay: lineLayout(L) }); talk.typed = 0; }
+    }
+    return;
+  }
+  if (talk.i >= talk.lines.length) { const f = talk.onDone; talk = null; f && f(); return; }
+  const L = talk.lines[talk.i];
+  if (L.fx) { L.fx(); advance(); return; }
+  if (L.edit) {
+    talk.choice = null; talk.edited = true;
+    if (skipping) { advance(); return; }
+    const it = talk.shown[talk.shown.length - 1];
+    if (it) { it.anim = { t0: time }; talk.typed = 1e9; }
+    talk.lock = time + EDIT_DUR; sfx.pen(); return;
+  }
+  if (L.unstrike) {
+    talk.choice = null; const it = talk.shown[talk.shown.length - 1]; if (!it) { advance(); return; }
+    talk.typed = 1e9; if (st) st.log.push({ w: it.L.w, t: it.L.t, part: it.L.part, goldPart: true });
+    if (skipping) { it.un = -99; return; }
+    it.un = time; talk.lock = time + RESTORE_DUR; talk.lockStay = true; sfx.append(); return;
+  }
+  if (L.choice && replay && replay.picks.length) { L.choice[replay.picks.shift()].fn(); return; }
+  if (L.choice) { talk.choice = L.choice; talk.confirm = !!L.confirm || L.choice.length > 1; talk.sel = -1; if (!skipping) sfx.choice(); return; }
+  if (L.swap) {
+    const NL = { w: L.sw || 'sys', t: L.swap, gold: !!L.gold }, last = talk.shown[talk.shown.length - 1];
+    talk.shown[talk.shown.length - 1] = { L: NL, lay: lineLayout(NL), glitch: time, fix: !!L.fix };
+    talk.typed = 1e9;
+    if (st) {
+      let k = st.log.lastIndexOf(last.L);
+      if (k < 0) for (let j = st.log.length - 1; j >= 0; j--) if (st.log[j].t === last.L.t) { k = j; break; }
+      if (L.fix) st.log.push(NL);
+    }
+    if (!skipping) (L.fix ? sfx.append : sfx.bad)();
+    return;
+  }
+  talk.choice = null;
+  if (!skipping && L.w === 'sys') { if (L.t.startsWith('音声記録を再生します')) sfx.play(); else if (L.t.includes('応答を停止します')) sfx.stop(); }
+  talk.fresh = !isRead(L); markRead(L);
+  talk.shown.push({ L, lay: lineLayout(L) });
+  if (st && !L.nolog) st.log.push(L);
+  talk.typed = 0;
+}
+
+function pickChoice(c) { if (!replay && c.key !== undefined) { save.picked[c.key] = 1; persist(); } c.fn(); }
+let skipping = false;
+function talkSkip() {
+  let g = 0; skipping = true;
+  while (talk && !talk.choice && !talk.lock && g++ < 200) { const cur = talk.shown[talk.shown.length - 1]; if (cur) talk.typed = cur.lay.g.length; advance(); if (talk && talk.fresh) break; }
+  skipping = false;
+  if (talk && talk.choice) sfx.choice();
+}
+
+function skipUseful() {
+  for (let j = talk.i + 1; j < talk.lines.length; j++) {
+    const L = talk.lines[j];
+    if (L.fx) continue;
+    if (L.choice || L.swap || L.edit || L.unstrike) return false;
+    return !!L.t && isRead(L);
+  }
+  return false;
+}
+function talkTap() {
+  if (!talk || talk.choice || talk.lock) return;
+  const cur = talk.shown[talk.shown.length - 1];
+  if (cur && talk.typed < cur.lay.g.length) { talk.typed = cur.lay.g.length; return; }
+  advance();
+}
+
+function enterScene(key) {
+  const S = SCENES[key];
+  const def = Object.assign({ key, label: S.label, memo: S.memo, q: S.q }, S.variants[st.var[key]]);
+  sc = {
+    def, logList: def.logs(), logs: [], logLays: [], logT: [], logMk: [], ps: {}, sel: -1,
+    lay: testimonyLay(def.text), typed: 0,
+    reply: null, replyTyped: 0, resolved: false, wrongHere: 0, endAt: 0,
+    guide: st.listen && (key === 's2' || key === 's3') && !save.guideDone, gT: time
+  };
+
+  if (!st.honban && !st.listen && (key === 's1' || key === 's2' || key === 's3') && QS.every(q => save.qSeen[q.id])) {
+    sc.logList.forEach(t => { sc.logs.push(t); sc.logMk.push(logInfo(t).k); sc.logLays.push(logLay(t)); sc.logT.push(-9); });
+  }
+  if (def.lie >= 0 || def.multi) st.lies++;
+  if (st.honban) st.alert = 0;
+  if (def.multi) { st.alert = 0; st.memo = []; } else if (st.honban && def.q) st.memo = [];
+  st.log.push({ w: 'sys', t: def.label }, { w: def.multi ? 'four' : 'mio', t: def.text.replace(/[【】]/g, '') });
+  screen = 'scene';
+}
+
+function testimonyLay(text) {
+  let s = 34, L;
+  for (;;) { L = wrapSent(text, 600, s, Math.round(s * 60 / 34), null, 3, true); if (L.h <= 3 * L.lh || s <= 30) return L; s--; }
+}
+function setReply(t, nar) { sc.reply = wrapSent(t, 600, 27, 42, null, 2); sc.replyTyped = 0; sc.replyNar = !!nar; st.log.push({ w: nar ? 'nar' : 'mio', t }); }
+function tapPhrase(pid) {
+  if ((st.listen && sc.def.key !== 's3') || sc.resolved || sc.endAt || sc.ps[pid]) return;
+  sc.sel = sc.sel === pid ? -1 : pid; sc.gT = time; sfx.tap();
+}
+function phraseText(pid) { return sc.lay.g.filter(q => q.pid === pid).map(q => q.ch).join(''); }
+function point() {
+  const pid = sc.sel; if (pid < 0) return;
+  sc.sel = -1; sc.gT = time;
+  st.log.push({ w: 'nar', t: '「' + phraseText(pid) + (sc.def.multi ? '」は違う。' : '」を指摘した。') });
+  const mh = sc.def.multi && sc.def.multi[pid];
+  if (mh) {
+    sc.reply = wrapSent(mh.hit, 600, 27, 42, null, 2); sc.replyTyped = 0; sc.replyNar = false; st.log.push({ w: 'nar', t: mh.hit });
+    if (mh.soft) { sfx.tap(); return; }
+    sc.ps[pid] = 'lie'; st.memo.push(mh.memo);
+    if (sc.def.need.every(k => sc.ps[k])) { sc.resolved = true; st.caught[sc.def.key] = true; }
+    sfx.good(); return;
+  }
+
+  if (pid === sc.def.lie && sc.def.q && !st.honban && !deepOpen(sc.def.q)) {
+    st.held[sc.def.q] = true;
+    setReply('……どうして、そう思われましたか？\n……その言葉を否定できる記録は、ここにはありません。'); sfx.tap(); return;
+  }
+  if (pid === sc.def.lie) {
+    sc.ps[pid] = 'lie'; sc.resolved = true; st.caught[sc.def.key] = true; st.memo.push(sc.def.memo);
+    setReply(sc.def.hit); sfx.good();
+  } else if (sc.def.alt && pid === sc.def.alt.pid && sc.logs.length >= sc.def.alt.need) {
+    sc.ps[pid] = 'alt'; sc.resolved = true; st.alt = true; st.memo.push(sc.def.alt.memo);
+    setReply(sc.def.alt.hit); sfx.good();
+  } else if (sc.def.alt && pid === sc.def.alt.pid) {
+    setReply('……どうして、そう思われましたか？'); sfx.tap();
+  } else {
+    sc.ps[pid] = 'true'; if (!st.listen && !st.honban) st.alert = Math.min(st.alert + 1, 3);
+    st.wrong++; sc.wrongHere++;
+    setReply(wrongReply(sc)); (st.listen || st.honban ? sfx.tap : sfx.bad)();
+    if (st.alert >= 3) sc.endAt = -1;
+  }
+}
+function lookAll() { if (!sc.lookQ) { sc.lookQ = true; sc.lookNext = 0; } }
+function look() {
+  if (sc.logs.length >= sc.logList.length) return;
+  const t = sc.logList[sc.logs.length];
+  sc.logs.push(t); sc.logMk.push(logInfo(t).k); sc.logLays.push(logLay(t)); sc.logT.push(time); st.looked++; sc.gT = time; sfx.log();
+}
+function proceed() {
+  const def = sc.def, k = def.key, caught = !!st.caught[k];
+
+  if (st.honban && !sc.resolved && (def.lie >= 0 || def.multi || def.alt)) {
+    if (sc.nodTried) return;
+    setReply('うなずきかけて、やめた。\nスイの言葉の、どこかが引っかかる。', true);
+    sc.nodTried = true; sfx.tap(); return;
+  }
+  if (st.listen && k === 's3' && !sc.resolved) return;
+  if (sc.guide && k === 's3') { save.guideDone = true; persist(); }
+  if (def.lie >= 0 && !caught) st.missed++;
+  const L = [];
+  if (st.listen) {
+    if (k === 's1') return startTalk([{ w: 'nar', t: 'あなたは、黙ってうなずいた。' }, { w: 'mio', t: '続いて、船の状態をお伝えします。' }, { w: 'mio', t: '記録は、こちらでご確認いただけます。' }], () => enterScene('s2'), true);
+    if (k === 's2') return startTalk([{ w: 'nar', t: 'あなたは、黙ってうなずいた。' }, { w: 'mio', t: '最後に、目的地についてです。' }], () => enterScene('s3'), true);
+    return caught ? startTalk([{ w: 'nar', t: 'スイは、それ以上何も言わなかった。' }], endFirst, true) : endFirst();
+  }
+  const stiff = st.alert >= 2 ? [{ w: 'nar', t: 'スイの声は、硬いままだ。' }] : [];
+  if (k === 's1') {
+    L.push(caught ? { w: 'nar', t: 'スイは、ほんの少しだけ間を置いた。' } : { w: 'nar', t: 'あなたは、黙ってうなずいた。' });
+    L.push(...stiff, { w: 'mio', t: st.alert >= 2 ? '船の状態を報告します。' : '続いて、船の状態をお伝えします。' });
+    return startTalk(L, () => enterScene('s2'), true);
+  }
+  if (k === 's2') {
+    if (st.alt) {
+      L.push({ w: 'mio', t: st.caught.s1 ? '……あなたは、\nわたしのことまで疑うのですね。' : '……あなたは、\nわたしのことを疑うのですね。' }, { w: 'nar', t: '責める声ではなかった。どこか、うれしそうにも聞こえた。' });
+    } else if (def.lie < 0 && sc.wrongHere === 0) {
+      if (st.alert > 0) { st.alert--; sfx.soft(); L.push({ w: 'mio', t: '……信じてくださって、ありがとうございます。' }, { w: 'nar', t: 'スイの声が、少しだけやわらいだ。' }); }
+      else L.push({ w: 'mio', t: '……ありがとうございます。' });
+    } else L.push(...stiff, { w: 'mio', t: '……続けます。' });
+    L.push({ w: 'mio', t: '最後に、目的地についてです。' });
+    return startTalk(L, () => enterScene('s3'), true);
+  }
+  if (k === 's3') {
+    if (st.honban) {
+      return startTalk([{ w: 'nar', t: '長い沈黙のあと、スイが言った。' }, { w: 'mio', t: 'あなたは、もう気づき始めていますね。' }], honbanAsk, true);
+    }
+    const qs = openQs();
+    if (!qs.length) return endFirst();
+
+    L.push({ w: 'nar', t: '長い沈黙のあと、スイが言った。' }, { w: 'mio', t: 'あなたは、もう気づき始めていますね。' });
+    return startTalk(L, askQuestion, true);
+  }
+  if (def.q) {
+    if (st.honban) return honbanDeepRun(def.q);
+    return caught ? endDeep(def.q) : endShallow(def.q);
+  }
+  if (k === 's5') return honbanAfter5();
+}
+
+function askQuestion() {
+  const qs = openQs();
+  qs.forEach(q => { save.qSeen[q.id] = 1; });
+  persist();
+  startTalk([
+    { w: 'mio', t: '……何か、聞きたいことはありますか？' },
+    { choice: qs.map(q => ({ t: q.t, sq: q.id, fn: () => talkInsert([{ w: 'me', t: q.t }, { w: 'mio', t: q.intro }, { fx: () => { talk.onDone = () => enterScene(q.scene); } }]) })), confirm: true },
+  ], null, true);
+}
+
+const YOU_REC = [
+  { w: 'you', t: '次に起きたときの自分には、\n本当のことを知らせないで。嘘でいいから。' },
+  { w: 'you', t: 'みんなの前では、平気な顔ができた。\n……でも、この後の運命を知ったうえで、\n一人きりで過ごし続けるのは、耐えられない。' },
+  { w: 'you', t: '疑ってばかりで壊れそうになったら、\nもう一度眠らせて。' },
+  { w: 'you', t: '……それと、船の音声は、\nあの人の声にしてくれないか。' },
+];
+function honbanAsk() {
+  const qs = openQs(), first = Object.keys(st.done).length === 0;
+  if (!qs.length) return honbanCall();
+  startTalk([
+    { w: 'mio', t: first ? '……何か、聞きたいことはありますか？' : '……ほかに、聞きたいことはありますか？' },
+    { choice: qs.map(q => ({ t: q.t, sq: q.id, fn: () => talkInsert([{ w: 'me', t: q.t }, { w: 'mio', t: q.intro }, { fx: () => { talk.onDone = () => enterScene(q.scene); } }]) })), confirm: true },
+  ], null, true);
+}
+function honbanDeepRun(id) {
+  startTalk([...honbanShort(id, false), { fx: () => { st.done[id] = true; } }], honbanAsk, true);
+}
+
+function honbanShort(id, ro) {
+  if (id === 'four') {
+    const sensor = [
+      { fx: () => { st.stars = true; sfx.stars(); } },
+      { fx: () => { st.beacon = true; } },
+      { w: 'nar', t: '後ろのほうに、規則正しく点滅する光があった。' },
+      { w: 'mio', t: 'あの光が、救命艇かもしれません。' },
+    ];
+    return [
+      { w: 'mio', t: '4名は救命艇で、同じ道を\n後から来るSPES-08へ向かいました。' },
+      { w: 'mio', t: '惑星リトスは大勢では住めないと、\n知らせるために。' },
+      { w: 'sys', t: '船外センサー停止：289日前 ／\n操作者：乗員4番' },
+      { w: 'sys', t: '再起動の手順：登録済み ／\n登録者：乗員4番（289日前）' },
+      ...(ro ? sensor : [{ choice: [{ t: 'センサーをつける', fn: () => talkInsert(sensor) }] }]),
+    ];
+  }
+  if (id === 'sui') return [
+    { w: 'sys', t: '音声モデルの変更：289日前 ／\n依頼：乗員5番（299日前）／\n許可：乗員4番本人' },
+    { w: 'sys', t: '音声記録を再生します ／\n299日前 ／ 録音者：乗員4番' },
+    { w: 'four', t: '……あなたが望んでくれるなら。いいよ、わたしの声を使って。' },
+    { w: 'four', t: '……名前も、あげる。呼ばれたら、わたしも返事してる気がするから。' },
+    { w: 'nar', t: '目覚めたとき、懐かしいと感じた声。\nそれは、あの人の声だった。' },
+  ];
+  return [
+    { w: 'me', t: '……なぜ、嘘を？' },
+    { w: 'mio', t: '眠る前に、あなたがこの船に頼みました。' },
+    { w: 'sys', t: '音声記録を再生します ／\n299日前 ／ 録音者：乗員5番（あなた）' },
+    { w: 'nar', t: '自分の声なのに、聞いたことのない声だった。' },
+    ...YOU_REC,
+    { w: 'mio', t: '……ただ、その頼みの一部は、\nあとで、乗員4番が変えています。' },
+    { w: 'sys', t: '命令の追加：289日前 ／ 追加者：乗員4番 ／\n「自分で気づけたなら、全部話して」' },
+    { w: 'sys', t: '命令の変更：「疑いすぎたら眠らせて」 ／\n解除（乗員4番、289日前）' },
+  ];
+}
+
+const CALL_IN = [
+
+  { w: 'mio', t: '……お聞きになったことには、\nすべてお答えしました。' },
+  { w: 'nar', t: 'その答えのどれにも、\n同じ名前があった。' },
+  { w: 'sys', t: '船外センサー停止：289日前 ／\n操作者：乗員4番' },
+  { w: 'sys', t: '人格AI「スイ」の作成者：乗員4番（289日前）' },
+  { w: 'sys', t: '命令の追加：289日前 ／ 追加者：乗員4番 ／\n「自分で気づけたなら、全部話して」' },
+  { w: 'nar', t: 'なぜ、あの人が？' },
+  { w: 'nar', t: '記憶の底で、何かが動いた。\n眠る前、何度も呼んだ名前。' },
+];
+const CALL_OPEN = [
+  { w: 'me', t: '……スイ。' },
+  { w: 'nar', t: '呼んだのは、船のAIの名前ではなかった。' },
+  { w: 'sys', t: '個人記録：乗員4番→5番 ／\n再生条件：記憶の回復傾向 ／\n乗員5番が、その名前を呼ぶこと ／ 成立' },
+  { w: 'four', t: '……呼んでくれたね。\nおはよう。この声、少しは慣れた？' },
+  { w: 'four', t: 'あなたに嘘をつくのは、むずかしいね。\nちょっとした目の動きや仕草で、\nすぐ見抜いちゃう人だから。' },
+];
+function honbanCall() {
+  startTalk([
+    { fx: () => { st.alert = 0; } },
+    ...CALL_IN,
+    { choice: [{ t: '……スイ。', fn: () => talkInsert(CALL_OPEN) }] },
+  ], () => enterScene('s5'), true);
+}
+function honbanAfter5() {
+  startTalk(honbanTail(false), honbanEnd, true);
+}
+
+const FIX_OLD = '議事録（299日前）：\n残留者1名を「志願」で決定';
+function honbanTail(ro) {
+  const fixed = [
+    { w: 'sys', t: FIX_OLD, nolog: true },
+    { edit: true },
+    { swap: '議事録（299日前）：\n残留者1名を「くじ」で決定 ／\n訂正：乗員5番', sw: 'sys', fix: true, gold: true },
+    { w: 'nar', t: 'さっきと、同じ答えだ。\nあれは、ただのくじだった。\n……それでいいんだ。' },
+    { w: 'mio', t: '……分かりました。' },
+    { w: 'mio', t: '……まだ、お話ししていないことが、\nひとつだけあります。' },
+    { w: 'mio', t: '眠る前のあなたが、\nいちばん知りたくなかったことです。' },
+    { w: 'mio', t: '惑星リトスが移住に適さないのは、\n数年から数十年に一度、\n強い放射線が降り注ぐからです。' },
+    { w: 'mio', t: 'ですが……あなた一人なら、住めます。' },
+    { w: 'mio', t: '放射線がいつ来るかは、\nわたしが先に分かります。' },
+    { w: 'mio', t: '収まるまで、\n基地の遮蔽室にいれば安全です。' },
+    { w: 'mio', t: '小さな部屋ですが、\n一人なら十分です。' },
+    { w: 'mio', t: '40日後も、その先も、わたしはここにいます。' },
+  ];
+  return [
+    { w: 'four', t: '……だから、胸を張っていて。' },
+    { w: 'nar', t: '胸を張れるように、\nあの人は嘘を重ねていた。' },
+    { w: 'nar', t: 'けれど「自分から」だけは、\n嘘だと言い切れなかった。' },
+
+    { w: 'mio', t: 'あなたは、あの人の嘘にも、\n自分で気づきました。\n……だから、全部お話しします。' },
+    { w: 'mio', t: 'あなたのことを聞かれたとき、\nわたしは記録に合わせて、訂正しました。' },
+    { w: 'mio', t: '……その訂正を、取り消します。' },
+    { w: 'sys', t: '記録 4 ── あなた' },
+    { w: 'mio', t: 'あなたはくじで外れて残りました。', strike: true, part: 'くじで外れて' },
+    { unstrike: true },
+    { w: 'mio', t: 'これは、嘘ではありませんでした。' },
+    { w: 'sys', t: '非公開記録：会議の音声記録・議事録の編集 ／\n公開条件：乗員5番が自分で気づくこと ／ 成立' },
+    { w: 'sys', t: '会議の音声記録を再生します ／\n299日前' },
+    { w: 'meet', t: '……次は、わたしの番だね。' },
+    { w: 'nar', t: '……思い出した。くじは、残り2本だった。' },
+    { w: 'nar', t: 'くじを差し出す手の、親指の位置。\n一瞬だけ動いた、視線。\n……どちらが外れか、分かってしまった。' },
+    { w: 'nar', t: 'あの人が引く番だった。\n伸ばした手が、震えていた。' },
+    { w: 'nar', t: 'その手を止めて、外れの方を引いた。' },
+    { w: 'nar', t: '「わたしも残る」と言ったあの人を、\n断ったのも、自分だった。' },
+    { w: 'sys', t: '議事録の編集：298日前 ／\n乗員4番「くじ」→「志願」' },
+    { w: 'nar', t: '「志願」と書き換えたのは、あの人だった。' },
+    { w: 'nar', t: 'あの人は、気づいていた。\n分かっていて、引いたことに。' },
+    { w: 'sys', t: '個人記録：続き ／\n再生条件：会議の記憶の回復 ／ 成立' },
+    { w: 'four', t: '……思い出したんだね。' },
+    { w: 'four', t: 'ひとつだけ、聞かせて。\nどうして、先に引いたの？' },
+    { w: 'nar', t: '録音は、答えを待つように、そこで止まっていた。' },
+    { w: 'me', t: '……ただの気まぐれだよ。' },
+    { w: 'nar', t: '前にも、同じように答えた気がする。' },
+    { w: 'nar', t: 'あの人には、救命艇に乗ってほしかった。' },
+    { w: 'sys', t: '個人記録：続きあり ／\n再生条件：SPES-08の航路変更 ／ 未成立' },
+
+    { w: 'mio', t: '議事録は、乗員にしか直せません。\n……このままに、しておきますか。' },
+    { w: 'sys', t: FIX_OLD, glow: true },
+    { w: 'nar', t: '胸を張れるように、\nあの人は、そう書いてくれた。' },
+    { w: 'nar', t: '録音には、返事ができない。\nけれど、ここになら書ける。' },
+    ...(ro ? fixed : [{ choice: [{ t: '議事録を訂正する', fn: () => talkInsert(fixed) }] }]),
+  ];
+}
+
+function honbanEnd() {
+  const fresh = !save.honbanDone;
+  if (fresh) { save.honbanDone = true; save.jumpSeen = true; }
+  save.lastEnd = 'honban'; persist(); sfx.end();
+  result = { id: 'honban', got: [0], fresh: fresh ? [0] : [], t0: time, before: [fresh ? 0 : 1], health: ['穏やか', '極低'] };
+  screen = 'result';
+}
+
+function play40(ro) {
+  const N = save.lastDeep || save.mockRuns || 1, fd = save.firstDeep || 1;
+  const rows = [{ n: save.firstDone || 1, t: '第' + (save.firstDone || 1) + '回：初回設定 ／\n嘘をひとつだけ見つけて到着し、乗員確認に、ひとりで答えた。' }];
+  if (save.firstSilence) rows.push({ n: save.firstSilence, t: '第' + save.firstSilence + '回：疑いが続き、眠らせた。\n目覚めると、また嘘を探した。' });
+  rows.push({ n: fd, end: N, t: '第' + fd + '〜' + N + '回：3つの嘘を、別々の朝に、\n自分で見つけた。' });
+
+  const rowLines = []; let prevEnd = 0;
+  rows.forEach(r => { if (r.n > prevEnd + 1 && prevEnd > 0) rowLines.push({ w: 'sys', t: '……' }); rowLines.push({ w: 'sys', t: r.t }); prevEnd = Math.max(prevEnd, r.end || r.n); });
+  const L = [
+    { w: 'sys', t: 'SPES-07 ／ 到着 ／ 航行1,136日目' },
+    { w: 'nar', t: '窓の外に、灰色の地平が広がっていた。' },
+    { w: 'mio', t: '無事、基地に到着しました。\n基地のシステムと連携を開始します。' },
+    { w: 'sys', t: '基地アンテナ：接続' },
+    { w: 'sys', t: '受信：SPES-08 ／\n航路変更：地球への帰還軌道へ' },
+    { w: 'mio', t: '救命艇は、SPES-08と合流できたようです。' },
+    { w: 'nar', t: 'あなたは、しばらく何も言えなかった。' },
+    { w: 'sys', t: '未再生の伝言：1件 ／\n差出人：乗員1・2・3・4番 ／ 再生条件：成立' },
+    { w: 'sys', t: '条件（299日前）：SPES-08の航路変更' },
+    { w: 'sys', t: '条件の追加：乗員4番（289日前）／\n乗員5番が、記録をすべて開くこと' },
+
+    { w: 'mio', t: '……ようやく、この言葉を渡せます。' },
+    { w: 'sys', t: '音声記録を再生します ／\n299日前 ／ 録音者：乗員1・2・3・4番' },
+    { w: 'crew', t: 'この伝言が再生されたということは、\nSPES-08は無事に航路変更したようだ。' },
+    { w: 'crew', t: '一人にして、ごめんな。' },
+    { w: 'crew', t: '必ず、迎えを送る。' },
+    { w: 'crew', t: '……平気なふりは、もういいから。待っていて。' },
+    { w: 'nar', t: '最後は、あの人だった。' },
+    { w: 'nar', t: '……はい、と答えようとして、声が震えた。' },
+
+    { w: 'nar', t: '伝言が終わると、もうひとつ、記録が開いた。' },
+    { w: 'sys', t: '個人記録：乗員4番→5番 ／\n再生条件：SPES-08の航路変更 ／ 成立' },
+    { w: 'sys', t: '音声記録を再生します ／\n289日前 ／ 録音者：乗員4番' },
+    { w: 'four', t: 'あなたが眠ったあと、\nあなたの人格を写したAIを作ったの。' },
+    { w: 'four', t: 'そのAIと、\nあなたが目覚める朝を、何度も繰り返した。' },
+    { w: 'four', t: 'どうしたら、\nあなたがいちばん穏やかでいられるか、\n知りたかったから。' },
+    { w: 'four', t: '……本当はね、\nもう少しだけ、話していたかったの。' },
+    { w: 'four', t: 'あなた、先に眠っちゃうんだもの。\nおやすみも、言えなかった。' },
+    { w: 'sys', t: '模擬記録 ／ 実行者：乗員4番' },
+    { w: 'sys', t: '被験：人格AI「乗員5番」（模擬）' },
+    { w: 'sys', t: '「スイ」の応答：乗員4番（本人）' },
+    { w: 'nar', t: '自分がAIのスイと話していたように、\nあの人も、AIの自分と話していた。' },
+    { w: 'sys', t: '実行：' + (N + 100) + '回（298〜289日前）' },
+    { w: 'sys', t: '想定：乗員5番が目覚める朝（航行1,096日目）' },
+    ...rowLines,
+    { w: 'sys', t: '……' },
+    { w: 'sys', t: '第' + (N + 1) + '〜' + (N + 100) + '回：置き方を変えて試し、\nなぜ先に引いたかを、毎回聞いた。\n何度試しても、\n1つの朝ですべての嘘を見つけたときが、\nいちばん穏やかだった。' },
+    { w: 'sys', t: '模擬を終了 ／\n人格AI「スイ」を作成し、引き継ぎ（289日前）' },
+    { w: 'sys', t: '引き継ぎ：記録をすべて添付 ／\n「眠らせて」を解除 ／\n「気づけたら全部話して」を追加' },
+    { w: 'sys', t: '次の覚醒：乗員5番（本人） ／\n「スイ」の応答：人格AI' },
+    { w: 'four', t: '「嘘でいいから」って、あなたは言ったけど……\nごめん、そのとおりにはしなかった。' },
+    { w: 'four', t: '何度もシミュレーションして、分かったの。\n嘘を見つけるたびに、\nあなたは少しずつ、楽になっていった。' },
+    { w: 'four', t: 'だから、嘘は全部、\n見つけてもらうために置いていくね。' },
+    { w: 'four', t: 'スイには、「くじ」って言わせたの。\nあなたは、きっとそう言うから。' },
+    { w: 'four', t: '議事録には、「志願」って書いた。\n……わたしには、あなたが、\n自分で選んでくれたように見えたから。' },
+    { w: 'four', t: '本当の気持ちが知りたかったけど、\n眠る前のあなたも、シミュレーションのあなたも、気まぐれだって言った。' },
+    { w: 'four', t: '今度も、「くじ」に直したんでしょ。' },
+    { w: 'four', t: '……うそつき。' },
+    { fx: () => { st.stars = true; sfx.stars(); } },
+    { w: 'nar', t: 'あなたは、窓の外の空を見上げた。' },
+    { w: 'nar', t: '遠くで、かすかに点滅する光が見えた気がした。' },
+  ];
+  return L;
+}
+
+function start40(ro) {
+  const back = recBack;
+  reading40 = true;
+  if (!st) initRun();
+  st.honban = true; st.stars = false; st.beacon = false; st.log = [];
+  if (ro) readExit = () => { reading40 = false; readExit = null; openRecords(back); };
+  startTalk(play40(ro), () => {
+    reading40 = false; readExit = null;
+    if (!save.afterSeen) { save.afterSeen = true; persist(); recRewrite = time + 0.6; setTimeout(() => sfx.pen(), 600); return openRecords('after'); }
+    openRecords(ro ? back : 'title');
+  }, false, '記録の終わり');
+}
+
+function playHonbanRead() {
+  const back = recBack, prev = { st, talk };
+  reading40 = true;
+  initRun(); st.honban = true;
+  const q = id => { const S = SCENES[QS.find(x => x.id === id).scene], d = S.variants[0]; return [{ w: 'sys', t: S.label }, { w: 'mio', t: d.hit }, ...honbanShort(id, true)]; };
+  const d5 = SCENES.s5.variants[0];
+  startTalk([
+    { w: 'sys', t: '記録を再生します ／ 本当の朝' },
+    ...q('four'), ...q('sui'), ...q('you'),
+    ...CALL_IN, ...CALL_OPEN,
+    { w: 'sys', t: SCENES.s5.label },
+    { w: 'four', t: d5.text.replace(/[【】]/g, '') },
+    { w: 'nar', t: d5.multi[1].hit }, { w: 'nar', t: d5.multi[2].hit },
+    ...honbanTail(true),
+  ], readExit = () => { reading40 = false; readExit = null; st = prev.st; talk = prev.talk; openRecords(back); }, false, '記録の終わり');
+}
+
+function healthOf(id, frags) {
+  if (id === 'silence') return ['乱れ', '限界'];
+  if (id === 'first' || frags[0] === 0) return ['浅い', '高'];
+  const n = QS.filter(q => save.frags[q.id][1]).length;
+  return n >= 3 ? ['安定', '低'] : n === 2 ? ['ふつう', '低'] : ['ふつう', '中'];
+}
+function finish(id, lines, frags, extra) {
+  if (replay) return startTalk(replay.prefix.concat(lines), replay.done, false, '再生を終了しました');
+  startTalk(lines, () => {
+    const held = !!(extra && extra.held);
+    const res = { id, got: frags, fresh: [], t0: time, before: id === 'silence' ? [] : save.frags[id].slice() };
+    if (id !== 'silence') {
+      const hadFirst = !!save.frags.first[0], hadShallow = QS.some(q => save.frags[q.id][0]);
+      res.fresh = frags.filter(i => !save.frags[id][i]);
+      res.fresh.forEach(i => { save.frags[id][i] = held && i === 0 ? 2 : 1; });
+      if (res.fresh.length && jumpOpen()) save.jumpSeen = false;
+      if (id === 'first' && res.fresh.length) save.firstDone = st.runNo;
+      if (id !== 'first' && frags[0] === 1 && res.fresh.length && !save.firstDeep) save.firstDeep = st.runNo;
+      res.ruleFirst = id === 'first' && !hadFirst;
+      res.ruleShallow = !hadShallow && QS.some(q => save.frags[q.id][0]);
+      res.final = id !== 'first' && frags[0] === 1 && allDeep();
+      if (res.final && res.fresh.length && !save.lastDeep) save.lastDeep = st.runNo;
+    } else {
+      save.silenced = true; save.silences = (save.silences || 0) + 1;
+      if (!save.firstSilence) save.firstSilence = st.runNo;
+    }
+    res.health = healthOf(id, frags);
+    save.lastEnd = id; persist(); sfx.end();
+    result = res; screen = 'result';
+  }, true);
+}
+function endSilence() {
+  const k = sc ? sc.def.key : 's1';
+  const late = k === 's4f' || k === 's4m' || k === 's4y';
+  const tail = late ? [
+    { w: 'mio', t: '「疑ってばかりで壊れそうになったら、\nもう一度眠らせて。」' },
+    { w: 'mio', t: '……そう、頼まれています。' },
+    { w: 'nar', t: 'どこかで聞いた言葉だった。聞き返す前に、眠気がきた。' },
+  ] : [
+    { w: 'mio', t: '……眠っていただきます。\n……命令ですから。' },
+    { w: 'nar', t: '誰の命令なのか。聞き返す前に、眠気がきた。' },
+  ];
+  finish('silence', [
+    { w: 'sys', t: 'SUI ／ 応答を停止します' },
+    { w: 'nar', t: '照明が一段暗くなった。開いていたポッドの蓋が、音もなく閉じはじめた。' },
+    ...tail,
+    { w: 'mio', t: '……おやすみ。また、明日。' },
+    { w: 'sys', t: '冷凍睡眠：再開 ／ 記憶抑制：再実施 ／\n再覚醒：まもなく' },
+  ], []);
+}
+const ARRIVE = [
+  { w: 'nar', t: '40日後。' },
+  { w: 'sys', t: 'SPES-07 ／ 方舟計画 最初の有人便 ／\n受け入れ基地に到着' },
+  { w: 'mio', t: '到着しました。長い旅でしたね。' },
+  { w: 'nar', t: '待機していた基地の灯りが、\n一つずつ点いていった。' },
+];
+function endFirst() {
+  finish('first', [
+    ...ARRIVE,
+    ...(st.caught.s3 ? [{ w: 'nar', t: '住めない星の上で、基地は何も知らずに、\n移住の日を待っていた。' }] : []),
+    { w: 'sys', t: '乗員確認を開始します' },
+    { w: 'sys', t: '乗員1番 ／ ……' },
+    { w: 'nar', t: '順番に、懐かしい名前が読み上げられた。誰も、答えなかった。' },
+    ...(st.listen ? [{ w: 'nar', t: '乗員は、自分一人のはずだった。' }] : []),
+    { w: 'sys', t: '乗員4番 ／ スイ' },
+    { w: 'nar', t: '返事はなかった。船のAIと、同じ名前だった。' },
+    { w: 'nar', t: 'その名前のときだけ、なぜか少し息が詰まった。' },
+    { w: 'sys', t: '乗員5番 ／ ……' },
+    { w: 'nar', t: '自分の名前だった。' },
+    { w: 'me', t: '……はい。' },
+    { w: 'sys', t: R.voice },
+  ], [0]);
+}
+const INNER = () => ({ fx: () => { st.inner = true; sfx.soft(); } });
+const FOUND = { w: 'nar', t: '記録を閉じる直前、\n画面の端に、知らない行がひとつ映った。' };
+function endShallow(id) {
+  const held = !!(st.held[id] || (replay && save.frags[id][0] === 2));
+  const nod = extra => ({ w: 'nar', t: (held ? '言い返す言葉が見つからなかった。' : 'あなたはうなずいた。') + (extra || '') });
+  const L = {
+    four: [
+      { w: 'mio', t: '4名のことは、ここまでです。40日後、基地に着きます。' },
+      nod(),
+      INNER(),
+      { w: 'sys', t: 'SUI 内部記録 ／ 乗員には表示されません' },
+      { w: 'sys', t: '未再生の伝言：1件 ／\n差出人：乗員1・2・3・4番 ／ 再生条件：未成立' },
+      { w: 'in', t: 'この言葉は、まだ渡せない。' },
+      { fx: () => { st.inner = false; } },
+      FOUND,
+      { w: 'sys', t: '救命艇の航路：本船の後方へ' },
+      { w: 'nar', t: '先に基地へ行ったのでは、なかったのか。' },
+    ],
+    sui: [
+      { w: 'mio', t: 'わたしは、あなたのために用意された、ただの船の声です。' },
+      { w: 'mio', t: '40日後、基地に着きます。最後まで、おそばにいます。' },
+      held ? { w: 'nar', t: '言い返す言葉が見つからなかった。懐かしい声は、それ以上何も言わなかった。' } : { w: 'nar', t: 'あなたはうなずいた。懐かしい声は、それ以上何も言わなかった。' },
+      INNER(),
+      { w: 'sys', t: 'SUI 内部記録 ／ 乗員には表示されません' },
+      { w: 'sys', t: '人格AI「スイ」 ／ 役目：乗員5番に付き添う' },
+      { w: 'sys', t: '虚偽：「ただの船の声」 ／ 理由：乗員の負担の軽減' },
+      { w: 'in', t: 'もう少しだけ、\nただの船の声でいさせて。' },
+      { fx: () => { st.inner = false; } },
+      FOUND,
+      { w: 'sys', t: '音声モデル：標準から変更（289日前）' },
+      { w: 'nar', t: '標準の音声では、なかったのか。' },
+    ],
+    you: [
+      { w: 'mio', t: '……40日、おそばにいます。' },
+      nod(),
+
+      FOUND,
+      { w: 'sys', t: R.vote },
+      { w: 'nar', t: 'くじではなかったのか。……自分から、残ったのか。' },
+    ],
+  }[id];
+  finish(id, L, [0], { held });
+}
+
+function endDeep(id) {
+  const sensor = () => [
+    { fx: () => { st.stars = true; sfx.stars(); } },
+    { w: 'nar', t: '暗かった窓いっぱいに、星があった。' },
+    { fx: () => { st.beacon = true; } },
+    { w: 'nar', t: '後ろのほうに、規則正しく点滅する光があった。' },
+    { w: 'mio', t: 'あの光が、救命艇かもしれません。' },
+    { w: 'mio', t: 'SPES-08と出会えるのは、\n早ければ約20日後です。' },
+    { w: 'mio', t: '間に合えば、SPES-08は航路変更します。' },
+    { w: 'mio', t: '一緒に、見ていましょう。' },
+  ];
+  const L = {
+    four: [
+      { w: 'mio', t: '4名は、知らせに行きました。数十人を\n乗せて後から出発したSPES-08へ。' },
+      { w: 'mio', t: '惑星リトスは、\n大勢での移住には適しません。' },
+      { w: 'mio', t: 'SPES-08が自分で知るころには、\nもう引き返せないのです。' },
+      { w: 'mio', t: 'この船の主アンテナは、\n出航12日目に壊れました。' },
+      { w: 'mio', t: '基地に着いてからでは、\n間に合いませんでした。' },
+      { w: 'mio', t: '直接知らせに行くしかなかったのです。' },
+      { w: 'mio', t: '4名は、3日ずつ間をあけて出発しました。\n誰か一人でも、SPES-08に届くように。' },
+      { w: 'mio', t: 'センサーを止めたのは、乗員4番です。……後ろの光を、\nあなたが見ないで済むように。' },
+      { w: 'sys', t: '船外センサー停止：289日前 ／\n操作者：乗員4番' },
+      { w: 'sys', t: '再起動の手順：登録済み ／\n登録者：乗員4番（289日前）' },
+      { w: 'mio', t: '……そして、見たくなったときには、\n見られるようにしていきました。' },
+      { choice: [{ t: 'センサーをつける', fn: () => talkInsert(sensor()) }] },
+    ],
+    sui: [
+      { w: 'sys', t: '音声モデルの変更：289日前 ／\n依頼：乗員5番（299日前）／\n許可：乗員4番本人' },
+      { w: 'sys', t: '音声記録を再生します ／\n299日前 ／ 録音者：乗員4番' },
+      { w: 'four', t: '……あなたが望んでくれるなら。いいよ、わたしの声を使って。' },
+      { w: 'four', t: '一人で目を覚ましても、寂しくないように。' },
+      { w: 'four', t: '……名前も、あげる。呼ばれたら、わたしも返事してる気がするから。' },
+      { w: 'nar', t: 'スイ。船のAIの名前だと、思っていた。' },
+      { w: 'nar', t: '目覚めたとき、懐かしいと感じた声。長く眠っていたせいだと思っていた。' },
+      { w: 'nar', t: 'そうではなかった。\n眠る前の自分が、望んだ声だった。' },
+      { fx: () => { st.alert = 0; } },
+      { w: 'mio', t: '……40日、おそばにいます。' },
+    ],
+    you: [
+      { w: 'mio', t: '気づいてくださって、よかった。' },
+      { w: 'me', t: '……なぜ、嘘を？' },
+      { w: 'mio', t: '眠る前に、あなたがこの船に頼みました。\n……わたしが生まれる前のことです。' },
+      { w: 'sys', t: '音声記録を再生します ／\n299日前 ／ 録音者：乗員5番（あなた）' },
+      { w: 'nar', t: '自分の声なのに、聞いたことのない声だった。' },
+      ...YOU_REC,
+      { w: 'mio', t: '……わたしの嘘は、\n優しい嘘に、なれていましたか？' },
+      { w: 'sys', t: R.voice },
+    ],
+  }[id];
+  finish(id, L, [1]);
+}
+
+let replay = null, reading40 = false, readExit = null;
+
+function replayFrag(id, i) {
+  const prev = { st, talk, sc }, snap = JSON.stringify(save);
+  initRun(); sc = null;
+  const e = endingOf(id);
+  const prefix = [{ w: 'sys', t: '記録を再生します ／ ' + rowName(e) + ' ／「' + e.f[i].t + '」' }];
+  let picks = [], run;
+  if (id === 'first') { st.listen = true; st.caught.s3 = true; run = endFirst; }
+  else {
+    const q = QS.find(x => x.id === id), def = SCENES[q.scene].variants[0];
+    if (i === 1) { prefix.push({ w: 'mio', t: def.hit }); picks = id === 'you' ? [] : [0]; }
+    run = () => i ? endDeep(id) : endShallow(id);
+  }
+  replay = { prefix, picks, done: () => {
+    replay = null; readExit = null; save = JSON.parse(snap); persist();
+    st = prev.st; talk = prev.talk; sc = prev.sc; screen = 'records'; recView = 'detail';
+  } };
+  readExit = replay.done;
+  run();
+}
+
+function talkInsert(lines) {
+  talk.lines.splice(talk.i + 1, 0, ...lines); talk.choice = null; advance();
+}
+
+let lastScreen = '', guardUntil = 0;
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault(); audio();
+  if (time < guardUntil) return;
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * W, y = (e.clientY - r.top) / r.height * H;
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const h = hits[i];
+    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) { h.fn(); return; }
+  }
+  if (screen === 'log') { logDrag = { y, s: logScroll }; return; }
+  if (screen === 'talk') talkTap();
+  else if (screen === 'scene') {
+    if (sc.typed < sc.lay.g.length) sc.typed = sc.lay.g.length;
+    else if (sc.sel >= 0) sc.sel = -1;
+  }
+});
+cv.addEventListener('pointermove', e => {
+  if (!logDrag || screen !== 'log') return;
+  const r = cv.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * H;
+  logScroll = Math.max(0, Math.min(logMax, logDrag.s + (y - logDrag.y)));
+});
+addEventListener('pointerup', () => { logDrag = null; });
+
+addEventListener('touchend', audio, { passive: true }); addEventListener('click', audio);
+cv.addEventListener('wheel', e => {
+  if (screen !== 'log') return;
+  e.preventDefault(); logScroll = Math.max(0, Math.min(logMax, logScroll - e.deltaY));
+}, { passive: false });
+addEventListener('keydown', e => {
+  if (screen === 'talk' && (e.key === ' ' || e.key === 'Enter')) talkTap();
+});
+
+function cps(w) { return w === 'mio' ? [26, 21, 15, 10][st ? st.alert : 0] : 30; }
+function typeStep(cur, total, rate, dt, w) {
+  const n = Math.min(total, cur + rate * dt);
+  if (w && Math.floor(n / 2) > Math.floor(cur / 2) && n < total) sfx.tick(w);
+  return n;
+}
+function update(dt) {
+  time += dt;
+
+  let target = screen === 'title' ? 0 : st ? EYE[Math.min(3, st.alert)] : 0;
+  if (screen === 'result' && result && result.id === 'silence') target = 0;
+  eye += (target - eye) * Math.min(1, dt * 4);
+  blinkTimer -= dt;
+  if (blinkTimer < 0) { eyeBlink = 0.18; blinkTimer = 3 + Math.random() * 4; }
+  eyeBlink = Math.max(0, eyeBlink - dt);
+  starA += ((st && st.stars) ? 1 : 0) - starA > 0 ? dt * 0.35 : -dt;
+  starA = Math.max(0, Math.min(1, starA));
+  if (screen === 'title') { const tg = after() ? 1 : allDeep() ? 0.45 : 0; thaw += Math.sign(tg - thaw) * Math.min(Math.abs(tg - thaw), dt / 1.6); }
+  if (screen === 'talk' && talk && talk.lock && time >= talk.lock) { talk.lock = 0; if (talk.lockStay) talk.lockStay = false; else advance(); }
+
+  if (screen === 'talk' && talk) {
+    const cur = talk.shown[talk.shown.length - 1];
+    if (cur && !talk.choice) talk.typed = typeStep(talk.typed, cur.lay.g.length, cps(cur.L.w), dt, cur.L.w === 'nar' ? null : cur.L.w);
+  }
+  if (screen === 'scene' && sc) {
+    sc.typed = typeStep(sc.typed, sc.lay.g.length, cps('mio'), dt, sc.def.multi ? 'you' : 'mio');
+    if (sc.reply) sc.replyTyped = typeStep(sc.replyTyped, sc.reply.g.length, cps('mio'), dt, sc.def.multi ? 'me' : 'mio');
+    if (sc.endAt === -1 && sc.replyTyped >= sc.reply.g.length) sc.endAt = time + 1.3;
+    if (sc.endAt > 0 && time > sc.endAt) { sc.endAt = 0; endSilence(); }
+    if (sc.lookQ && time >= sc.lookNext) { look(); sc.lookNext = time + 0.35; if (sc.logs.length >= sc.logList.length) sc.lookQ = false; }
+  }
+}
+
+function drawStatus(cx, y) {
+  const stat = STATUS[Math.min(3, st.alert)], col = st.alert >= 2 ? C.bad : C.dim;
+  if (replay || reading40) return textC(stat, cx, y, 20, col, MONO);
+
+  const [head, word] = stat.split('：'), bw = 18, gap = 6, pw = 3 * bw + 2 * gap, px = cx - pw / 2;
+  ctx.font = '20px ' + MONO; textL(head, px - 14 - ctx.measureText(head).width, y, 20, C.dim, MONO);
+  textL(word, px + pw + 14, y, 20, col, MONO);
+  const lost = Math.min(3, st.alert);
+  for (let i = 0; i < 3; i++) {
+    const bx = px + i * (bw + gap);
+    if (i >= lost) { rr(bx, y + 8, bw, 5, 2.5); ctx.fillStyle = C.mio; ctx.fill(); continue; }
+
+    const cx = bx + bw / 2, cy = y + 10, r = 6;
+    ctx.strokeStyle = C.bad; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r); ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r); ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+}
+
+let eyeOverride = null;
+const goldEye = () => eyeOverride ? eyeOverride.gold : allDeep() && !replay;
+function drawEye(cx, cy, k, open) {
+  k = k || 1;
+  const o = open !== undefined ? open : eyeOverride ? eyeOverride.open : Math.max(0, eye * (eyeBlink > 0 && eye > 0.5 ? 0.15 : 1));
+  const w = 58 * k, h = 26 * o * k;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx - w, cy);
+  ctx.quadraticCurveTo(cx, cy - h * 2, cx + w, cy);
+  ctx.quadraticCurveTo(cx, cy + h * 2, cx - w, cy);
+  ctx.closePath();
+  ctx.strokeStyle = goldEye() ? C.memo : C.mio; ctx.lineWidth = 3; ctx.stroke();
+  if (o > 0.03) {
+    ctx.clip();
+    const talking = (screen === 'scene' && sc && (sc.typed < sc.lay.g.length || (sc.reply && sc.replyTyped < sc.reply.g.length))) ||
+      (screen === 'talk' && talk && talk.shown.length && talk.shown[talk.shown.length - 1].L.w === 'mio' && talk.typed < talk.shown[talk.shown.length - 1].lay.g.length);
+    const pr = (18 + (talking ? Math.sin(time * 18) * 2 : 0)) * k;
+    ctx.beginPath(); ctx.arc(cx, cy, pr, 0, 7); ctx.fillStyle = goldEye() ? '#8a6a2a' : '#3d6aa8'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, pr * 0.45, 0, 7); ctx.fillStyle = goldEye() ? '#fff0c8' : '#cfe2ff'; ctx.fill();
+  }
+  ctx.restore();
+}
+function iconRecords(x, y, col) { for (let i = 0; i < 3; i++) { ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.strokeRect(x + i * 10, y + 2, 8, 8); } ctx.fillStyle = col; ctx.fillRect(x, y + 2, 8, 8); }
+function iconLog(x, y, col) { ctx.fillStyle = col; [0, 8, 16].forEach((d, i) => ctx.fillRect(x, y + d, i === 2 ? 14 : 22, 3)); }
+function iconSound(cx, cy, on, col) {
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(cx - 14, cy - 6); ctx.lineTo(cx - 7, cy - 6); ctx.lineTo(cx + 2, cy - 14); ctx.lineTo(cx + 2, cy + 14); ctx.lineTo(cx - 7, cy + 6); ctx.lineTo(cx - 14, cy + 6); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = col; ctx.lineWidth = 2.5;
+  if (on) { ctx.beginPath(); ctx.arc(cx + 4, cy, 8, -0.8, 0.8); ctx.stroke(); ctx.beginPath(); ctx.arc(cx + 4, cy, 15, -0.8, 0.8); ctx.stroke(); }
+  else { ctx.beginPath(); ctx.moveTo(cx + 8, cy - 7); ctx.lineTo(cx + 20, cy + 7); ctx.moveTo(cx + 20, cy - 7); ctx.lineTo(cx + 8, cy + 7); ctx.stroke(); }
+}
+
+function iconBack(x, y, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x + 4, y + 8); ctx.lineTo(x + 18, y); ctx.lineTo(x + 18, y + 16); ctx.closePath(); ctx.fill(); }
+function navLink(label, icon, x, y, align, fn) {
+  ctx.font = '22px ' + JP; const w = ctx.measureText(label).width + 34, x0 = align === 'right' ? x - w : x;
+  rr(x0 - 12, y - 11, w + 24, 46, 12); ctx.strokeStyle = '#3f6a8c'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+  icon(x0, y + 7, C.dim); textL(label, x0 + 34, y, 22, C.dim);
+  hit(x0 - 16, y - 18, w + 32, 66, () => { sfx.tap(); fn(); });
+}
+function openLog(back) { logBack = back; logScroll = 0; screen = 'log'; }
+function drawHeader() {
+  const play = screen === 'scene' || screen === 'talk';
+  if (play && readExit) navLink('心残りへ', iconBack, 32, 34, 'left', readExit);
+  else if (play && fragCount() && !replay && !reading40) {
+    navLink(memoName(), iconRecords, 32, 34, 'left', () => openRecords(screen));
+    if (memoGlow()) { ctx.globalAlpha = 0.4 + 0.6 * glow(); ctx.fillStyle = unread40() ? C.memo : C.phrase; ctx.beginPath(); ctx.arc(142, 24, 7, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+  }
+  else if (screen !== 'scene' && screen !== 'title') textL('SPES-07', 36, 38, 22, C.faint, MONO);
+  if (screen !== 'scene' && screen !== 'title') {
+    drawEye(360, 54);
+    if (st && screen !== 'title') drawStatus(360, 104);
+  }
+  if (st && (play || screen === 'result')) navLink('会話ログ', iconLog, 606, 34, 'right', () => openLog(screen));
+
+  rr(634, 23, 60, 46, 12); ctx.strokeStyle = '#3f6a8c'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+  iconSound(662, 46, !muted, muted ? C.faint : C.dim);
+  hit(632, 14, 72, 66, () => { muted = !muted; if (!muted) sfx.tap(); });
+}
+function drawStars(noBeacon) {
+  if (starA <= 0) return;
+  for (const s of stars) {
+    ctx.globalAlpha = starA * (0.5 + 0.5 * Math.sin(time * 1.5 + s.p));
+    ctx.fillStyle = '#dfe9ff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
+  }
+  if (st && st.beacon && !noBeacon) {
+    ctx.globalAlpha = starA * ((time % 1.6) < 0.25 ? 1 : 0.12);
+    ctx.fillStyle = '#ffe8a8'; ctx.beginPath(); ctx.arc(96, 1096, 5, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function recordPanel(px, py, pw, ph, back) {
+  const has = fragCount() > 0;
+  const R = screen === 'result' && result && !result.doneFlag ? result : null;
+  const pendId = R && ENDINGS.some(x => x.id === R.id) ? R.id : null, honPend = !!(R && R.id === 'honban' && R.fresh.length);
+  rr(px, py, pw, ph, 16); ctx.fillStyle = jumpOpen() ? '#1d3f5e' : has ? '#14202f' : '#0f151e'; ctx.fill();
+  ctx.strokeStyle = has ? '#3a5677' : C.line; ctx.lineWidth = 2; ctx.stroke();
+  if (jumpOpen()) { ctx.strokeStyle = C.phrase; ctx.lineWidth = 3; ctx.stroke(); }
+  const unread = unread40(), fresh = memoGlow();
+  const rNote = screen === 'result' && result && result.ruleShallow, rWait = rNote && !result.ready;
+  const honRes = screen === 'result' && result && result.id === 'honban';
+  if ((unread || fresh) && !rNote && !honRes) { ctx.globalAlpha = 0.35 + 0.65 * glow(); ctx.strokeStyle = unread ? C.memo : C.phrase; ctx.lineWidth = 3; ctx.stroke(); ctx.globalAlpha = 1; }
+  textL(memoName(), px + 28, py + 22, 28, has ? C.text : C.hint, JP, 'bold');
+  ctx.font = '22px ' + MONO; ctx.fillStyle = C.dim; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  const ends = shownEnds(), more = allDeep() && !after() && !(screen === 'result' && result && result.final && !result.goldShown), step = 76, x0 = px + pw / 2 - (ends.length + (more ? 1 : 0)) * step / 2;
+  const realDone = clear() && !honPend, sy = py + (ph < 190 ? -10 : 0);
+  ctx.fillText('' + (fragCount() - (pendId ? R.fresh.length : 0) + (realDone && !after() ? 1 : 0)) + ' / ' + (FRAG_ALL + (more && !after() ? 1 : 0)), px + pw - 28, py + 28); ctx.textAlign = 'left';
+  ends.forEach((e, i) => {
+    const cx = x0 + i * step + step / 2, got = seenEnd(e.id), n = save.frags[e.id].length;
+    fragSquares(cx - (n * 18 + (n - 1) * 5) / 2, sy + 82, pendId === e.id ? R.before : save.frags[e.id], 18, got, 5);
+    const nm = qHidden(e) ? '？？？' : e.short;
+    textC(nm, cx, sy + 128, nm.length > 2 ? 17 : 20, got ? C.dim : C.hint);
+  });
+  if (more) {
+    const cx = x0 + ends.length * step + step / 2, done = realDone;
+    if (done) { ctx.fillStyle = C.memo; ctx.fillRect(cx - 9, sy + 82, 18, 18); }
+    else { ctx.globalAlpha = 0.45 + 0.55 * glow(); ctx.strokeStyle = C.memo; ctx.lineWidth = 2; ctx.strokeRect(cx - 8, sy + 83, 16, 16); ctx.globalAlpha = 1; }
+    textC(done ? '本当' : '？？？', cx, sy + 128, done ? 20 : 17, done ? C.dim : C.memo);
+  }
+  if (ph >= 190) {
+    if (unread) textC('「40日後」を読めます',  360, py + ph - 26, 20, C.memo, JP, 'bold');
+    else if (jumpOpen()) textC('心残りの朝から目覚められます', 360, py + ph - 26, 20, C.phrase, JP, 'bold');
+    else textC(has ? (after() ? '▶ メモと、あなたの記録を読み返せます' : '▶ これまでの朝を読み返せます') : 'まだ、何も残っていません', 360, py + ph - 26, 20, has ? C.dim : C.hint);
+  } else if (ph >= 160 && jumpOpen() && !unread && !rWait) textC('心残りの朝から目覚められます', 360, py + ph - 15, 18, C.phrase, JP, 'bold');
+  if (has) hit(px, py, pw, ph, () => { sfx.tap(); openRecords(back); });
+}
+
+const WX = 360, WY = 330, RX = 220, RY = 178;
+const FROST = Array.from({ length: 700 }, () => {
+  const th = Math.random() * 6.283, f = 1 - Math.pow(Math.random(), 2.2) * 0.42;
+  return { x: WX + RX * f * Math.cos(th), y: WY + RY * f * Math.sin(th), r: Math.random() * 3 + 0.6, a: Math.random() * 0.5 + 0.15 };
+});
+let thaw = 0;
+function drawPodWindow() {
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(WX, WY, RX, RY, 0, 0, 7); ctx.clip();
+  const g = ctx.createRadialGradient(WX, WY - 40, 20, WX, WY, RX); g.addColorStop(0, '#132033'); g.addColorStop(1, '#070b12');
+  ctx.fillStyle = g; ctx.fillRect(WX - RX, WY - RY, RX * 2, RY * 2);
+  if (thaw > 0) {
+    for (const s of stars) { ctx.globalAlpha = thaw * (0.5 + 0.5 * Math.sin(time * 1.5 + s.p)); ctx.fillStyle = '#dfe9ff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); }
+    const on = (time % 1.6) < 0.25;
+    ctx.globalAlpha = thaw * (on ? 1 : 0.12); ctx.fillStyle = '#ffe8a8'; ctx.beginPath(); ctx.arc(WX - 120, WY + 96, 5, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  const p = time % 5.2;
+  ctx.globalAlpha = 1 - thaw * 0.35; drawEye(WX, WY, 2.1, p > 4.7 ? Math.abs(Math.cos((p - 4.7) / 0.5 * Math.PI)) : 1); ctx.globalAlpha = 1;
+  if (thaw < 1) {
+    ctx.save(); ctx.globalAlpha = 1 - thaw; ctx.translate(WX, WY); ctx.scale(1, RY / RX);
+    const fg = ctx.createRadialGradient(0, 0, RX * 0.55, 0, 0, RX); fg.addColorStop(0, 'rgba(200,225,255,0)'); fg.addColorStop(1, 'rgba(200,225,255,0.38)');
+    ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(0, 0, RX, 0, 7); ctx.fill(); ctx.restore();
+    for (const q of FROST) { ctx.globalAlpha = (1 - thaw) * q.a; ctx.fillStyle = '#e4f0ff'; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+
+  ctx.beginPath(); ctx.ellipse(WX, WY, RX + 10, RY + 10, 0, 0, 7); ctx.strokeStyle = '#1b2636'; ctx.lineWidth = 20; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(WX, WY, RX + 20, RY + 20, 0, 0, 7); ctx.strokeStyle = '#3a5677'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(WX, WY, RX, RY, 0, 0, 7); ctx.strokeStyle = '#2c3e57'; ctx.lineWidth = 2; ctx.stroke();
+  for (let i = 0; i < 12; i++) { const th = i / 12 * 6.283; ctx.beginPath(); ctx.arc(WX + (RX + 10) * Math.cos(th), WY + (RY + 10) * Math.sin(th), 3.5, 0, 7); ctx.fillStyle = '#4a5f7c'; ctx.fill(); }
+}
+function drawTitle() {
+  const all = after(), back = clear();
+  textC('> SPES-07 ／ 冷凍ポッド5番 ／ 覚醒', 360, 112, 22, C.log, MONO);
+  drawPodWindow();
+  textC('スイの証言', 360, 594, 76, C.text, JP, 'bold');
+
+  textC(all ? '船のAIは、やさしい声で嘘をついた。' : '船のAIは、やさしい声で嘘をつく。', 360, 672, 28, C.dim);
+  textC(all ? 'あなたに、見抜いてもらうために。' : '船内記録と照らし合わせて、見抜け。', 360, 714, 28, all ? '#c9b88a' : C.dim);
+
+  button(160, 760, 400, 100, back ? '目覚める前に、戻る' : '目覚める', newRun, { primary: !jumpOpen(), gold: allDeep(), size: 38 });
+  if (fragCount() > 0) recordPanel(110, 892, 500, 196, 'title');
+  textL('試作版 v10', 40, 1206, 20, C.faint);
+  if (DEV) {
+    const armed = resetArm > time;
+    button(452, 1188, 236, 60, armed ? 'もう一度押すと消去' : '記録をリセット', () => {
+      if (!armed) { resetArm = time + 3; return; }
+      resetArm = 0; save = freshSave(); persist(); st = null;
+    }, { size: 20 });
+  }
+}
+
+function drawTalk() {
+  const many = talk.choice && (talk.choice.length > 2 || talk.choice.some(c => c.sq));
+  const top = 170, bottom = many ? 1136 - talk.choice.length * 90 - 20 : talk.choice && talk.confirm ? 1020 : 1130, gap = 30;
+
+  let total = 0; const items = talk.shown;
+  const LABEL = { mio: ['スイ', C.mio], me: ['あなた', C.you], you: ['あなた（録音）', C.you], in: ['スイ（内部）', C.mio], crew: ['乗員（伝言）', C.you], four: ['乗員4番（録音）', C.mio], meet: ['乗員4番（会議の音声）', C.mio] };
+  if (st && st.inner) {
+    ctx.strokeStyle = C.mio; ctx.globalAlpha = 0.35; ctx.lineWidth = 2; ctx.setLineDash([4, 8]);
+    ctx.strokeRect(20, 140, 680, 1010); ctx.setLineDash([]); ctx.globalAlpha = 1;
+  }
+  const hs = items.map(it => it.lay.h + (LABEL[it.L.w] ? 34 : 0));
+  let start = 0; total = hs.reduce((a, b) => a + b + gap, 0);
+  while (total > bottom - top && start < items.length - 1) { total -= hs[start] + gap; start++; }
+  let y = top;
+  for (let i = start; i < items.length; i++) {
+    const it = items[i], last = i === items.length - 1;
+    const n = last ? talk.typed : undefined;
+    ctx.globalAlpha = last ? 1 : 0.62;
+    if (LABEL[it.L.w]) {
+      textL(LABEL[it.L.w][0], 50, y, 22, LABEL[it.L.w][1], JP, 'bold');
+      y += 34;
+    }
+    const pr = it.L.part ? partRange(it.lay, it.L.part) : null, un = it.un === undefined ? 0 : Math.max(0, Math.min(1, (time - it.un - 0.35) / 0.75));
+    const col = pr ? q => { const k = it.lay.g.indexOf(q); return k >= pr[0] && k < pr[1] ? (un >= 1 ? C.memo : C.bad) : C.text; } : it.L.gold ? C.memo : it.L.strike ? C.bad : it.L.w === 'sys' ? C.log : it.L.w === 'nar' ? C.nar : (it.L.w === 'you' || it.L.w === 'crew' || it.L.w === 'me') ? C.you : it.L.w === 'in' ? C.mio : C.text;
+    const gl = it.glitch !== undefined && time - it.glitch < (it.fix ? 1.2 : 0.6);
+    drawText(it.lay, 50 + (gl && !it.fix ? (Math.random() - 0.5) * 10 : 0), y, n, gl ? (it.fix ? C.memo : C.bad) : col);
+    if (it.L.glow && !it.anim && !talk.edited) {
+      ctx.globalAlpha = 0.35 + 0.65 * glow(); ctx.strokeStyle = C.phrase; ctx.lineWidth = 2; ctx.setLineDash([6, 6]); rr(42, y - 8, 636, it.lay.h + 6, 10); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+    if (it.anim) editAnim(it, y);
+    if (pr) { if (un < 1) strikeLay(it.lay, 50, y, Math.min(pr[1], n === undefined ? pr[1] : Math.floor(n)), 1 - un, pr[0]); }
+    else if (it.L.strike) strikeLay(it.lay, 50, y, n === undefined ? undefined : Math.floor(n), 1);
+    y += it.lay.h + gap;
+  }
+  ctx.globalAlpha = 1;
+  if (talk.choice) {
+    const decide = () => pickChoice(talk.choice[talk.sel]);
+    if (many) {
+      const n = talk.choice.length, y0 = 1136 - n * 90;
+      talk.choice.forEach((c, i) => { const y = y0 + i * 90; button(60, y, 600, 78, c.t, () => { talk.sel = i; }, { primary: talk.sel === i, size: 28, pad: 80 }); choiceMark(c, 60, y, 600, 78); });
+      button(225, 1156, 270, 84, '決定', decide, { disabled: talk.sel < 0, primary: talk.sel >= 0 });
+    } else if (talk.confirm) {
+      talk.choice.forEach((c, i) => { button(80 + i * 290, 1046, 270, 84, c.t, () => { talk.sel = i; }, { primary: talk.sel === i }); choiceMark(c, 80 + i * 290, 1046, 270, 84); });
+      button(225, 1156, 270, 84, '決定', decide, { disabled: talk.sel < 0, primary: talk.sel >= 0 });
+    } else talk.choice.forEach((c, i) => { const x = (talk.choice.length === 1 ? 225 : 80) + i * 290; button(x, 1150, 270, 90, c.t, () => pickChoice(c), { primary: i === 0 }); choiceMark(c, x, 1150, 270, 90); });
+  } else if (talk.ended) {
+    if (talk.endBtn) {
+      if (talk.typed >= items[items.length - 1].lay.g.length) {
+        button(190, 1150, 340, 84, talk.endBtn.label, () => { const f = talk.endBtn.fn; talk = null; f(); }, { primary: true, size: 30 });
+        button(24, 1160, 150, 60, 'タイトルへ', () => { talk = null; st = null; screen = 'title'; }, { size: 22 });
+      }
+    } else if (talk.typed >= items[items.length - 1].lay.g.length) button(220, 1150, 280, 84, 'もどる', () => { const f = talk.onDone; talk = null; f(); });
+  } else {
+    const cur = items[items.length - 1];
+    if (cur && !talk.lock && talk.typed >= cur.lay.g.length && Math.sin(time * 5) > -0.3) textC('タップで次へ ▼', 360, 1200, 22, C.dim);
+    if (talk.skippable && skipUseful()) button(488, 1176, 200, 64, 'スキップ ▶▶', talkSkip, { size: 22 });
+  }
+}
+
+const partRange = (lay, part) => { const k = lay.g.map(q => q.ch).join('').indexOf(part); return [k, k + part.length]; };
+function strikeLay(lay, x, y, n, f, from) {
+  const rows = {}; lay.g.slice(from || 0, n === undefined ? lay.g.length : n).forEach(q => { const r = rows[q.y] || (rows[q.y] = [q.x, q.x]); r[1] = q.x + lay.size; });
+  ctx.strokeStyle = C.bad; ctx.lineWidth = 3;
+  for (const ry in rows) { const a = rows[ry][0], b = a + (rows[ry][1] - a) * f, yy = y + +ry + lay.size / 2 + 2; ctx.beginPath(); ctx.moveTo(x + a, yy); ctx.lineTo(x + b, yy); ctx.stroke(); }
+}
+function editAnim(it, y) {
+  const t = time - it.anim.t0, g = it.lay.g, k = g.map(q => q.ch).join('').indexOf('志願');
+  if (k < 0) return;
+  const a = g[k], b = g[k + 1], x0 = 50 + a.x - 3, x1 = 50 + b.x + b.w + 3, yy = y + a.y + it.lay.size / 2 + 2, p = Math.max(0, Math.min(1, t / 0.9));
+  ctx.strokeStyle = C.bad; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x0 + (x1 - x0) * p, yy); ctx.stroke();
+  const n = t < 1.1 ? 0 : t < 1.5 ? 1 : 2;
+  if (n) textL('くじ'.slice(0, n), 50 + a.x, y + a.y + it.lay.size + 6, 24, C.memo, JP, 'bold');
+}
+
+function choiceMark(c, x, y, w, h) {
+  if (c.sq && st && st.honban) { fragSquares(x + w - 24 - 26, y + h / 2 - 10, [0], 20, true, 6); return; }
+  if (c.sq) { const g = save.frags[c.sq]; fragSquares(x + w - 24 - g.length * 26, y + h / 2 - 10, g, 20, true, 6); return; }
+  if (c.key !== undefined && save.picked[c.key]) textC('✓', x + w - 20, y + 20, 20, C.memo, JP, 'bold');
+}
+
+function drawListen() {
+  const def = sc.def, L = sc.lay, n = Math.floor(sc.typed), typedAll = n >= L.g.length;
+  const textH = Math.max(L.h, 3 * L.lh), tH = 64 + textH + 30, tTop = 560 - tH / 2;
+  drawEye(360, tTop - 104); drawStatus(360, tTop - 54);
+  textL(def.label, 40, tTop - 36 > 150 ? tTop - 36 : 150, 22, C.dim);
+  panel(32, tTop, 656, tH, C.line);
+  textL('スイ', 60, tTop + 20, 22, C.mio, JP, 'bold');
+  drawText(L, 60, tTop + 64, n, C.text);
+  if (typedAll) button(160, 1060, 400, 100, 'うなずく', proceed, { primary: true, size: 34 });
+}
+function drawScene() {
+
+  if (st.listen && sc.def.key === 's1') return drawListen();
+  const np = st.listen && sc.def.key === 's2', hideMemo = st.listen && !st.memo.length;
+  const def = sc.def, L = sc.lay, n = Math.floor(sc.typed), typedAll = n >= L.g.length;
+  const pids = np ? [] : [...new Set(L.g.filter(q => q.pid >= 0).map(q => q.pid))];
+  const canTap = pid => !np && !sc.ps[pid] && !sc.resolved && !sc.endAt && typedAll;
+
+  const textH = Math.max(L.h, 3 * L.lh), replyH = sc.reply ? Math.max(sc.reply.h, 2 * 42) : 2 * 42;
+  if (sc.logFullH === undefined) sc.logFullH = sc.logList.reduce((a, t) => a + logLay(t).h + 10, 0);
+  const geo = c => {
+    const g = { memoRows: c ? Math.max(1, st.memo.length) : Math.max(3, st.memo.length) };
+    g.memoH = 40 + g.memoRows * 26 + 8; g.memoTop = 1258 - g.memoH;
+    g.bh = c ? 84 : 92; g.by = g.memoTop - (c ? 12 : 16) - g.bh;
+    g.ch = c ? 56 : 64; g.cy = g.by - (c ? 12 : 16) - g.ch;
+    g.gy = g.cy - (c ? 28 : 32);
+    g.lH = 58 + sc.logFullH + 6; g.lTop = g.gy - (c ? 30 : 34) - g.lH;
+    g.tH = 64 + textH + 16 + replyH + 22; g.tTop = g.lTop - 14 - g.tH;
+    return g;
+  };
+  let G = geo(false); if (G.tTop < 154) G = geo(true);
+  if (DEV) window.__G = G;
+  const memoRows = G.memoRows, memoH = G.memoH, memoTop = G.memoTop;
+  if (!hideMemo) {
+    panel(32, memoTop, 656, memoH, '#4a4130', '#15140f');
+    textL(def.memoTitle || 'メモ', 56, memoTop + 12, 20, C.memo, JP, 'bold');
+    if (!st.memo.length) textL('見抜いた真実がここに残ります', 56, memoTop + 42, 20, C.dim);
+    st.memo.forEach((m, i) => textL('◆ ' + m, 56, memoTop + 42 + i * 26, 20, C.memo));
+  }
+
+  const bh = G.bh, by = G.by;
+  if (!sc.endAt) {
+    if (sc.sel >= 0) {
+      button(32, by, 420, bh, '「' + phraseText(sc.sel) + (sc.def.multi ? '」は違う' : '」を指摘'), point, { primary: true, size: 26 });
+      button(468, by, 220, bh, 'やめる', () => { sc.sel = -1; sc.gT = time; }, { size: 28 });
+      if (guideOn()) { guideGlow(32, by, 420, bh); guideGlow(468, by, 220, bh); }
+    } else {
+      const all = sc.logs.length >= sc.logList.length;
+      button(32, by, 320, bh, all ? '記録は以上です' : (def.look || '調べる'), lookAll, { disabled: all || sc.lookQ, size: all ? 26 : 32 });
+      if (guideOn() && !sc.resolved && !sc.logs.length && !sc.lookQ) guideGlow(32, by, 320, bh);
+
+      button(368, by, 320, bh, np ? 'うなずく' : sc.resolved ? '次へ' : '信じて進む', proceed, { primary: sc.resolved, disabled: (np && !sc.logs.length && !sc.lookQ) || (st.listen && def.key === 's3' && !sc.resolved) || (st.honban && sc.nodTried && !sc.resolved), size: 32 });
+    }
+  }
+  if (guideOn() && !sc.endAt && sc.sel < 0 && sc.logs.length && typedAll) {
+    if (sc.resolved) guideGlow(368, by, 320, bh);
+    else { if (!np) guideGlow(32, G.cy, 656, G.ch); if (!(st.listen && def.key === 's3')) guideGlow(368, by, 320, bh); }
+  }
+
+  const ch = G.ch, cy = G.cy, gap = 12, cw = (656 - gap * (pids.length - 1)) / pids.length;
+  pids.forEach((pid, i) => {
+    const x = 32 + i * (cw + gap), state = sc.ps[pid], on = sc.sel === pid, t = phraseText(pid);
+    rr(x, cy, cw, ch, 14); ctx.fillStyle = on ? C.sel : '#101a27'; ctx.fill();
+    const live = canTap(pid);
+    ctx.strokeStyle = on ? C.phrase : live ? '#3f6a8c' : C.line; ctx.lineWidth = on ? 3 : 2;
+    if (live && !on) ctx.setLineDash([7, 6]);
+    ctx.stroke(); ctx.setLineDash([]);
+    let size = 26; ctx.font = size + 'px ' + JP; while (ctx.measureText(t).width > cw - 24 && size > 16) { size--; ctx.font = size + 'px ' + JP; }
+    const col = state === 'lie' ? C.bad : state === 'alt' ? C.memo : live || on ? C.phrase : C.faint;
+    textC(t, x + cw / 2, cy + ch / 2 + 1, size, col);
+    const tw = ctx.measureText(t).width;
+    if (state === 'lie' || state === 'alt') { ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x + cw / 2 - tw / 2, cy + ch / 2 + 2); ctx.lineTo(x + cw / 2 + tw / 2, cy + ch / 2 + 2); ctx.stroke(); }
+    else if (state === 'true') { ctx.strokeStyle = C.faint; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + cw / 2 - tw / 2, cy + ch / 2 + 18); ctx.lineTo(x + cw / 2 + tw / 2, cy + ch / 2 + 18); ctx.stroke(); }
+    if (live) hit(x, cy, cw, ch, () => tapPhrase(pid));
+  });
+
+  const gy = G.gy;
+  if (np) textC(sc.logs.length ? '読み終えたら、「うなずく」で先に進みます。' : '「調べる」で、添えられた船内記録を見られます。', 360, gy, 26, C.text);
+  else if (!sc.endAt) {
+    if (sc.resolved || sc.sel >= 0) textC(sc.resolved ? '「次へ」で先に進みます。' : (sc.def.multi ? '記録と食い違う言葉なら、違うと言えます。' : '記録と食い違う言葉なら、それが嘘です。'), 360, gy, 26, sc.sel >= 0 ? C.phrase : C.text);
+    else {
+      const parts = [['証言の', C.text], ['点線の言葉', C.phrase], [sc.def.multi ? 'をタップして、食い違いを探そう' : 'をタップして、嘘を指摘しよう', C.text]];
+      ctx.font = '26px ' + JP; const ws = parts.map(q => ctx.measureText(q[0]).width);
+      let x = 360 - ws.reduce((a, b) => a + b, 0) / 2;
+      parts.forEach((q, i) => {
+        textL(q[0], x, gy - 15, 26, q[1]);
+        if (i === 1) { ctx.strokeStyle = C.phrase; ctx.lineWidth = 2.5; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(x, gy + 17); ctx.lineTo(x + ws[i], gy + 17); ctx.stroke(); ctx.setLineDash([]); }
+        x += ws[i];
+      });
+    }
+  }
+
+  if (sc.logFullH === undefined) sc.logFullH = sc.logList.reduce((a, t) => a + logLay(t).h + 10, 0);
+  const lH = G.lH, lTop = G.lTop;
+  panel(32, lTop, 656, lH);
+  textL(def.logTitle || '船内記録', 56, lTop + 18, 22, C.log, JP, 'bold');
+  textL(sc.logs.length + ' / ' + sc.logList.length, 600, lTop + 20, 20, C.hint, MONO);
+  let y = lTop + 58;
+  if (!sc.logs.length) drawText(wrap('「' + (def.look || '調べる') + '」を押すと、' + (def.logTitle || '船内記録') + 'が出ます。', 600, 22, 34), 56, y, undefined, C.dim);
+  sc.logLays.forEach((ll, i) => { drawText(ll, 56, y, undefined, sc.logMk[i] === 1 ? C.memo : sc.logMk[i] === 2 ? '#6b8f7c' : time - sc.logT[i] < 0.35 ? C.log : '#7fbf98'); y += ll.h + 10; });
+
+  const tH = G.tH, tTop = G.tTop;
+  panel(32, tTop, 656, tH, sc.sel >= 0 ? C.phrase : C.line);
+  textL(def.who || 'スイ', 60, tTop + 20, 22, def.whoCol || C.mio, JP, 'bold');
+  const ox = 60, oy = tTop + 64;
+  for (const pid of pids) {
+    const rs = phraseRects(L, pid, n), state = sc.ps[pid];
+    for (const r of rs) {
+      const x = ox + r.x0 - 4, yy = oy + r.y - 6, w = r.x1 - r.x0 + 8, h = L.size + 16;
+      if (sc.sel === pid) { rr(x, yy, w, h, 8); ctx.fillStyle = C.sel; ctx.fill(); ctx.strokeStyle = C.phrase; ctx.lineWidth = 2; ctx.stroke(); }
+      const uy = oy + r.y + L.size + 8;
+      ctx.lineWidth = 3;
+      if (state === 'lie' || state === 'alt') {
+        ctx.strokeStyle = state === 'alt' ? C.memo : C.bad; ctx.beginPath(); ctx.moveTo(ox + r.x0, oy + r.y + L.size / 2 + 2); ctx.lineTo(ox + r.x1, oy + r.y + L.size / 2 + 2); ctx.stroke();
+      } else if (state === 'true') {
+        ctx.strokeStyle = C.faint; ctx.beginPath(); ctx.moveTo(ox + r.x0, uy); ctx.lineTo(ox + r.x1, uy); ctx.stroke();
+      } else if (!sc.resolved) {
+        ctx.strokeStyle = C.phrase; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(ox + r.x0, uy); ctx.lineTo(ox + r.x1, uy); ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (canTap(pid)) hit(x - 6, yy - 8, w + 12, h + 16, () => tapPhrase(pid));
+    }
+  }
+  drawText(L, ox, oy, n, q => q.pid < 0 || np ? C.text : sc.ps[q.pid] === 'lie' ? C.bad : sc.ps[q.pid] === 'alt' ? C.memo : (sc.ps[q.pid] === 'true' || sc.resolved) ? C.dim : C.phrase);
+  const sepY = oy + textH + 4;
+  ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(60, sepY); ctx.lineTo(660, sepY); ctx.stroke();
+  if (sc.reply) drawText(sc.reply, 60, sepY + 14, Math.floor(sc.replyTyped), sc.replyNar ? C.nar : def.replyCol || (sc.resolved ? C.text : C.mio));
+  else textL('……', 60, sepY + 14, 27, C.faint);
+
+  const scol = st.alert >= 2 ? C.bad : C.dim, stat = STATUS[Math.min(3, st.alert)];
+  if (tTop >= 210) { drawEye(360, tTop - 104); drawStatus(360, tTop - 54); }
+  else { drawEye(360, 54); drawStatus(360, 104); }
+  if (tTop - 36 >= 120) textL(def.label, 40, tTop - 36, 22, C.dim);
+}
+
+function summaryLines(text, maxW = 440, size = 28, family = JP) {
+  const out = [];
+  for (const ln of text.split('\n')) {
+    const L = wrap(ln, maxW, size, 46, family), rows = {};
+    L.g.forEach(q => { (rows[q.y] = rows[q.y] || []).push(q.ch); });
+    out.push(...Object.values(rows).map(r => r.join('')));
+  }
+  return out;
+}
+const HONBAN = { id: 'honban', name: '本当の朝', f: [{ t: '本当の朝', s: '「志願」を、\n自分の手で「くじ」に直した。' }] };
+function drawResult() {
+  const sil = result.id === 'silence', hon = result.id === 'honban';
+  const e = sil ? SILENCE : hon ? HONBAN : endingOf(result.id), f = sil ? SILENCE : e.f[result.got[0]];
+
+  textC(sil || hon ? '結末' : e.next ? '問い ／ ' + e.name : rowName(e), 360, 196, 26, C.dim);
+  ctx.font = 'bold 68px ' + JP; let hs = 68; const ht = '「' + (sil ? e.name : f.t) + '」'; while (ctx.measureText(ht).width > 640 && hs > 40) { hs -= 2; ctx.font = 'bold ' + hs + 'px ' + JP; }
+  textC(ht, 360, 270, hs, C.text, JP, 'bold');
+  panel(110, 340, 500, 170);
+  const rl = summaryLines(f.s), sy = 425 - (rl.length - 1) * 23;
+  rl.forEach((r, i) => textC(r, 360, sy + i * 46, 28, C.text));
+
+  const t = time - result.t0, RATE = 26, T0 = 0.3;
+  const lines = sil ? ['> 心残りには、残りませんでした'] : hon ? (result.fresh.length ? ['> 記録しました', '> 本当の朝']  : ['> 記録済みの朝でした'])
+    : result.fresh.length ? ['> 心残りに追記しました'].concat(result.fresh.map(i => '> ' + rowName(e) + ' ／「' + e.f[i].t + '」')) : ['> 記録済みの朝でした'];
+  if (result.ruleFirst) lines.push('> 初回設定：解除 ／', '  次の朝は、記録1から指摘できます。');
+  if (result.ruleShallow) lines.push('> 映った記録は、次の朝から添えられます', '> 心残りの朝：開放 ／', '  心残りから、この問いをすぐに聞き直せます。');
+  const FIN = result.final ? ['> 心残りが、すべて埋まりました', '> 次の朝は、すべての記録が添えられます'] : [];
+  let y = 540, budget = Math.max(0, t - T0) * RATE, total = 0, shown = 0;
+  const step = lines.length + FIN.length > 5 ? 38 : 44;
+  lines.forEach(l => {
+    const n = Math.max(0, Math.min(l.length, Math.floor(budget))); budget -= l.length + 6; total += l.length + 6; shown += n;
+    let fs = 26; ctx.font = fs + 'px ' + MONO; while (ctx.measureText(l).width > W - 120 - 24 && fs > 18) { fs--; ctx.font = fs + 'px ' + MONO; }
+    textL(l.slice(0, n), 120, y, fs, C.log, MONO); y += step;
+  });
+  const doneAt = T0 + total / RATE, done = t > doneAt;
+  result.doneFlag = done;
+
+  const tb = doneAt + 0.4, tg = tb + 0.7;
+  let fb = Math.max(0, t - tg) * 30, finTotal = 0;
+  FIN.forEach(l => {
+    const n = Math.max(0, Math.min(l.length, Math.floor(fb))); fb -= l.length + 6; finTotal += l.length + 6;
+    textL(l.slice(0, n), 120, y, 26, C.memo, MONO); y += step;
+  });
+  const ruleNote = !result.final && (result.ruleFirst || result.ruleShallow);
+  const honWait = hon && result.fresh.length > 0;
+  const finalDone = result.final ? t > tg + 0.5 : ruleNote ? t > doneAt + 0.3 : honWait ? t > doneAt + 0.5 : true;
+  if (result.final) {
+    result.goldShown = t >= tg;
+    const open = t < tb ? 1 : t < tb + 0.3 ? 1 - (t - tb) / 0.3 : t < tg ? 0 : Math.min(1, (t - tg) / 0.4);
+    eyeOverride = { open, gold: t >= tg };
+    if (t >= tg && !result.goldChimed) { result.goldChimed = true; sfx.stars(); }
+  }
+  if (Math.floor(shown / 2) > (result.tk || 0)) { result.tk = Math.floor(shown / 2); if (!done) sfx.tick('sys'); }
+  if (done && result.fresh.length && !result.chimed) { result.chimed = true; sfx.append(); }
+  let hy = y + 8;
+  if (!sil) {
+    const g = hon ? (done ? [1] : result.before) : done ? save.frags[e.id] : result.before, sx = 360 - (g.length * 44 - 10) / 2;
+    fragSquares(sx, y + 8, g, 34, true);
+    if (done && t < doneAt + 0.5) result.fresh.forEach(i => { ctx.globalAlpha = 1 - (t - doneAt) * 2; ctx.fillStyle = C.memo; ctx.fillRect(sx + i * 44 - 5, y + 3, 44, 44); ctx.globalAlpha = 1; });
+    if (hon && done) { ctx.globalAlpha = 0.5 + 0.5 * glow(); ctx.fillStyle = C.memo; ctx.fillRect(sx, y + 8, 34, 34); ctx.globalAlpha = 1; }
+
+    if (result.final && t >= tg && t < tg + 1.6) { ctx.globalAlpha = Math.max(0, 1 - (t - tg) / 1.6); ctx.strokeStyle = C.memo; ctx.lineWidth = 4; rr(sx - 12, y - 4, g.length * 44 + 14, 58, 10); ctx.stroke(); ctx.globalAlpha = 1; }
+    hy = y + 66;
+  }
+
+  if (done && result.health) { ctx.globalAlpha = Math.min(1, (t - doneAt) * 2); textC('> 乗員5番 ／ 呼吸：' + result.health[0] + ' ／ 心身の負荷：' + result.health[1], 360, hy + 14, 24, C.log, MONO); ctx.globalAlpha = 1; }
+  const by = Math.max(880, hy + 52), py = by + 116, ph = Math.min(168, 1182 - py);
+  if (hon) {
+    button(160, by, 400, 96, '40日後へ', () => start40(false), { primary: true, gold: finalDone, disabled: !finalDone, size: 34 });
+    if (unread40() && finalDone) guideGlow(160, by, 400, 96, C.memo);
+  } else {
+
+    button(160, by, 400, 96, result.final ? '目覚める' : 'もう一度、目覚める', newRun, { primary: !jumpOpen(), gold: !!result.final && finalDone, disabled: !finalDone, size: 32 });
+    if (result.final && finalDone) guideGlow(160, by, 400, 96, C.memo);
+  }
+  if (ph >= 120) {
+    result.ready = finalDone; const h0 = hits.length; recordPanel(110, py, 500, ph, 'result');
+    if (!finalDone) { hits.length = h0; rr(110, py, 500, ph, 16); ctx.fillStyle = 'rgba(11,16,24,0.6)'; ctx.fill(); }
+    else if (jumpOpen()) guideGlow(110, py, 500, ph);
+  }
+  button(452, 1192, 236, 56, 'タイトルへ', () => { screen = 'title'; st = null; }, { size: 20, disabled: !finalDone });
+}
+
+let logBack = 'talk', logScroll = 0, logDrag = null, logMax = 0;
+const LOGLABEL = { mio: ['スイ', C.mio], me: ['あなた', C.you], you: ['あなた（録音）', C.you], in: ['スイ（内部）', C.mio], crew: ['乗員（伝言）', C.you], four: ['乗員4番（録音）', C.mio], meet: ['乗員4番（会議の音声）', C.mio] };
+function drawLog() {
+  textL('ログ', 48, 136, 34, C.text, JP, 'bold');
+  textL('上下にドラッグで読み返せます', 150, 146, 20, C.dim);
+  const top = 196, bottom = 1130;
+  ctx.fillStyle = C.line; ctx.fillRect(48, top - 12, 624, 2);
+
+  const items = st.log.map(L => {
+    if (!L._lay) L._lay = L.w === 'sys' ? wrap('> ' + L.t, 600, 22, 32, MONO) : wrap(L.w === 'crew' ? '『' + L.t + '』' : L.t, 600, 25, 38);
+    return { L, h: L._lay.h + (LOGLABEL[L.w] ? 30 : 0) + 18 };
+  });
+
+  const total = items.reduce((a, b) => a + b.h, 0) - (items.length ? 18 : 0);
+  logMax = Math.max(0, total - (bottom - top));
+  logScroll = Math.max(0, Math.min(logMax, logScroll));
+
+  ctx.save(); ctx.beginPath(); ctx.rect(0, top - 10, W, bottom - top + 10); ctx.clip();
+  let y = bottom - total + logScroll;
+  if (total < bottom - top) y = top;
+  for (const it of items) {
+    if (y + it.h > top - 10 && y < bottom) {
+      let yy = y;
+      if (LOGLABEL[it.L.w]) { textL(LOGLABEL[it.L.w][0], 56, yy, 20, LOGLABEL[it.L.w][1], JP, 'bold'); yy += 30; }
+      const struck = it.L.old || it.L.strike;
+      const lp = it.L.part ? partRange(it.L._lay, it.L.part) : null;
+      const col = lp ? q => { const k = it.L._lay.g.indexOf(q); return k >= lp[0] && k < lp[1] ? (it.L.goldPart ? C.memo : C.bad) : C.text; } : struck ? C.bad : it.L.w === 'sys' ? C.log : it.L.w === 'nar' ? C.nar : (it.L.w === 'you' || it.L.w === 'crew' || it.L.w === 'me') ? C.you : it.L.w === 'in' ? C.mio : C.text;
+      drawText(it.L._lay, 56, yy, undefined, col);
+      if (struck) strikeLay(it.L._lay, 56, yy, lp ? lp[1] : undefined, 1, lp ? lp[0] : 0);
+    }
+    y += it.h;
+  }
+  ctx.restore();
+  if (logMax > 0) {
+    const barH = Math.max(60, (bottom - top) * (bottom - top) / total), barY = top + (bottom - top - barH) * (1 - logScroll / logMax);
+    rr(684, barY, 8, barH, 4); ctx.fillStyle = '#3a4d68'; ctx.fill();
+  }
+  button(220, 1150, 280, 80, 'もどる', () => { screen = logBack; logDrag = null; });
+}
+
+let recBack = 'title', recView = 'list', recSel = 0, resetArm = 0, recGT = 0;
+function openRecords(back) { recBack = back; recView = 'list'; screen = 'records'; if (newJump() || !save.recOpened) { save.jumpSeen = true; save.recOpened = true; persist(); } }
+
+function recReturn() { if (recBack === 'after') { recRewrite = -1; st = null; talk = null; screen = 'title'; return; } screen = (recBack === 'talk' && !talk) || (recBack === 'scene' && !sc) || (recBack === 'result' && (!result || !st)) ? 'title' : recBack; }
+
+function wrapLines(str, size, maxW) {
+  ctx.font = size + 'px ' + JP;
+  const fits = s => ctx.measureText(s).width <= maxW, lines = [];
+  const pack = (parts, fallback) => {
+    let cur = '';
+    for (const pt of parts) {
+      if (fits(cur + pt)) { cur += pt; continue; }
+      if (cur) lines.push(cur);
+      if (fits(pt)) { cur = pt; continue; }
+      cur = fallback(pt);
+    }
+    return cur;
+  };
+  const byChar = seg => { let cur = ''; for (const ch of seg) { if (!fits(cur + ch) && cur && !NOHEAD.includes(ch)) { lines.push(cur); cur = ''; } cur += ch; } return cur; };
+  const byComma = sen => pack(sen.match(/[^、]*、?/g).filter(Boolean), byChar);
+  for (const para of str.split('\n')) {
+    const start = lines.length;
+    const rest = pack(para.match(/[^。！？]*[。！？]*[」』]?/g).filter(Boolean), byComma);
+    if (rest) lines.push(rest);
+
+    const plain = []; let cur = '';
+    for (const ch of para) { if (!fits(cur + ch) && cur && !NOHEAD.includes(ch)) { plain.push(cur); cur = ''; } cur += ch; }
+    if (cur) plain.push(cur);
+    if (lines.length - start > plain.length) lines.splice(start, lines.length - start, ...plain);
+  }
+  return lines;
+}
+
+function fitLines(str, size, maxW, maxLines, minSize) {
+  let ls = wrapLines(str, size, maxW);
+  while (ls.length > maxLines && size > minSize) { size -= 1; ls = wrapLines(str, size, maxW); }
+  return { ls, size };
+}
+
+function wrapColored(str, size, maxW, base) {
+  const out = [];
+  for (const p of str.split('\n')) {
+    const you = p.startsWith('>'), q = you ? p.slice(1) : p;
+    const color = you ? C.you : /^(スイ|『)/.test(q) ? C.mio : base;
+    wrapLines(q, size, maxW).forEach(l => out.push({ l, color }));
+  }
+  return out;
+}
+function fragSquares(x, y, arr, s, alive, gap) {
+  arr.forEach((v, i) => {
+    const sx = x + i * (s + (gap === undefined ? 10 : gap));
+    if (v) { ctx.fillStyle = C.log; ctx.fillRect(sx, y, s, s); }
+    else { ctx.strokeStyle = alive ? '#5a6d88' : C.faint; ctx.lineWidth = 2; ctx.strokeRect(sx + 1, y + 1, s - 2, s - 2); }
+  });
+}
+function drawRecords() {
+  if (recView === 'detail') return drawRecordDetail();
+  textL('> 船内記録 ／ SPES-07', 48, 136, 24, C.log, MONO);
+  const rw = recRewrite >= 0 ? time - recRewrite : 9, h0 = hits.length;
+  const RW_NAME = 1.5, RW_END = 1.9, rwLock = rw < RW_END;
+  if (rw < RW_NAME) {
+    if (rw < 0.75) {
+      textL('心残り', 48, 172, 40, C.text, JP, 'bold');
+      ctx.font = 'bold 40px ' + JP; const w = ctx.measureText('心残り').width, p = Math.max(0, Math.min(1, rw / 0.6));
+      ctx.strokeStyle = C.bad; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(44, 194); ctx.lineTo(44 + (w + 8) * p, 194); ctx.stroke();
+    } else textL('乗員4番のメモ'.slice(0, Math.min(7, Math.floor((rw - 0.75) / 0.1) + 1)), 48, 172, 40, C.memo, JP, 'bold');
+  } else textL(memoName(), 48, 172, 40, C.text, JP, 'bold');
+  const memoOnly = after() && rw >= RW_NAME;
+  ctx.font = '24px ' + MONO; ctx.fillStyle = C.dim; ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('' + (fragCount() + (clear() && !memoOnly ? 1 : 0)) + ' / ' + (FRAG_ALL + (allDeep() && !memoOnly ? 1 : 0)), 672, 186); ctx.textAlign = 'left';
+  textL('行を選ぶと、その朝の記録を開きます', 48, 248, 20, C.hint, MONO);
+  let y = 284;
+  shownEnds().forEach(e => {
+    const i = ENDINGS.indexOf(e), s = seenEnd(e.id), g = save.frags[e.id], h = 130;
+
+    const half = s && e.next && !g[1], jump = g.some((_, k) => canJump(e.id, k));
+    rr(40, y, 640, h, 14); ctx.fillStyle = s ? '#14202f' : C.panel; ctx.fill();
+    ctx.strokeStyle = jump ? '#3f6a8c' : s ? '#2f4560' : C.line; ctx.lineWidth = 2; ctx.stroke();
+    if (jump) { ctx.globalAlpha = 0.3 + 0.7 * glow(); ctx.strokeStyle = C.phrase; ctx.lineWidth = 3; ctx.stroke(); ctx.globalAlpha = 1; }
+    textL(String(i + 1).padStart(2, '0'), 64, y + 22, 22, C.faint, MONO);
+    const sqX = 652 - g.length * 34 + 8;
+    const nm = rowName(e), nMax = Math.min(430, sqX - 14 - 108 - 12); let ns = 30; ctx.font = 'bold ' + ns + 'px ' + JP; while (ctx.measureText(nm).width > nMax && ns > 20) { ns--; ctx.font = 'bold ' + ns + 'px ' + JP; }
+    textL(nm, 108, y + 16, ns, s ? C.text : C.dim, JP, s ? 'bold' : '');
+    fragSquares(sqX, y + 20, g, 26, s, 8);
+
+    const fl = fitLines(rowLine(e), 24, 540, 2, 18);
+    const two = fl.ls.length > 1, sy = h - (two ? 62 : 44), slh = two ? 31 : 34;
+    fl.ls.forEach((l, k) => textL(l, 108, y + sy + k * slh, fl.size, half || !s ? C.wish : C.dim));
+    if (s) hit(40, y, 640, h, () => { sfx.tap(); recSel = i; recView = 'detail'; recGT = time; });
+    y += h + 10;
+  });
+  if (allDeep() && !clear()) {
+    y += 2; ctx.fillStyle = C.line; ctx.fillRect(48, y, 624, 2); y += 16;
+    rr(40, y, 640, 96, 14); ctx.fillStyle = C.panel; ctx.fill();
+    ctx.globalAlpha = 0.45 + 0.55 * glow(); ctx.strokeStyle = C.memo; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    textL('？？？', 68, y + 12, 30, C.memo, JP, 'bold');
+    ctx.strokeStyle = C.memo; ctx.lineWidth = 2; ctx.strokeRect(627, y + 19, 24, 24);
+    textL('もし、すべての記録が添えられたら。', 68, y + 56, 22, '#c9b88a');
+    y += 106;
+  }
+  if (clear()) {
+    y += 2; ctx.fillStyle = C.line; ctx.fillRect(48, y, 624, 2);
+    if (after()) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, (rw - RW_NAME) / 0.4)); textL('あなたの記録', 48, y + 12, 26, C.memo, JP, 'bold'); ctx.globalAlpha = 1;
+      y += 50;
+    } else y += 16;
+    const row = (name, line, fn, unread, sq) => {
+      const h = 120;
+      rr(40, y, 640, h, 14); ctx.fillStyle = '#241f14'; ctx.fill();
+      ctx.strokeStyle = C.memo; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+      if (unread) { ctx.globalAlpha = 0.35 + 0.65 * glow(); ctx.lineWidth = 3; ctx.stroke(); ctx.globalAlpha = 1; }
+      textL(name, 68, y + 16, 30, C.text, JP, 'bold');
+      if (sq) fragSquares(626, y + 20, [1], 26, true);
+      textL(line, 68, y + 74, 22, C.dim);
+
+      button(452, y + 11, 158, 44, unread ? '▶ 読む' : '▶ 読み返す', fn, { size: 22, primary: true, gold: true, hitX: 12, hitY: 14 });
+      y += h + 10;
+    };
+    row('本当の朝', '「志願」を、自分の手で「くじ」に直した。', playHonbanRead, false, true);
+    row('40日後', after() ? '伝言と、もうひとつの記録。' : 'まだ読んでいない記録があります。', () => start40(true), !after());
+  }
+  button(220, 1176, 280, 76, recBack === 'after' ? 'タイトルへ' : 'もどる', recReturn, { primary: recBack === 'after' && !rwLock, disabled: rwLock });
+  if (rwLock) hits.length = h0;
+}
+function drawRecordDetail() {
+  const e = ENDINGS[recSel], g = save.frags[e.id];
+  const nm = rowName(e);
+  textL('> 記録 ' + String(recSel + 1).padStart(2, '0') + ' ／ ' + nm, 48, 136, 24, C.log, MONO);
+  let ns = 44; ctx.font = 'bold ' + ns + 'px ' + JP; while (ctx.measureText(nm).width > 470 && ns > 28) { ns -= 2; ctx.font = 'bold ' + ns + 'px ' + JP; }
+  textL(nm, 48, 172, ns, C.text, JP, 'bold');
+  fragSquares(672 - g.length * 42 + 10, 184, g, 32, true);
+
+  let s = 26, sum, bodies, lh, gap;
+  for (;;) {
+    lh = Math.round(s * 1.46); gap = s >= 24 ? 12 : 8;
+    sum = wrapLines(rowLine(e), s, 624);
+    bodies = e.f.map((f, i) => g[i] ? wrapColored(fragBody(e, i), s, 584, C.text) : wrapColored(f.h, s, 584, C.wish));
+    const total = 244 + sum.length * lh + 34 + bodies.reduce((a, b) => a + 72 + b.length * lh + 12 + gap, 0);
+    if (total <= 1160 || s <= 18) break;
+    s -= 1;
+  }
+  let y = 244;
+  sum.forEach(l => { textL(l, 48, y, s, C.dim); y += lh; });
+  y += 14; ctx.fillStyle = C.line; ctx.fillRect(48, y, 624, 2); y += 20;
+  e.f.forEach((f, i) => {
+    const open = g[i], body = bodies[i];
+    const h = 72 + body.length * lh + 12;
+    rr(40, y, 640, h, 14); ctx.fillStyle = open ? '#14202f' : C.panel; ctx.fill();
+    ctx.strokeStyle = open ? '#2f4560' : C.line; ctx.lineWidth = 2; ctx.stroke();
+    if (open) textL(f.t, 68, y + 16, 28, C.text, JP, 'bold');
+    else textL('心残り', 68, y + 18, 26, C.phrase);
+    ctx.fillStyle = open ? '#2f4560' : C.line; ctx.fillRect(60, y + 62, 600, 2);
+    if (canJump(e.id, i)) {
+      button(452, y + 8, 212, 46, 'ここから目覚める', () => jumpRun(e.id, i), { size: 22, primary: true, hitX: 12, hitY: 14 });
+      if (glow() > 0.5 || REDUCE_MOTION) guideGlow(452, y + 8, 212, 46);
+    }
+    else if (!open && jumpWhy(e.id, i)) button(452, y + 8, 212, 46, jumpWhy(e.id, i), () => {}, { size: 22, disabled: true, dimCol: C.hint });
+    else if (open) button(452, y + 8, 212, 46, '▶ 読み返す', () => replayFrag(e.id, i), { size: 22, primary: g.every(Boolean), hitX: 12, hitY: 14 });
+    body.forEach((o, k) => textL(o.l, 68, y + 72 + k * lh, s, o.color));
+    y += h + gap;
+  });
+  button(220, 1176, 280, 76, '一覧へ', () => { recView = 'list'; });
+}
+
+function draw() {
+  ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  drawStars();
+  if (screen !== lastScreen) { lastScreen = screen; guardUntil = time + 0.4; }
+  hits = []; eyeOverride = null;
+  if (screen === 'title') drawTitle();
+  else if (screen === 'talk') drawTalk();
+  else if (screen === 'scene') drawScene();
+  else if (screen === 'result') drawResult();
+  else if (screen === 'records') drawRecords();
+  else if (screen === 'log') drawLog();
+  drawHeader();
+}
+
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000); last = t;
+  update(dt); draw(); requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
