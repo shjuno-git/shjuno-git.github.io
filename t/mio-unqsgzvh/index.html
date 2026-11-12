@@ -429,7 +429,7 @@ function initRun(force) {
   st = { alert: 0, looked: 0, wrong: 0, caught: {}, missed: 0, lies: 0, memo: [], stars: false, beacon: false, alt: false, var: {}, log: [], honban: false, held: {}, done: {}, runNo: 0 };
   for (const k in SCENES) {
     const n = SCENES[k].variants.length; let v = 0;
-    if (save.mockRuns > 0 && n > 1) { do { v = Math.floor(Math.random() * n); } while (v === save.lastVar[k]); }
+    if (save.mockRuns > 0 && n > 1 && !listenOnly()) {  do { v = Math.floor(Math.random() * n); } while (v === save.lastVar[k]); }
     st.var[k] = force && force[k] !== undefined ? force[k] : v;
   }
 }
@@ -448,7 +448,7 @@ function newRun() {
   const listen = listenOnly();
   initRun(listen ? { s1: 0 } : null);
   st.listen = listen;
-  save.lastVar = Object.assign({}, st.var); save.mockRuns++; st.runNo = save.mockRuns; persist();
+  save.lastVar = Object.assign({}, st.var); save.mockRuns = listen ? 1 : save.mockRuns + 1; st.runNo = save.mockRuns; persist();
   startTalk(openingLines(listen), () => enterScene('s1'), true);
 }
 function startHonban() {
@@ -506,7 +506,7 @@ function priorLog(keys) {
 
 function startTalk(lines, onDone, skippable, endText, endBtn) {
   screen = 'talk';
-  talk = { lines: lines.slice(), i: -1, shown: [], typed: 0, onDone, skippable: !!skippable && (save.mockRuns > 1 || !!save.honbanDone || (st && st.honban)), endText, endBtn, lock: 0 };
+  talk = { lines: lines.slice(), i: -1, shown: [], typed: 0, onDone, skippable: !!skippable && (!!save.frags.first[0] || !!save.honbanDone || (st && st.honban)), endText, endBtn, lock: 0 };
   advance();
 }
 function lineLayout(L) {
@@ -876,7 +876,7 @@ function play40(ro) {
     { w: 'nar', t: '窓の外に、灰色の地平が広がっていた。' },
     { w: 'mio', t: '無事、基地に到着しました。\n基地のシステムと連携を開始します。' },
     { w: 'sys', t: '基地アンテナ：接続' },
-    { w: 'sys', t: '受信：SPES-08 ／\n航路変更：地球への帰還軌道へ' },
+    { w: 'sys', t: '受信：SPES-08 ／ 航路変更：完了' },
     { w: 'mio', t: '救命艇は、SPES-08と合流できたようです。' },
     { w: 'nar', t: 'あなたは、しばらく何も言えなかった。' },
     { w: 'sys', t: '未再生の伝言：1件 ／\n差出人：乗員1・2・3・4番 ／ 再生条件：成立' },
@@ -1390,9 +1390,9 @@ function drawTitle() {
   button(160, 760, 400, 100, back ? '目覚める前に、戻る' : '目覚める', newRun, { primary: !jumpOpen(), gold: allDeep(), size: 38 });
   if (fragCount() > 0) recordPanel(110, 892, 500, 196, 'title');
   textL('試作版 v10', 40, 1206, 20, C.faint);
-  if (DEV) {
+  {
     const armed = resetArm > time;
-    button(452, 1188, 236, 60, armed ? 'もう一度押すと消去' : '記録をリセット', () => {
+    button(452, 1188, 236, 60, armed ? 'もう一度押すと初期化' : '記録を初期化', () => {
       if (!armed) { resetArm = time + 3; return; }
       resetArm = 0; save = freshSave(); persist(); st = null;
     }, { size: 20 });
