@@ -1325,7 +1325,7 @@ function recordPanel(px, py, pw, ph, back) {
   ctx.font = '22px ' + MONO; ctx.fillStyle = C.dim; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
   const ends = shownEnds(), more = allDeep() && !after() && !(screen === 'result' && result && result.final && !result.goldShown), step = 76, x0 = px + pw / 2 - (ends.length + (more ? 1 : 0)) * step / 2;
   const realDone = clear() && !honPend, sy = py + (ph < 190 ? -10 : 0);
-  ctx.fillText('' + (fragCount() - (pendId ? R.fresh.length : 0) + (realDone && !after() ? 1 : 0)) + ' / ' + (FRAG_ALL + (more && !after() ? 1 : 0)), px + pw - 28, py + 28); ctx.textAlign = 'left';
+  ctx.fillText('' + (fragCount() - (pendId ? R.fresh.length : 0)) + ' / ' + (more ? '?' : FRAG_ALL), px + pw - 28, py + 28);  ctx.textAlign = 'left';
   ends.forEach((e, i) => {
     const cx = x0 + i * step + step / 2, got = seenEnd(e.id), n = save.frags[e.id].length;
     fragSquares(cx - (n * 18 + (n - 1) * 5) / 2, sy + 82, pendId === e.id ? R.before : save.frags[e.id], 18, got, 5);
@@ -1806,7 +1806,7 @@ function drawRecords() {
     } else textL('乗員4番のメモ'.slice(0, Math.min(7, Math.floor((rw - 0.75) / 0.1) + 1)), 48, 172, 40, C.memo, JP, 'bold');
   } else textL(memoName(), 48, 172, 40, C.text, JP, 'bold');
   const memoOnly = after() && rw >= RW_NAME;
-  ctx.font = '24px ' + MONO; ctx.fillStyle = C.dim; ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('' + (fragCount() + (clear() && !memoOnly ? 1 : 0)) + ' / ' + (FRAG_ALL + (allDeep() && !memoOnly ? 1 : 0)), 672, 186); ctx.textAlign = 'left';
+  ctx.font = '24px ' + MONO; ctx.fillStyle = C.dim; ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('' + fragCount() + ' / ' + (allDeep() && !memoOnly ? '?' : FRAG_ALL), 672, 186);  ctx.textAlign = 'left';
   textL('行を選ぶと、その朝の記録を開きます', 48, 248, 20, C.hint, MONO);
   let y = 284;
   shownEnds().forEach(e => {
