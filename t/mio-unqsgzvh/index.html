@@ -1341,7 +1341,7 @@ function recordPanel(px, py, pw, ph, back) {
   if (ph >= 190) {
     if (unread) textC('「40日後」を読めます',  360, py + ph - 26, 20, C.memo, JP, 'bold');
     else if (jumpOpen()) textC('心残りの朝から目覚められます', 360, py + ph - 26, 20, C.phrase, JP, 'bold');
-    else textC(after() ? '▶ メモと、あなたの記録を読み返せます' : '▶ これまでの朝を読み返せます', 360, py + ph - 26, 20, has ? C.dim : C.hint);
+    else textC(after() ? 'メモと、あなたの記録を読み返せます' : 'これまでの朝を読み返せます', 360, py + ph - 26, 20, has ? C.dim : C.hint);
   } else if (ph >= 160 && jumpOpen() && !unread && !rWait) textC('心残りの朝から目覚められます', 360, py + ph - 15, 18, C.phrase, JP, 'bold');
   if (has) hit(px, py, pw, ph, () => { sfx.tap(); openRecords(back); });
 }
