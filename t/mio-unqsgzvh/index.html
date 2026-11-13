@@ -45,7 +45,7 @@ const freshSave = () => { const s = { frags: {}, mockRuns: 0, silences: 0, honba
 let save = freshSave();
 try {
   const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-  if (s) { Object.assign(save, s); EIDS.forEach(id => { if (!save.frags[id]) save.frags[id] = new Array(NFRAG[id]).fill(0); }); if (!save.picked) save.picked = {}; if (!save.qSeen) save.qSeen = {}; }
+  if (s) { Object.assign(save, s); EIDS.forEach(id => { if (!save.frags[id]) save.frags[id] = new Array(NFRAG[id]).fill(0); }); if (!save.picked) save.picked = {}; if (!save.qSeen) save.qSeen = {}; if (!save.jumpShown) { save.jumpShown = {}; if (s.jumpSeen) EIDS.forEach(id => { if (save.frags[id].some((_, i) => id !== 'first' && i === 1 && save.frags[id][0] && !save.frags[id][1])) save.jumpShown[id] = 1; }); } }
 } catch (e) {}
 
 let READ = null;
@@ -459,13 +459,15 @@ function startHonban() {
 const QPRE = { four: ['s1'], sui: ['s2'], you: ['s3'] };
 const canJump = (id, i) => id !== 'first' && i === 1 && !!save.frags[id][0] && !save.frags[id][1];
 const jumpOpen = () => EIDS.some(id => save.frags[id].some((_, i) => canJump(id, i)));
-const newJump = () => jumpOpen() && !save.jumpSeen;
+const jumpIds = () => EIDS.filter(id => save.frags[id].some((_, i) => canJump(id, i)));
+const markJumpsShown = () => { if (!save.jumpShown) save.jumpShown = {}; jumpIds().forEach(id => { save.jumpShown[id] = 1; }); };
+const newJump = () => jumpIds().some(id => !(save.jumpShown && save.jumpShown[id]));
 const clear = () => !!save.honbanDone;
 const after = () => !!save.afterSeen;
 const unread40 = () => clear() && !after();
 const glow = () => 0.5 + 0.5 * Math.sin(time * 3);
 const memoName = () => after() ? '乗員4番のメモ' : '心残り';
-const memoGlow = () => newJump() || !save.recOpened || unread40();
+const memoGlow = () => newJump() || unread40();
 let recRewrite = -1;
 function jumpRun(id, i) {
   if (!save.jumpUsed) { save.jumpUsed = true; persist(); }
@@ -858,7 +860,7 @@ function honbanTail(ro) {
 
 function honbanEnd() {
   const fresh = !save.honbanDone;
-  if (fresh) { save.honbanDone = true; save.jumpSeen = true; }
+  if (fresh) { save.honbanDone = true; markJumpsShown(); }
   save.lastEnd = 'honban'; persist(); sfx.end();
   result = { id: 'honban', got: [0], fresh: fresh ? [0] : [], t0: time, before: [fresh ? 0 : 1], health: ['穏やか', '極低'] };
   screen = 'result';
@@ -973,7 +975,6 @@ function finish(id, lines, frags, extra) {
       const hadFirst = !!save.frags.first[0], hadShallow = QS.some(q => save.frags[q.id][0]);
       res.fresh = frags.filter(i => !save.frags[id][i]);
       res.fresh.forEach(i => { save.frags[id][i] = held && i === 0 ? 2 : 1; });
-      if (res.fresh.length && jumpOpen()) save.jumpSeen = false;
       if (id === 'first' && res.fresh.length) save.firstDone = st.runNo;
       if (id !== 'first' && frags[0] === 1 && res.fresh.length && !save.firstDeep) save.firstDeep = st.runNo;
       res.ruleFirst = id === 'first' && !hadFirst;
@@ -1738,7 +1739,7 @@ function drawLog() {
 }
 
 let recBack = 'title', recView = 'list', recSel = 0, resetArm = 0, recGT = 0;
-function openRecords(back) { recBack = back; recView = 'list'; screen = 'records'; if (newJump() || !save.recOpened) { save.jumpSeen = true; save.recOpened = true; persist(); } }
+function openRecords(back) { recBack = back; recView = 'list'; screen = 'records'; if (newJump() || !save.recOpened) { markJumpsShown(); save.recOpened = true; persist(); } }
 
 function recReturn() { if (recBack === 'after') { recRewrite = -1; st = null; talk = null; screen = 'title'; return; } screen = (recBack === 'talk' && !talk) || (recBack === 'scene' && !sc) || (recBack === 'result' && (!result || !st)) ? 'title' : recBack; }
 
