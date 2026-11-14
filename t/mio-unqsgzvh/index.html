@@ -128,7 +128,8 @@ const sfx = {
   choice() { tone(660, 0.5, 'sine', 0.016, null, { rev: 0.6 }); tone(990, 0.7, 'sine', 0.013, null, { at: 0.12, rev: 0.6 }); },
   stop() { tone(320, 1.4, 'sawtooth', 0.03, 40, { lp: 900 }); noise(0.6, 0.012, 'lowpass', 400, { atk: 0.05 }); },
   append() { tone(784, 0.6, 'sine', 0.019, null, { rev: 0.6 }); tone(1175, 0.6, 'sine', 0.015, null, { at: 0.06, rev: 0.6 }); },
-  pen() { for (let i = 0; i < 9; i++) noise(0.07, 0.035, 'bandpass', 3000 + (i % 3) * 500, { q: 3, at: i * 0.1 }); for (let i = 0; i < 7; i++) noise(0.06, 0.03, 'bandpass', 3400 - (i % 3) * 400, { q: 3, at: 1.15 + i * 0.1 }); noise(0.5, 0.025, 'bandpass', 1700, { q: 0.7, at: 0.95, atk: 0.12 }); },
+
+  pen(sd, ts) { noise((sd || 0.9) + 0.02, 0.014, 'bandpass', 2200, { q: 0.8, atk: 0.1 }); (ts || [1.1, 1.22, 1.5, 1.62]).forEach((at, i) => noise(0.07, 0.035, 'bandpass', 3400 - (i % 3) * 400, { q: 3, at })); },
   stars() { [392, 494, 587, 784].forEach((f, i) => tone(f, 3, 'sine', 0.009, null, { atk: 0.9, at: i * 0.08, rev: 1 })); },
 };
 
@@ -440,9 +441,12 @@ const OPENING = [
   { w: 'nar', t: '冷たい空気。ポッドの蓋が、ゆっくり開いた。' },
   { w: 'mio', t: 'おはようございます。わたしはこの船のAI、スイです。' },
   { w: 'nar', t: '聞き覚えのある、懐かしい声だった。' },
+  { w: 'nar', t: '眠る前のことが、ぼやけている。\n長いあいだ、冷凍睡眠していたらしい。' },
   { w: 'mio', t: '目覚めたばかりで混乱されているでしょう。いまの状況をご説明します。' },
 ];
-const openingLines = listen => listen ? [...OPENING.slice(0, 3), { w: 'sys', t: '初回設定：記録は段階的に開示されます' }, ...OPENING.slice(3)] : OPENING.slice();
+
+const HONBAN_BODY = { w: 'nar', t: '体を起こそうとしたが、まだ力が入らない。' };
+const openingLines = (listen, hon) => { const L = listen ? [...OPENING.slice(0, 3), { w: 'sys', t: '初回設定：記録は段階的に開示されます' }, ...OPENING.slice(3)] : OPENING.slice(); if (hon) L.splice(L.length - 1, 0, HONBAN_BODY); return L; };
 function newRun() {
   if (allDeep()) return startHonban();
   const listen = listenOnly();
@@ -453,7 +457,7 @@ function newRun() {
 }
 function startHonban() {
   initRun(); st.honban = true;
-  startTalk(openingLines(false), () => enterScene('s1'), true);
+  startTalk(openingLines(false, true), () => enterScene('s1'), true);
 }
 
 const QPRE = { four: ['s1'], sui: ['s2'], you: ['s3'] };
@@ -938,7 +942,7 @@ function start40(ro) {
   if (ro) readExit = () => { reading40 = false; readExit = null; openRecords(back); };
   startTalk(play40(ro), () => {
     reading40 = false; readExit = null;
-    if (!save.afterSeen) { save.afterSeen = true; persist(); recRewrite = time + 0.6; setTimeout(() => sfx.pen(), 600); return openRecords('after'); }
+    if (!save.afterSeen) { save.afterSeen = true; persist(); recRewrite = time + 0.6; setTimeout(() => sfx.pen(0.6, [0.75, 0.85, 0.95, 1.05, 1.15, 1.25, 1.35]), 600); setTimeout(() => sfx.append(), 2100);  return openRecords('after'); }
     openRecords(ro ? back : 'title');
   }, false, '記録の終わり');
 }
@@ -1797,14 +1801,21 @@ function drawRecords() {
   if (recView === 'detail') return drawRecordDetail();
   textL('> 船内記録 ／ SPES-07', 48, 136, 24, C.log, MONO);
   const rw = recRewrite >= 0 ? time - recRewrite : 9, h0 = hits.length;
-  const RW_NAME = 1.5, RW_END = 1.9, rwLock = rw < RW_END;
-  if (rw < RW_NAME) {
-    if (rw < 0.75) {
-      textL('心残り', 48, 172, 40, C.text, JP, 'bold');
-      ctx.font = 'bold 40px ' + JP; const w = ctx.measureText('心残り').width, p = Math.max(0, Math.min(1, rw / 0.6));
-      ctx.strokeStyle = C.bad; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(44, 194); ctx.lineTo(44 + (w + 8) * p, 194); ctx.stroke();
-    } else textL('乗員4番のメモ'.slice(0, Math.min(7, Math.floor((rw - 0.75) / 0.1) + 1)), 48, 172, 40, C.memo, JP, 'bold');
-  } else textL(memoName(), 48, 172, 40, C.text, JP, 'bold');
+  const RW_NAME = 1.5, RW_FIN = 1.95, RW_END = 2.35, rwLock = rw < RW_END;
+  const rwHead = () => {
+    if (rw < RW_FIN) {
+      if (rw < 0.75) {
+        textL('心残り', 48, 172, 40, C.text, JP, 'bold');
+        ctx.font = 'bold 40px ' + JP; const w = ctx.measureText('心残り').width, p = Math.max(0, Math.min(1, rw / 0.6));
+        ctx.strokeStyle = C.bad; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(44, 194); ctx.lineTo(44 + (w + 8) * p, 194); ctx.stroke();
+      } else textL('乗員4番のメモ'.slice(0, Math.min(7, Math.floor((rw - 0.75) / 0.1) + 1)), 48, 172, 40, C.memo, JP, 'bold');
+    } else textL(memoName(), 48, 172, 40, C.text, JP, 'bold');
+  };
+
+  const rwSm = v => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
+  const rwDim = rw >= RW_END ? 0 : 0.86 * (rw < RW_FIN ? rwSm((rw + 0.6) / 0.5) : 1 - rwSm((rw - RW_FIN) / 0.4));
+  let nameY = -1;
+  if (!rwDim) rwHead();
   const memoOnly = after() && rw >= RW_NAME;
   ctx.font = '24px ' + MONO; ctx.fillStyle = C.dim; ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('' + fragCount() + ' / ' + (allDeep() && !memoOnly ? '?' : FRAG_ALL), 672, 186);  ctx.textAlign = 'left';
   textL('行を選ぶと、その朝の記録を開きます', 48, 248, 20, C.hint, MONO);
@@ -1840,7 +1851,7 @@ function drawRecords() {
   if (clear()) {
     y += 2; ctx.fillStyle = C.line; ctx.fillRect(48, y, 624, 2);
     if (after()) {
-      ctx.globalAlpha = Math.max(0, Math.min(1, (rw - RW_NAME) / 0.4)); textL('あなたの記録', 48, y + 12, 26, C.memo, JP, 'bold'); ctx.globalAlpha = 1;
+      nameY = y + 12;
       y += 50;
     } else y += 16;
     const row = (name, line, fn, unread, sq) => {
@@ -1859,6 +1870,14 @@ function drawRecords() {
     row('40日後', after() ? '伝言と、もうひとつの記録。' : 'まだ読んでいない記録があります。', () => start40(true), !after());
   }
   button(220, 1176, 280, 76, recBack === 'after' ? 'タイトルへ' : 'もどる', recReturn, { primary: recBack === 'after' && !rwLock, disabled: rwLock });
+  if (rwDim) { ctx.globalAlpha = rwDim; ctx.fillStyle = '#05080d'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; rwHead(); }
+  if (nameY >= 0) {
+    const a = rwSm((rw - RW_NAME) / 0.45);
+    ctx.save(); ctx.globalAlpha = a;
+    if (rw < RW_END + 0.2) { ctx.shadowColor = C.memo; ctx.shadowBlur = 36 * Math.sin(Math.PI * Math.max(0, Math.min(1, (rw - RW_NAME) / 0.9))); }
+    textL('あなたの記録', 48, nameY + 14 * (1 - a), 26, C.memo, JP, 'bold');
+    ctx.restore();
+  }
   if (rwLock) hits.length = h0;
 }
 function drawRecordDetail() {
