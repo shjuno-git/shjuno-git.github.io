@@ -1,0 +1,31 @@
+/* 暗い縁の中に縦長のゲーム画面(canvas)を1枚だけ置く。中の360x640はJSが拡大縮小する */
+html {
+	height: 100%;
+	box-sizing: border-box;
+}
+
+body {
+	height: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 12px 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	background: #10201f;
+	overscroll-behavior: none;
+	touch-action: none;
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-tap-highlight-color: transparent;
+}
+
+canvas {
+	display: block;
+	border-radius: 16px;
+	background: #dff2ee;
+	box-shadow: 0 0 0 2px #0a1514, 0 18px 40px rgba(0, 0, 0, 0.45);
+	touch-action: none;
+	-webkit-touch-callout: none;
+}
