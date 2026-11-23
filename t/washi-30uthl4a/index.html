@@ -3610,8 +3610,8 @@ function fallbackDownload(blob, filename){
 // 主役のイキモンが目立つように：左右は画面の端寄り・足もとの高さ・少し小さく控えめ。出るのも イキモンが出てから少し遅れて
 // altDy：次の候補（右）は下寄り（右上には 激レアのラベルが来るので）
 const SIDE_CARD = { dx: 134, altDy: 26, w: 64, h: 76 };
-// 決め手はイキモンの左側、イキモンの上半分の高さ（右下の「次の候補」より少し上）
-const KEY_POS = { x: W / 2 - 134, y: RES_Y.creature - 24 };
+// 決め手はイキモンの左上（激レアのラベルと左右対称）
+const KEY_POS = { x: W / 2 - 110, y: RES_Y.creature - 56 }; // 激レアのラベル(右上)と左右対称の位置
 function sideCard(x, y, label, edge, labelCol){
   const c = SIDE_CARD; // 台紙(枠)は 窮屈に見えるので描かない。見出しだけ
   ctx.fillStyle = labelCol || 'rgba(58,42,24,.6)'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -3641,12 +3641,19 @@ function drawKeyItem(r, a){
   if (r.keyLv >= 1){ ctx.strokeText('Lv' + r.keyLv, x, py + 22); ctx.fillStyle = max ? '#d0392e' : big ? '#b8860b' : '#3a2a18'; ctx.fillText('Lv' + r.keyLv, x, py + 22); }
   ctx.restore();
 }
+let ALT_CV = null; // 次の候補を描く 作業用キャンバス
 function drawAltPick(r, a){
   const alt = r.alt; if (!alt || a <= 0) return;
   const x = W / 2 + SIDE_CARD.dx, y = RES_Y.creature + SIDE_CARD.altDy;
   ctx.save(); ctx.globalAlpha *= a;
   sideCard(x, y, '次の候補');
-  ctx.save(); ctx.globalAlpha *= 0.9; ctx.translate(x, y + 2); drawCreature(ctx, alt.species, 0, 0, 16, r.ax, false, time); ctx.restore(); // 同じ性格のまま ほかの種族だったら
+  // 同じ性格のまま ほかの種族だったら。部品ごとに透かすと重なりが透けて見えるので、別のキャンバスに描いてから 絵全体をまとめて薄くする
+  const res = ctx.getTransform().a || 1, B = 44, px = Math.ceil(B * 2 * res);
+  if (!ALT_CV) ALT_CV = document.createElement('canvas');
+  if (ALT_CV.width !== px){ ALT_CV.width = ALT_CV.height = px; }
+  const g2 = ALT_CV.getContext('2d'); g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, px, px);
+  g2.setTransform(res, 0, 0, res, 0, 0); g2.translate(B, B); drawCreature(g2, alt.species, 0, 0, 16, r.ax, false, time);
+  ctx.save(); ctx.globalAlpha *= 0.9; ctx.drawImage(ALT_CV, x - B, y + 2 - B, B * 2, B * 2); ctx.restore();
   ctx.fillStyle = 'rgba(58,42,24,.8)'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   // 荷物の絵文字＋名前の最後の4文字（カリカリ など）。絵文字は iPhone でずれないよう 別に描く
   const ty = y + SIDE_CARD.h / 2 - 10, word = SPECIES[alt.species].word, ww = ctx.measureText(word).width, es = 11, gap = 2, tw = es + gap + ww, lx = x - tw / 2;
