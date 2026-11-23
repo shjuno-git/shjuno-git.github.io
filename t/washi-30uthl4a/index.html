@@ -92,15 +92,16 @@ const { Engine, Bodies, Body, Composite, Query, Events } = Matter;
 
 // ===== 荷物(8種類 × Lv1〜5) =====
 // cat: p=実用 r=ロマン。形はすべて まる(合体しやすく、かき混ぜやすい)
+// sp: この荷物をいちばん育てると その種族の相棒になる(荷物は各種族の持ち物にしてある)
 const KINDS = [
-  { name: 'おにぎり',   e: '🍙', cat: 'p', col: '#f4f1e8' },
-  { name: '懐中電灯',   e: '🔦', cat: 'p', col: '#9aa6b4' },
-  { name: 'くすり',     e: '💊', cat: 'p', col: '#d9cdf0' },
-  { name: 'コンパス',   e: '🧭', cat: 'p', col: '#e3cf9e' },
-  { name: '宝石',       e: '💎', cat: 'r', col: '#8fdcf5' },
-  { name: 'ぬいぐるみ', e: '🧸', cat: 'r', col: '#e0a877' },
-  { name: '星のかけら', e: '🌟', cat: 'r', col: '#fff0a0' },
-  { name: '貝がら',     e: '🐚', cat: 'r', col: '#f7cfc2' },
+  { name: 'どんぐり',   e: '🌰', cat: 'p', col: '#f3dcc0', sp: 'squirrel' },
+  { name: '青りんご',   e: '🍏', cat: 'p', col: '#fff3b8', sp: 'elephant' },
+  { name: 'にんじん',   e: '🥕', cat: 'p', col: '#cfe9f7', sp: 'rabbit' },
+  { name: 'ランタン',   e: '🏮', cat: 'p', col: '#f5f0e6', sp: 'owl' },
+  { name: '宝石',       e: '💎', cat: 'r', col: '#e4d6fb', sp: 'dragon' },
+  { name: '鈴',         e: '🔔', cat: 'r', col: '#f9cfd9', sp: 'cat' },
+  { name: 'サングラス', e: '🕶️', cat: 'r', col: '#ffe0b5', sp: 'duck' },
+  { name: 'くも',       e: '☁️', cat: 'r', col: '#8cc6ea', sp: 'sheep' },
 ];
 // LV[k][lv] = 描画と当たり判定に使う def
 const LV = KINDS.map((k, ki) => CFG.radius.map((r, lv) => ({ name: k.name, e: k.e, cat: k.cat, col: k.col, shape: 'circle', s: r, kind: ki, lv })));
@@ -221,13 +222,13 @@ const sfx = {
 // ===== 相棒モンスターの描画(種族 × 4つの個性) =====
 // ax = [きっちり0↔のびのび1, 慎重0↔大胆1, 実用0↔ロマン1, 即決0↔熟考1]
 const SPECIES = {
-  duck:   { label: 'ヒヨコ', word: 'ピヨピヨ', h: 48,  s: 90, l: 62, vh: 50, hornNames: ['マルマル', 'ツノナシ', 'ツノアリ', 'トゲトゲ'] }, // 耳がないので
-  cat:    { label: 'ネコ',   word: 'ネコネコ', h: 28,  s: 72, l: 62, vh: 22 },
+  duck:   { label: 'ヒヨコ', word: 'ピヨピョ', h: 48,  s: 90, l: 62, vh: 50, hornNames: ['マルマル', 'ツノナシ', 'ツノアリ', 'トゲトゲ'] }, // 耳がないので
+  cat:    { label: 'ネコ',   word: 'ニャーン', h: 28,  s: 72, l: 62, vh: 22 },
   rabbit: { label: 'ウサギ', word: 'ウサウサ', h: 20,  s: 30, l: 90, vh: 335 },
   dragon: { label: 'ドラゴン', word: 'ドラゴン', h: 135, s: 50, l: 54, vh: 140, hornNames: ['マルツノ', 'ミニツノ', 'ツノナガ', 'トゲトゲ'] }, // 耳ではなく角なので呼び名を変える
   sheep:  { label: 'ヒツジ', word: 'モコモコ', h: 40,  s: 40, l: 93, vh: 195, hornNames: ['チビツノ', 'マキツノ', 'オオツノ', 'トゲトゲ'] }, // 耳ではなく うずまきツノなので
   elephant: { label: 'ゾウ', word: 'パオーン', h: 210, s: 14, l: 72, vh: 245, hornNames: ['マルミミ', 'ツノナシ', 'キバアリ', 'トゲトゲ'] }, // ツノの代わりに牙が出るので
-  owl:    { label: 'フクロウ', word: 'ホーホー', h: 30, s: 40, l: 55, vh: 265 },
+  owl:    { label: 'フクロウ', word: 'ホッホー', h: 30, s: 40, l: 55, vh: 265 },
   squirrel: { label: 'リス', word: 'カリカリ', h: 27, s: 56, l: 52, vh: 20 },
 };
 const NAME_PARTS = {
@@ -257,22 +258,30 @@ function rainbow(g, R){
   return gr;
 }
 const POLE_SPECIES = [['duck', 'sheep'], ['elephant', 'dragon'], ['squirrel', 'rabbit'], ['cat', 'owl']];
-function speciesFromAx(ax){
-  // いちばん真ん中から遠い軸で決める。ただし ふり切れ具合は SPECIES_CAP で頭打ちにして、
-  // 同じくらい目立つ軸が2つ以上あるときは その中からランダム(いつも同じ相棒になりにくいように)
-  const SPECIES_CAP = 0.28; // 0.28 = 下から22%以下 / 上から22%以下 は同じ扱い
-  const pri = [0, 0.001, 0.003, 0.002]; // ほぼ同じときの優先(実用↔ロマン > 即決↔熟考 > 慎重↔大胆 > きっちり↔のびのび)
-  const dev = ax.map(v => Math.min(Math.abs(v - 0.5), SPECIES_CAP));
-  // いちばん遠い軸と 差が SPECIES_TIE 以内の軸は「同じくらい目立つ」としてランダムに選ぶ
-  const SPECIES_TIE = 0.08, top = Math.max(...dev);
-  const near = [0, 1, 2, 3].filter(i => dev[i] >= top - SPECIES_TIE);
-  let bi;
-  if (near.length >= 2) bi = near[Math.floor(Math.random() * near.length)];
-  else { bi = 0; let bd = -1; dev.forEach((d, i) => { if (d + pri[i] > bd){ bd = d + pri[i]; bi = i; } }); }
-  const sp = i => POLE_SPECIES[i][ax[i] < 0.5 ? 0 : 1];
-  // 直前と同じ種族になりそうなときは、次に目立つ軸の種族にする（同じ相棒が続きにくいように）
-  if (sp(bi) === lastSpecies){ const order = [0, 1, 2, 3].filter(i => i !== bi).sort((a, b) => (dev[b] + pri[b]) - (dev[a] + pri[a])); const alt = order.find(i => sp(i) !== lastSpecies); if (alt !== undefined) bi = alt; }
-  return lastSpecies = sp(bi);
+// 種族は「バッグの中で いちばん育てた荷物」で決める(性格の4軸とは切りはなす)
+//   1) いちばん高い Lv の荷物が候補
+//   2) 同じ Lv が何種類もあれば、バッグの中の その荷物の量(面積の合計)が多いほう
+//   3) 量の差が SPECIES_TIE_AREA 以内なら 僅差としてランダム。そのとき 前回と同じ種族は なるべく避ける
+// 荷物8種類は 大きさ・形・降りやすさが同じなので、種族は だいたい均等に出る
+const SPECIES_TIE_AREA = 0.15; // 量が 15% 以内の差なら 僅差
+function speciesFromBag(inBag){
+  const by = KINDS.map((_, k) => ({ k, lv: 0, area: 0 }));
+  for (const b of inBag){ const o = by[b.def.kind]; if (!o) continue; o.lv = Math.max(o.lv, b.def.lv); o.area += b.def.s * b.def.s; }
+  const top = Math.max(...by.map(o => o.lv));
+  let cand;
+  if (top <= 0) cand = by.slice(); // バッグが空: どれでも
+  else {
+    cand = by.filter(o => o.lv === top);
+    const maxA = Math.max(...cand.map(o => o.area));
+    cand = cand.filter(o => o.area >= maxA * (1 - SPECIES_TIE_AREA));
+  }
+  const fresh = cand.filter(o => KINDS[o.k].sp !== lastSpecies);
+  if (fresh.length) cand = fresh;
+  const pick = cand[Math.floor(Math.random() * cand.length)];
+  lastSpecies = KINDS[pick.k].sp;
+  // 次に育っていた荷物＝「迷った子」（Lv が高い順、同じ Lv なら量が多い順）
+  const second = by.filter(o => o.k !== pick.k && o.lv > 0).sort((a, b) => (b.lv - a.lv) || (b.area - a.area))[0];
+  return { species: KINDS[pick.k].sp, kind: pick.k, lv: pick.lv, alt: second ? { species: KINDS[second.k].sp, kind: second.k, lv: second.lv } : null };
 }
 let lastSpecies = null; // 前回の相棒の種族
 function creatureName(sp, ax, shiny){
@@ -318,7 +327,7 @@ const RISU = {
   params: fromMockJSON(RISU_JSON),
 };
 const NEKO = {
-  label: 'ネコ', word: 'ネコネコ',
+  label: 'ネコ', word: 'ニャーン',
   colors: { fur: '#f6a94c', dark: '#d9822b', belly: '#fff0d6', inner: '#f8a8b8' },
   tailKind: 'cat', tailSwing: { mode: 'around', amp: 20 }, spikeStyle: 'fangsClaws', cautiousItem: 'collar', mouthAnim: 'yawn',
   params: fromMockJSON(NEKO_JSON),
@@ -375,7 +384,7 @@ const HIYO_JSON = {"animal":"duck","contour":{"width":70,"height":55,"topFlatten
 // ヒヨコ：耳なし、クチバシ（上下2枚）、ぐるぐる目（左右同じ向き）、マロ眉、頭にサングラス、あほ毛3本。
 // サングラスはふだん手に持ち、ときどき目にかける（とても慎重は ずっとかけたまま）。マロ眉を見せるため頭には乗せない。トゲトゲ＝頭のまんなかにトゲ（モヒカン）。ときどきクチバシをパクッと開ける
 const HIYO = {
-  label: 'ヒヨコ', word: 'ピヨピヨ',
+  label: 'ヒヨコ', word: 'ピヨピョ',
   colors: { fur: '#fff1a6', dark: '#e8bd45', belly: '#ffffff', inner: '#fff6cf', bill: '#f59a23', billLow: '#f28c13', foot: '#f2a03c' },
   shinyDl: -18, // ベースが薄い黄色なので、キンイロは濃い金色にして見分けやすく
   fixedColors: ['bill', 'billLow', 'foot'], // クチバシと足はオレンジのまま（モノクロだけ灰色に）
@@ -387,7 +396,7 @@ const FUKU_JSON = {"animal":"owl","contour":{"width":83,"height":55,"topFlatten"
 // フクロウ：クチバシ（ピック形）からヒモでランタンを下げる（いつも）。とても慎重でランタンが明るく光る。
 // 翼は胴の後ろで ときどきバサバサ、顔（頭まるごと）を ときどき左右にかしげる。トゲトゲ＝翼の上のふちにトゲ
 const FUKU = {
-  label: 'フクロウ', word: 'ホーホー',
+  label: 'フクロウ', word: 'ホッホー',
   colors: { fur: '#a97c50', dark: '#5d4028', belly: '#f7ead2', inner: '#d9b98c', beak: '#f6a83b', foot: '#f2a03c' },
   fixedColors: ['beak', 'foot'], // クチバシと足はオレンジのまま（モノクロだけ灰色に）
   faceKind: 'owl', noMouth: true, headTilt: true, spikeStyle: 'owlWings', cautiousItem: 'none', alwaysItem: 'lanternHang', mouthAnim: 'none',
@@ -1621,12 +1630,13 @@ function applyPersonality(def, ax, shiny){
     if (hornTier === 2){ const k = C((a1 - 0.5) / 0.3, 0, 1); s.ear.len *= 1.15 + 0.15 * k; s.ear.thick *= 1.08; s.ear.round = Math.min(s.ear.round, 45); }
   }
   if (s.wing){ s.wing.size *= 1 + 0.15 * pos(a1) - 0.12 * neg(a1); s.wing.angle += 14 * neg(a1); }
-  // とても慎重：持ち物（リスはどんぐり、ネコは首輪）。それ以外では付けない
+  // 持ち物（リスはどんぐり、ネコは鈴の首輪…）は いつも付ける。種族の決め手になった荷物と結果をつなげるため
+  //（以前は「とても慎重」のときだけ付けていた。careful は ランタンの光り方・サングラスの位置に使う）
   const careful = a1 < 0.25;
-  if (def.cautiousItem !== 'collar') s.item = careful ? def.cautiousItem : 'none';
+  if (def.cautiousItem !== 'collar') s.item = def.cautiousItem || 'none';
   // appleStack（ゾウ）：リンゴはいつも1個。慎重ほど増える（慎重で2個、とても慎重で3個）
   if (def.appleStack){ s.item = 'apple'; s.appleCount = a1 < 0.25 ? 3 : a1 < 0.5 ? 2 : 1; }
-  if (s.collar) s.collar.show = def.cautiousItem === 'collar' && careful;
+  if (s.collar) s.collar.show = def.cautiousItem === 'collar';
   // sgMode:'hand'（ヒヨコ）：サングラスはふだん手に持ち ときどき目にかける。とても慎重は ずっとかけたまま
   if (def.alwaysItem){ s.item = def.alwaysItem; s.lanternGlow = careful; } // フクロウ：ランタンはいつも。とても慎重で明るく光る
   if (def.sgMode === 'hand'){ s.item = 'sunglasses'; s.sgHead = careful; s.sgHold = !careful; }
@@ -2234,7 +2244,7 @@ const TUT_BAND = { x: 14, y: 8, w: W - 28, h: 44 };
 const TUT_SKIP = { x: W - 118, y: 598, w: 106, h: 36 };
 const TUT_READY = { x: 40, y: 420, w: W - 80, h: 52, minY: 172, maxY: 430, gap: 26 };
 const TUT_KIND = 0;
-// 練習で合体させる荷物(おにぎり)
+// 練習で合体させる荷物(どんぐり)
 let tut = null; // { step, t, okT, targets }
 function tutActive(){ return state === 'play' && countT < 0 && tut; }
 function tutClear(){ for (const b of items()) Composite.remove(world, b); pendingMerges = []; held = null; }
@@ -2244,7 +2254,7 @@ function tutSetup(step){
   tut.step = step; tut.t = 0; tut.okT = null; tut.targets = []; TUT_READY.y = TUT_READY.maxY;
   if (step === 0){
     tutClear();
-    // 下にちがう荷物をしきつめて、その上の左右に おにぎりを2つ
+    // 下にちがう荷物をしきつめて、その上の左右に どんぐりを2つ
     const ks = [1, 2, 3, 4, 5, 6, 7].sort(() => Math.random() - 0.5).slice(0, 6);
     ks.forEach((k, i) => { const d = LV[k][i % 3 === 0 ? 2 : 1]; Composite.add(world, makeItem(d, BAG.x0 + 26 + i * 48, BAG.floor - 40 - (i % 2) * 30)); });
     tutSettle(50);
@@ -2427,21 +2437,30 @@ function update(dt){
 const PROF = [
   ['狙って合体させる、几帳面なヤツじゃ', 'ぐるぐる豪快に混ぜる、のびのび派じゃ'],
   ['あふれんよう気をくばる、慎重派じゃ', 'パンパンに詰めおって、大胆じゃのう'],
-  ['役に立つ物を育てる、しっかり者じゃ', 'ときめく物を育てる、夢見る心じゃな'],
+  ['いらん物は手放す、しっかり者じゃ', 'でっかく育てる、夢見る心じゃな'],
   ['迷わず手を動かす、即決派じゃ', '手を止めて見きわめる、熟考派じゃ'],
 ];
-function profTalk(ax, habit){
+function profTalk(ax, habit, key){
   const order = [0, 1, 2, 3].sort((a, b) => Math.abs(ax[b] - 0.5) - Math.abs(ax[a] - 0.5));
-  const second = habit ? habit.line : PROF[order[1]][ax[order[1]] < 0.5 ? 0 : 1];
-  return [PROF[order[0]][ax[order[0]] < 0.5 ? 0 : 1], second, 'そんな君にはコイツじゃ!']; // 「……たぶんな。」は 3行目の右はしに小さく（drawResult）
+  // 1行目は 種族の決め手(いちばん育てた荷物)。種族とコメントが食い違わないように
+  const kn = key ? KINDS[key.kind].name : '';
+  const first = !key ? PROF[order[0]][ax[order[0]] < 0.5 ? 0 : 1]
+    : key.lv >= 5 ? kn + 'を Lv5まで!? 見事すぎるわい!!'
+    : key.lv >= 4 ? kn + 'を Lv4まで育てるとは やるのう!'
+    : key.lv >= 2 ? kn + 'を Lv' + key.lv + 'まで育てたのう'
+    : kn + 'を 大事にしとるな';
+  // 1行目で Lv5 をほめたときは「合体マスター」のくせ(Lv5 をほめる)と かぶるので 性格のひとことにする
+  const dup = habit && habit.name === '合体マスター' && key && key.lv >= 5;
+  const second = habit && !dup ? habit.line : PROF[order[0]][ax[order[0]] < 0.5 ? 0 : 1];
+  return [first, second, 'そんな君にはコイツじゃ!']; // 「……たぶんな。」は 3行目の右はしに小さく（drawResult）
 }
 const AX = [['きっちり', 'のびのび'], ['慎重', '大胆'], ['実用', 'ロマン'], ['即決', '熟考']];
 const PRE = { '00': '石橋をたたく', '01': 'こだわり職人の', '10': 'マイペースな', '11': '豪快な' };
-const SUF = { '00': '現場リーダー', '01': '作戦参謀', '10': 'ときめきハンター', '11': '夢みる収集家' };
+const SUF = { '00': '現場リーダー', '01': '作戦参謀', '10': 'ときめきハンター', '11': '夢みる大物ねらい' };
 const DESC = {
   a: ['すき間なく、きれいに整える人。', '細かいことは気にせず、ノリで進める人。'],
   b: ['危ない橋は渡らない、安心第一の人。', 'ギリギリを攻めるのが楽しい人。'],
-  c: ['役に立つかどうかで選ぶ、地に足のついた人。', '心がときめくものを大事にする人。'],
+  c: ['ムダを減らして コツコツ整える、地に足のついた人。', 'ひとつのことを でっかく育てる、夢を追う人。'],
   d: ['迷わずパッと決められる人。', 'じっくり見きわめてから動く人。'],
 };
 const avg = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
@@ -2489,10 +2508,18 @@ function judge(){
   ax[1] = clamp(0.4 * norm(lvl, 0.65, 0.95) + 0.35 * norm(relH, 0.45, 0.85) + 0.25 * norm(spillRate, 0, 0.25), 0, 1);
   // 即決↔熟考：手を止めていた割合 45%→即決 80%→熟考（いちばん差が出た）、降ってきた荷物に触るまで 1.8秒→5秒、つかんでから動かすまで（人はほぼ差が出ない）
   ax[3] = clamp(0.6 * norm(idle, 0.45, 0.8) + 0.3 * norm(react, 1.8, 5) + 0.1 * norm(delay, 0.06, 0.3), 0, 1);
+  // 実用↔ロマン（2026-11-23 測り方を変更・試し中）：種族は「どの荷物を育てたか」で決まるので、
+  // この軸は 荷物の種類を見ずに「育て方」で測る（種族とこの軸が くっつかないように）
+  //   ロマン：1つを でっかく育てた（いちばん大きい荷物が バッグの何割か）・最高 Lv が高い
+  //   実用  ：いらない物を放り出して 片付けた
+  //   目安は仮。デバッグ表示の「大1つ / 最大Lv / 捨て」を人のプレイで見て決め直す
+  const bigShare = tot ? Math.max(...inBag.map(area)) / tot : 0;
+  const ax2Old = ax[2];
+  ax[2] = clamp(0.45 * norm(bigShare, 0.06, 0.25) + 0.3 * norm(S.maxLv, 3, 5) + 0.25 * (1 - norm(S.throws, 0, 4)), 0, 1);
   if (S.touches === 0) return { special: true, ax, bin: ax.map(v => v >= 0.5 ? 1 : 0), shiny: false, count: 0 };
   const bin = ax.map(v => v >= 0.5 ? 1 : 0);
   const shiny = Math.random() < CFG.shinyRate;
-  const species = speciesFromAx(ax);
+  const pickSp = speciesFromBag(inBag), species = pickSp.species;
   const nameParts = creatureName(species, ax, shiny);
   const ctxH = { inBag, lvl, ratio, pathPerSec, idle, area, tot, aimRate, cluster, react };
   const habit = pickHabit(ctxH);
@@ -2500,8 +2527,9 @@ function judge(){
     ax, bin, shiny, count: inBag.length, monName: nameParts.join(''), nameParts, species, habit,
     typeName: PRE['' + bin[0] + bin[1]] + ' ' + SUF['' + bin[2] + bin[3]],
     desc: [DESC.a[bin[0]], DESC.b[bin[1]], DESC.c[bin[2]], DESC.d[bin[3]]],
-    talk: profTalk(ax, habit),
-    raw, dbg: { relH, spillRate, aimRate, cluster, ratio, lvl, selfSp: S.selfSpills, pushSp: S.pushSpills, maxLv: S.maxLv, growR, throwR, firstR, areaR, react, delay, idle, merges: S.merges },
+    // キンイロのときは 3行目で激レアにふれる（このときは「……たぶんな。」を付けない）
+    talk: shiny ? [...profTalk(ax, habit, pickSp).slice(0, 2), '激レアに会えるとは 幸運じゃのう!'] : profTalk(ax, habit, pickSp), keyKind: pickSp.kind, keyLv: pickSp.lv, alt: pickSp.alt,
+    raw, dbg: { relH, spillRate, aimRate, cluster, ratio, lvl, selfSp: S.selfSpills, pushSp: S.pushSpills, maxLv: S.maxLv, growR, throwR, firstR, areaR, react, delay, idle, merges: S.merges, bigShare, throws: S.throws, ax2: ax[2], ax2Old },
   };
 }
 // ===== ふつうの遊び方との比較 =====
@@ -2962,7 +2990,7 @@ function drawIntro(){
   ctx.font = 'bold 20px sans-serif'; ctx.fillText('あそびかた', W / 2, 182);
   const rows = [
     ['👆', 'ドラッグで荷物をつかんで', 'バッグをかき混ぜる'],
-    [LV[6][1].e + '+' + LV[6][1].e, '同じ荷物・同じLvがふれると', '合体してLvアップ!'],
+    [LV[0][1].e + '+' + LV[0][1].e,'同じ荷物・同じLvがふれると', '合体してLvアップ!'],
     ['⤴️', 'いらない荷物は 上にシュッ!', 'バッグの外へ放り出す'],
     ['⏱️', '荷物は上から どんどん降ってくる', '20秒で 好きなバッグに育てよう'],
   ];
@@ -3487,6 +3515,7 @@ function drawResultTalk(r, ty, py){
   ctx.font = `bold ${fs}px sans-serif`;
   while (fs > 11 && Math.max(...r.talk.map(l => ctx.measureText(l).width)) > bw - fs * 1.6){ fs -= 0.5; ctx.font = `bold ${fs}px sans-serif`; }
   bubble(76, ty, bw, r.talk, fs, profTail(40, py, 0.44, time));
+  if (r.shiny) return; // キンイロは 博士も自信あり
   ctx.font = 'bold 9.5px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgba(58,42,24,.55)';
   ctx.fillText('……たぶんな。', 76 + bw - 10, ty + fs * 0.55 + fs * 1.45 * (r.talk.length - 0.5) + 1);
 }
@@ -3504,7 +3533,7 @@ function makeShareCanvas(){
       g.textAlign = 'center'; g.fillStyle = '#3a2a18'; g.font = 'bold 14px sans-serif'; g.fillText('何もせずにバッグを閉じた君の相棒は…博士本人!', W / 2, 432);
       bubble(60, 456, 240, ['何もせんとは… たまげた!', 'そんな君の相棒は ワシが', 'つとめてやろう!'], 13, W / 2, 444); // 博士のひとこと
     } else {
-      g.save(); g.translate(W / 2, 8); g.scale(0.95, 0.95); g.translate(-W / 2, 0); drawResultTop(r); g.restore();
+      g.save(); g.translate(W / 2, 8); g.scale(0.95, 0.95); g.translate(-W / 2, 0); drawResultTop(r, 99, true); g.restore();
       drawProf(40, 414, 0.44, time, 'point'); drawResultTalk(r, 336, 414); // 博士のひとこと
       g.fillStyle = 'rgba(255,253,246,.8)'; roundRect(18, 420, W - 36, 106, 14); g.fill();
       drawAxes(r, 440, 22, 92, W - 92);
@@ -3553,7 +3582,52 @@ function fallbackDownload(blob, filename){
 // ロゴ・タイプ・イキモン・名前(結果画面とシェア画像で共通)
 // u：リザルトが始まってからの時間（共有画像などは 省略して 出きった状態）
 // 相棒の登場はタイトルの舞台と同じ：台紙が広がる → シルエットがポンと出る → ピカッと色がつく → 名前
-function drawResultTop(r, u = 99){
+// イキモンの左右の小さな台紙：左＝決め手の荷物（ゲーム中と同じ形）、右＝まよった子（次に育っていた荷物の種族）
+// 主役のイキモンが目立つように：左右は画面の端寄り・足もとの高さ・少し小さく控えめ。出るのも イキモンが出てから少し遅れて
+// altDy：まよった子（右）は下寄り（右上には 激レアのラベルが来るので）
+const SIDE_CARD = { dx: 134, altDy: 26, w: 64, h: 76 };
+const KEY_POS = { x: 34, y: 82, typeW: W - 136 }; // 決め手はタイプの行の左はし。typeW：タイプ名が決め手に重ならない幅
+function sideCard(x, y, label, edge, labelCol){
+  const c = SIDE_CARD; // 台紙(枠)は 窮屈に見えるので描かない。見出しだけ
+  ctx.fillStyle = labelCol || 'rgba(58,42,24,.6)'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, x, y - c.h / 2 + 10);
+}
+function drawKeyItem(r, a){
+  if (r.keyKind == null || a <= 0) return;
+  // タイプの行の左はし：上に「決め手」、まんなかに荷物、下に Lv（ほめ言葉は博士が言うので 文字は付けない）
+  const x = KEY_POS.x, py = KEY_POS.y, lv = clamp(r.keyLv || 1, 1, CFG.maxLv), def = LV[r.keyKind][lv];
+  const big = lv >= 4, max = lv >= 5;
+  ctx.save(); ctx.globalAlpha *= a;
+  if (big){ // Lv4・Lv5 は後ろで光がまわる
+    ctx.save(); ctx.translate(x, py); ctx.rotate(time * (max ? 1.6 : 0.8));
+    ctx.fillStyle = max ? 'rgba(255,214,90,.75)' : 'rgba(255,230,120,.5)'; ctx.beginPath();
+    const n = max ? 10 : 8, rr = max ? 22 : 19;
+    for (let i = 0; i < n; i++){ ctx.moveTo(0, 0); ctx.arc(0, 0, rr, i / n * 6.283, i / n * 6.283 + 0.28); ctx.closePath(); }
+    ctx.fill(); ctx.restore();
+  }
+  const pulse = max ? 1 + 0.06 * Math.sin(time * 5) : 1;
+  const s = pieceSprite(def, false), k = 13 / def.s * pulse, h = s.half * k;
+  ctx.drawImage(s.c, x - h, py - h, h * 2, h * 2);
+  if (max){ ctx.fillStyle = 'rgba(255,250,210,.95)'; for (let i = 0; i < 3; i++){ const t = time * 2 + i * 2.1; star(x + Math.cos(t) * 17, py + Math.sin(t * 1.3) * 13, 2 + 1.2 * Math.abs(Math.sin(t * 3))); } }
+  // 文字は いちばん上に描く（Lv5 のキラキラに うもれないよう 白いふち付き）
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,253,246,.95)';
+  ctx.font = 'bold 10px sans-serif'; ctx.strokeText('決め手', x, py - 22); ctx.fillStyle = 'rgba(58,42,24,.75)'; ctx.fillText('決め手', x, py - 22);
+  ctx.font = `bold ${big ? 12 : 11}px sans-serif`;
+  if (r.keyLv >= 1){ ctx.strokeText('Lv' + r.keyLv, x, py + 22); ctx.fillStyle = max ? '#d0392e' : big ? '#b8860b' : '#3a2a18'; ctx.fillText('Lv' + r.keyLv, x, py + 22); }
+  ctx.restore();
+}
+function drawAltPick(r, a){
+  const alt = r.alt; if (!alt || a <= 0) return;
+  const x = W / 2 + SIDE_CARD.dx, y = RES_Y.creature + SIDE_CARD.altDy;
+  ctx.save(); ctx.globalAlpha *= a;
+  sideCard(x, y, 'まよった子');
+  ctx.save(); ctx.globalAlpha *= 0.9; ctx.translate(x, y + 2); drawCreature(ctx, alt.species, 0, 0, 16, r.ax, false, time); ctx.restore(); // 同じ性格のまま ほかの種族だったら
+  ctx.fillStyle = 'rgba(58,42,24,.8)'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(KINDS[alt.kind].e + SPECIES[alt.species].word, x, y + SIDE_CARD.h / 2 - 10); // 名前の最後の4文字（カリカリ など）
+  ctx.restore();
+}
+// showAlt：まよった子も出す（結果画面・保存画像とも true）
+function drawResultTop(r, u = 99, showAlt = false){
   const Y = RES_Y, k = 0.5, m = { sp: r.species, ax: r.ax, shiny: r.shiny, ph: 0 };
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (r.shiny && u > k){ ctx.save(); ctx.globalAlpha = clamp((u - k) / 0.3, 0, 1); ctx.fillStyle = 'rgba(255,236,170,.55)'; ctx.fillRect(0, 0, W, H); drawShinyRays(W / 2, Y.creature); ctx.restore(); }
@@ -3561,7 +3635,7 @@ function drawResultTop(r, u = 99){
   const txtA = clamp((u - k - 0.15) / 0.3, 0, 1);
   ctx.save(); ctx.globalAlpha = txtA;
   ctx.fillStyle = 'rgba(58,42,24,.7)'; rubyText('きみのタイプ  /  ' + SPECIES[r.species].label + 'のイキモン', W / 2, Y.typeLabel, 12, '');
-  ctx.fillStyle = '#3a2a18'; fitText(r.typeName, W - 30, 18, 'bold'); ctx.fillText(r.typeName, W / 2, Y.type);
+  ctx.fillStyle = '#3a2a18'; fitText(r.typeName, r.keyKind != null ? KEY_POS.typeW : W - 30, 18, 'bold'); ctx.fillText(r.typeName, W / 2, Y.type);
   ctx.restore();
   stageRays(W / 2, Y.creature - 4, 82, clamp(u / 0.35, 0, 1), r.shiny && u > k, SPECIES[r.species].vh ?? SPECIES[r.species].h);
   if (u < k) drawSilhouette(m, W / 2, Y.creature, 55, Math.max(0.01, easeBack(clamp((u - 0.1) / (k - 0.1), 0, 1))));
@@ -3575,9 +3649,13 @@ function drawResultTop(r, u = 99){
     const dt = Math.min(0.05, Math.max(0, time - (r._bt || time))); r._bt = time;
     for (const p of r._burst){ p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 160 * dt; p.vx *= 0.97; const a = Math.max(0, 1 - p.t / 0.9); if (a > 0){ ctx.fillStyle = r.shiny ? `rgba(255,200,40,${a})` : `rgba(255,236,150,${a})`; star(p.x, p.y, 3 + 4 * a); } }
   }
-  if (r.shiny && u > k) drawShinyBadge(W / 2 + 108, Y.creature - 30, 1.15, clamp((u - k - 0.15) / 0.4, 0, 1)); // 激レアのラベル（タイトルと同じ金のリボン＋王冠）
+  // 左右は イキモンが出て 名前が出たあとに 少し遅れて出す（まず主役だけを見せる）
+  const sideA = clamp((u - k - 0.75) / 0.4, 0, 1);
+  drawKeyItem(r, sideA);
+  if (showAlt) drawAltPick(r, sideA);
+  if (r.shiny && u > k) drawShinyBadge(W / 2 + 110, Y.creature - 56, 1.15, clamp((u - k - 0.15) / 0.4, 0, 1)); // 激レアのラベル（タイトルと同じ金のリボン＋王冠）
   ctx.save(); ctx.globalAlpha = txtA; ctx.translate(0, (1 - txtA) * 10);
-  ctx.fillStyle = r.shiny ? 'rgba(255,244,200,.82)' : 'rgba(255,253,246,.78)'; ctx.strokeStyle = r.shiny ? 'rgba(214,138,0,.55)' : 'rgba(59,42,34,.22)'; ctx.lineWidth = 2; roundRect(18, Y.name - 41, W - 36, 80, 18); ctx.fill(); ctx.stroke(); // タイトルと同じ うすい台紙
+  // 名前の台紙は 窮屈に見えるので描かない（試し中）
   drawName(r.nameParts, Y.name, r.shiny, 31); ctx.restore();
 }
 function drawSpecialTop(r, pop){
@@ -3637,8 +3715,8 @@ function drawResult(){
     drawButtons(); drawToast();
     return;
   }
-  drawResultTop(r, phaseT);
-  if (r.dbg){ const d = r.dbg; ctx.fillStyle = "rgba(255,253,246,.85)"; ctx.fillRect(0, 0, W, 25); ctx.font = "9px sans-serif"; ctx.fillStyle = "rgba(58,42,24,.8)"; ctx.textAlign = "center"; ctx.fillText(`狙い${(d.aimRate*100).toFixed(0)}% まとまり${d.cluster.toFixed(1)} ぐる${d.ratio.toFixed(1)} 高さ${d.lvl.toFixed(2)} 自こぼ${d.selfSp} 押こぼ${d.pushSp} 最大Lv${d.maxLv} 離し高${(d.relH*100).toFixed(0)}% こぼ率${(d.spillRate*100).toFixed(0)}%`, W / 2, 8); ctx.fillText(`育ロ${(d.growR*100).toFixed(0)}% 捨ロ${(d.throwR*100).toFixed(0)}% 初${d.firstR} 面ロ${(d.areaR*100).toFixed(0)}% 反応${d.react.toFixed(1)}s 間${d.delay.toFixed(2)}s 休み${(d.idle*100).toFixed(0)}%`, W / 2, 19); }
+  drawResultTop(r, phaseT, true);
+  if (r.dbg){ const d = r.dbg; ctx.fillStyle = "rgba(255,253,246,.85)"; ctx.fillRect(0, 0, W, 25); ctx.font = "9px sans-serif"; ctx.fillStyle = "rgba(58,42,24,.8)"; ctx.textAlign = "center"; ctx.fillText(`狙い${(d.aimRate*100).toFixed(0)}% まとまり${d.cluster.toFixed(1)} ぐる${d.ratio.toFixed(1)} 高さ${d.lvl.toFixed(2)} 自こぼ${d.selfSp} 押こぼ${d.pushSp} 最大Lv${d.maxLv} 離し高${(d.relH*100).toFixed(0)}% こぼ率${(d.spillRate*100).toFixed(0)}%`, W / 2, 8); ctx.fillText(`実ロ${(d.ax2*100).toFixed(0)}(旧${(d.ax2Old*100).toFixed(0)}) 大1つ${(d.bigShare*100).toFixed(0)}% 捨て${d.throws} 反応${d.react.toFixed(1)}s 間${d.delay.toFixed(2)}s 休み${(d.idle*100).toFixed(0)}%`, W / 2, 19); }
   // 博士のひとこと
   const py = RES_Y.meter - 8;
   drawProf(40, py, 0.44, time, 'point');
@@ -3662,5 +3740,3 @@ requestAnimationFrame(loop);
 </script>
 </body>
 </html>
-
-</body></html>
