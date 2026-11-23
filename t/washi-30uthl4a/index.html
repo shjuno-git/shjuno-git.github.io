@@ -2016,7 +2016,7 @@ let stats;
 function newStats(){
   return { holdTime: 0, playTime: 0, drags: [], gaps: [], lastRelease: null, firstGrab: null,
     throws: 0, throwCats: [], spills: 0, merges: 0, maxLv: 1, mergeCats: [], lastReleaseLeft: null,
-    selfSpills: 0, pushSpills: 0, aimed: 0, grow: { p: 0, r: 0 }, firstCat: null, reacts: [], moveDelays: [], early: 0, late: 0, touches: 0 }; // touches：本番中に画面を触った回数
+    selfSpills: 0, pushSpills: 0, aimed: 0, grow: { p: 0, r: 0 }, firstCat: null, reacts: [], moveDelays: [], early: 0, late: 0, touches: 0, relH: [] }; // relH：荷物を離した高さ（0＝底 1＝ふち） // touches：本番中に画面を触った回数
 }
 function items(){ return world ? Composite.allBodies(world).filter(b => !b.isStatic && b.def) : []; }
 function inBagItems(){ return items().filter(b => !b.dead && !b.thrown && !b.spilled && b.position.x > BAG.x0 - 6 && b.position.x < BAG.x1 + 6 && b.position.y < BAG.floor + 10); }
@@ -2149,6 +2149,7 @@ function release(fling){
   const diag = Math.max(12, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)));
   if (state === 'play' && countT >= 3.3){
     stats.drags.push({ len, ratio: len / diag, dur: time - held.t0, merges: held.merges });
+    if (!fling && b && !b.dead) stats.relH.push((BAG.floor - b.position.y) / (BAG.floor - BAG.rim)); // 高い所に置くほど 大胆
     stats.lastRelease = time; stats.lastReleaseLeft = playLeft;
   }
   if (fling && b && !b.dead) throwOut(b, held.vx);
@@ -2461,6 +2462,7 @@ function judge(){
   const a1 = 0.4 * (1 - aimRate) + 0.3 * cluster / 5 + 0.3 * Math.min(1.5, (ratio - 1) / 2.2);
   // 2 慎重↔大胆: 自分でこぼした数(重め) + 押し出されてこぼれた数 + 詰まり具合 + 大きく育てた(あふれる危険を取った)
   const lvl = topLevel(), med = fillLevel();
+  const relH = S.relH.length ? avg(S.relH) : 0.65, spillRate = (S.selfSpills + 0.4 * S.pushSpills) / Math.max(4, S.drags.length);
   const a2 = lvl + 0.25 * S.selfSpills + 0.08 * S.pushSpills + 0.08 * (S.maxLv - 3) + (med > 0.9 ? 0.1 : 0);
   // 3 実用↔ロマン: 育てた荷物(Lv3以上にした物) + 放り出した荷物の逆 + 最初につかんだ物 + 面積の割合(軽め)
   const area = b => b.def.s * b.def.s; // 見た目の大きさ(形によらず Lv の大きさで比べる)
@@ -2481,9 +2483,10 @@ function judge(){
   // （自動プレイの「ぐるぐる」「こぼしまくり」「見てるだけ」に引っぱられて、人がふつうに遊ぶと 片側に寄ってしまうため）
   // 目安は 2026-11-23 に人が3回遊んだ数値（ゆっくり / ふつう / ずっと動かす）から決めた
   // きっちり↔のびのび：ねらわずに合体した割合 35%→きっちり 75%→のびのび、ぐるぐる度 1.2→2.5、まとまり 1.5→3
-  ax[0] = lerp(0.5, clamp(0.5 * norm(1 - aimRate, 0.35, 0.75) + 0.3 * norm(ratio, 1.2, 2.5) + 0.2 * norm(cluster, 1.5, 3), 0, 1), norm(S.holdTime, 0.5, 4));
-  // 慎重↔大胆：いちばん高い荷物の高さ 0.65→慎重 0.95→大胆、最大Lv 3→6、自分でこぼした数（押し出されたのは軽め）0→2
-  ax[1] = clamp(0.45 * norm(lvl, 0.65, 0.95) + 0.25 * norm(S.maxLv, 3, 6) + 0.3 * norm(S.selfSpills + 0.4 * S.pushSpills, 0, 2), 0, 1);
+  ax[0] = lerp(0.5, clamp(0.5 * norm(1 - aimRate, 0.35, 0.75) + 0.3 * norm(ratio, 1.2, 2.5) + 0.2 * norm(cluster, 1.5, 3), 0, 1), norm(S.holdTime, 0.3, 1.5)); // ほとんど触らないときだけ真ん中寄せ（ゆっくり遊ぶ人も はっきり出るように弱めた）
+  // 慎重↔大胆：「量」ではなく「割合」で測る（よく動かすだけで大胆にならないように。即決と結びつかないように）
+  //   いちばん高い荷物の高さ 0.65→慎重 0.95→大胆、荷物を離した高さの平均 0.45→0.85、動かした回数あたりのこぼれ 0→0.25
+  ax[1] = clamp(0.4 * norm(lvl, 0.65, 0.95) + 0.35 * norm(relH, 0.45, 0.85) + 0.25 * norm(spillRate, 0, 0.25), 0, 1);
   // 即決↔熟考：手を止めていた割合 45%→即決 80%→熟考（いちばん差が出た）、降ってきた荷物に触るまで 1.8秒→5秒、つかんでから動かすまで（人はほぼ差が出ない）
   ax[3] = clamp(0.6 * norm(idle, 0.45, 0.8) + 0.3 * norm(react, 1.8, 5) + 0.1 * norm(delay, 0.06, 0.3), 0, 1);
   if (S.touches === 0) return { special: true, ax, bin: ax.map(v => v >= 0.5 ? 1 : 0), shiny: false, count: 0 };
@@ -2498,7 +2501,7 @@ function judge(){
     typeName: PRE['' + bin[0] + bin[1]] + ' ' + SUF['' + bin[2] + bin[3]],
     desc: [DESC.a[bin[0]], DESC.b[bin[1]], DESC.c[bin[2]], DESC.d[bin[3]]],
     talk: profTalk(ax, habit),
-    raw, dbg: { aimRate, cluster, ratio, lvl, selfSp: S.selfSpills, pushSp: S.pushSpills, maxLv: S.maxLv, growR, throwR, firstR, areaR, react, delay, idle, merges: S.merges },
+    raw, dbg: { relH, spillRate, aimRate, cluster, ratio, lvl, selfSp: S.selfSpills, pushSp: S.pushSpills, maxLv: S.maxLv, growR, throwR, firstR, areaR, react, delay, idle, merges: S.merges },
   };
 }
 // ===== ふつうの遊び方との比較 =====
@@ -3636,7 +3639,7 @@ function drawResult(){
     return;
   }
   drawResultTop(r, phaseT);
-  if (r.dbg){ const d = r.dbg; ctx.fillStyle = "rgba(255,253,246,.85)"; ctx.fillRect(0, 0, W, 25); ctx.font = "9px sans-serif"; ctx.fillStyle = "rgba(58,42,24,.8)"; ctx.textAlign = "center"; ctx.fillText(`狙い${(d.aimRate*100).toFixed(0)}% まとまり${d.cluster.toFixed(1)} ぐる${d.ratio.toFixed(1)} 高さ${d.lvl.toFixed(2)} 自こぼ${d.selfSp} 押こぼ${d.pushSp} 最大Lv${d.maxLv}`, W / 2, 8); ctx.fillText(`育ロ${(d.growR*100).toFixed(0)}% 捨ロ${(d.throwR*100).toFixed(0)}% 初${d.firstR} 面ロ${(d.areaR*100).toFixed(0)}% 反応${d.react.toFixed(1)}s 間${d.delay.toFixed(2)}s 休み${(d.idle*100).toFixed(0)}%`, W / 2, 19); }
+  if (r.dbg){ const d = r.dbg; ctx.fillStyle = "rgba(255,253,246,.85)"; ctx.fillRect(0, 0, W, 25); ctx.font = "9px sans-serif"; ctx.fillStyle = "rgba(58,42,24,.8)"; ctx.textAlign = "center"; ctx.fillText(`狙い${(d.aimRate*100).toFixed(0)}% まとまり${d.cluster.toFixed(1)} ぐる${d.ratio.toFixed(1)} 高さ${d.lvl.toFixed(2)} 自こぼ${d.selfSp} 押こぼ${d.pushSp} 最大Lv${d.maxLv} 離し高${(d.relH*100).toFixed(0)}% こぼ率${(d.spillRate*100).toFixed(0)}%`, W / 2, 8); ctx.fillText(`育ロ${(d.growR*100).toFixed(0)}% 捨ロ${(d.throwR*100).toFixed(0)}% 初${d.firstR} 面ロ${(d.areaR*100).toFixed(0)}% 反応${d.react.toFixed(1)}s 間${d.delay.toFixed(2)}s 休み${(d.idle*100).toFixed(0)}%`, W / 2, 19); }
   // 博士のひとこと
   const py = RES_Y.meter - 8;
   drawProf(40, py, 0.44, time, 'point');
