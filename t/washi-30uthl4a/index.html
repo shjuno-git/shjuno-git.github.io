@@ -202,10 +202,10 @@ function envG(t, peak, a, d){ const g = AC.createGain(); g.gain.setValueAtTime(0
 function tone(type, f0, f1, dur, peak, delay){ if (!AC) return; const t = AC.currentTime + (delay || 0); const o = AC.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur); o.connect(envG(t, peak, 0.01, dur)); o.start(t); o.stop(t + dur + 0.05); }
 function noise(type, f0, f1, dur, peak){ if (!AC) return; const t = AC.currentTime; const s = AC.createBufferSource(); s.buffer = noiseBuf; const f = AC.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur); s.connect(f); f.connect(envG(t, peak, 0.01, dur)); s.start(t); s.stop(t + dur + 0.05); }
 const sfx = {
-  pick(){ tone('triangle', 500, 700, 0.06, 0.08); },
+  pick(){ if (FEEL){ feelBubble(480, 0, 0.11); return; } tone('triangle', 500, 700, 0.06, 0.08); },
   drop(){ tone('sine', 300, 180, 0.1, 0.1); },
-  rocket(){ noise('bandpass', 500, 3500, 0.5, 0.3); tone('sawtooth', 120, 600, 0.35, 0.05); },
-  spill(){ tone('sine', 400, 200, 0.2, 0.06); },
+  rocket(){ if (FEEL){ feelDroplet(520, 0, 0.05, 0.1); return; } noise('bandpass', 500, 3500, 0.5, 0.3); tone('sawtooth', 120, 600, 0.35, 0.05); },
+  spill(){ if (FEEL){ feelDroplet(820, 0, 0.13, 0.2); noise('highpass', 2600, 3400, 0.07, 0.018, 0.05); feelDroplet(1180, 0.09, 0.05, 0.09); return; } tone('sine', 400, 200, 0.2, 0.06); },
   lid(){ noise('lowpass', 1200, 200, 0.2, 0.2); tone('sine', 160, 90, 0.15, 0.2); },
   lidBy(lv){
     if (lv < 0.05){ tone('sine', 900, 600, 0.08, 0.08); tone('sine', 1300, 1100, 0.05, 0.04, 0.05); }
@@ -213,9 +213,9 @@ const sfx = {
     else if (lv < 0.95){ noise('lowpass', 1200, 200, 0.2, 0.2); tone('sine', 160, 90, 0.15, 0.2); }
     else { noise('lowpass', 900, 150, 0.35, 0.25); tone('sawtooth', 180, 110, 0.32, 0.06); tone('sine', 120, 70, 0.25, 0.22); }
   },
-  pop(){ noise('bandpass', 800, 4000, 0.35, 0.35); tone('square', 300, 900, 0.12, 0.08); },
-  tick(){ tone('square', 1500, 1400, 0.03, 0.03); },
-  fanfare(){ [0, 4, 7, 12, 16].forEach((s, i) => tone('triangle', 523 * Math.pow(2, s / 12), 523 * Math.pow(2, s / 12), 0.3, 0.1, i * 0.1)); },
+  pop(){ if (FEEL){ tone('triangle', 300, 900, 0.12, 0.085); return; } noise('bandpass', 800, 4000, 0.35, 0.35); tone('square', 300, 900, 0.12, 0.08); },
+  tick(){ if (FEEL){ tone('triangle', 880, 880, 0.06, 0.055); return; } tone('square', 1500, 1400, 0.03, 0.03); },
+  fanfare(){ if (FEEL){ [523, 659, 784, 1047, 1319, 1568].forEach((fr, i) => tone('triangle', fr, fr, 0.16, i === 5 ? 0.07 : 0.085, i * 0.08)); return; } [0, 4, 7, 12, 16].forEach((s, i) => tone('triangle', 523 * Math.pow(2, s / 12), 523 * Math.pow(2, s / 12), 0.3, 0.1, i * 0.1)); },
 };
 
 
@@ -2056,9 +2056,10 @@ function resetGame(){
   Events.on(engine, 'beforeUpdate', beforePhysics);
   Events.on(engine, 'collisionStart', onContact);
   Events.on(engine, 'collisionActive', onContact);
+  Events.on(engine, 'collisionStart', onFeelHit);
   parts = []; texts = []; result = null; held = null; pendingMerges = [];
   kindW = KINDS.map(() => 1); kindPts = KINDS.map(() => 0); kindPop = KINDS.map(() => 0);
-  playLeft = CFG.playTime; phaseT = 0; lastTickSec = 99; spawnT = 0;
+  playLeft = CFG.playTime; phaseT = 0; lastTickSec = 99; spawnT = 0; feverOn = false; bagFillK = 0; creakLatch = [false, false, false]; feelRings.length = 0; profLine.until = -9; nextMutterAt = time + 6;
   stats = newStats();
   prefill();
   countT = introDone ? 0 : -1; // -1 = はじめの練習中
@@ -2123,8 +2124,17 @@ function processMerges(silent){
     if (held && isHeld){ held.merges++; favor(def.kind, CFG.favorAim + CFG.favorChain * (held.merges - 1)); }
     const n = 10 + def.lv * 3;
     for (let i = 0; i < n; i++){ const an = rand(0, 6.283), v = rand(60, 160 + def.lv * 30); parts.push({ x, y, vx: Math.cos(an) * v, vy: Math.sin(an) * v, t: 0, life: rand(0.3, 0.6), c: i % 2 ? '255,255,255' : '255,220,120', r: rand(2, 4 + def.lv) }); }
-    texts.push({ x, y: y - def.s - 6, t: 0, text: def.lv >= CFG.maxLv ? 'MAX!' : 'Lv' + def.lv + '!', size: 14 + def.lv * 2, col: '255,250,220' });
-    sfx.merge(def.lv);
+    if (time - lastMergeAt < 1.4) mergeCombo++; else mergeCombo = 1;
+    lastMergeAt = time;
+    texts.push({ x, y: y - def.s - 6, t: 0, text: (def.lv >= CFG.maxLv ? 'MAX!' : 'Lv' + def.lv + '!') + (FEEL && mergeCombo >= 2 ? ' ' + mergeCombo + 'コンボ' : ''), size: 14 + def.lv * 2, col: '255,250,220' });
+    sfx.merge(def.lv, FEEL ? mergeCombo : 1);
+    profReact('merge'); feelRing(x, y, '255,176,0', 40 + def.lv * 9); // 合体した場所にも金のリング
+    if (def.lv >= 4 || time - mergeSayAt > 1.1){
+      mergeSayAt = time;
+      if (def.lv >= CFG.maxLv){ profSay(['Lv5！最大じゃ！！', 'なんとLv5！天晴れ！', 'Lv5！凄い、凄い！'][Math.floor(Math.random() * 3)], 'big'); feelRing(PROF_BADGE.x, PROF_BADGE.y, '255,176,0', 74); }
+      else if (def.lv === 4){ profSay(['Lv4！すごいぞ！！', 'おおLv4！見事じゃ！', 'Lv4！やったのう！'][Math.floor(Math.random() * 3)], 'big'); feelRing(PROF_BADGE.x, PROF_BADGE.y, '255,176,0', 64); }
+      else profSay('Lv' + def.lv + '！' + ['その調子！', 'いいぞ！', '見事じゃ！'][Math.floor(Math.random() * 3)]);
+    }
     tutEvent('merge', def);
   }
 }
@@ -2132,7 +2142,7 @@ function processMerges(silent){
 function spawnOne(){
   const lv = Math.random() < CFG.spawnLv2 ? 2 : 1, def = LV[favoredKind()][lv];
   const b = makeItem(def, rand(BAG.x0 + def.s + 4, BAG.x1 - def.s - 4), BAG.rim - 70); // 出やすさ表示の すぐ下から降らせる
-  Body.setVelocity(b, { x: rand(-0.5, 0.5), y: 2 });
+  Body.setVelocity(b, { x: rand(-0.5, 0.5), y: FEEL && feverOn ? 5.5 : 2 }); // フィーバー中は 初速も上げて シュッと落ちる
   b.fell = true; // 降ってきた荷物(すぐ触るかを見る)
   Composite.add(world, b);
 }
@@ -2157,7 +2167,7 @@ function release(fling){
   for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   const diag = Math.max(12, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)));
-  if (state === 'play' && countT >= 3.3){
+  if (state === 'play' && countT >= 3){
     stats.drags.push({ len, ratio: len / diag, dur: time - held.t0, merges: held.merges });
     if (!fling && b && !b.dead) stats.relH.push((BAG.floor - b.position.y) / (BAG.floor - BAG.rim)); // 高い所に置くほど 大胆
     stats.lastRelease = time; stats.lastReleaseLeft = playLeft;
@@ -2166,6 +2176,7 @@ function release(fling){
   held = null;
 }
 function throwOut(b, vx){
+  if (time - throwSayAt > 1.6){ throwSayAt = time; profSay(['ポイッ！', '思い切りがいい！', '捨てるのも大事じゃ！'][Math.floor(Math.random() * 3)]); }
   b.thrown = true; b.thrownAt = time; b.collisionFilter = { group: -1, category: 0, mask: 0 };
   Body.setVelocity(b, { x: clamp(vx / 60, -6, 6), y: -21 });
   Body.setAngularVelocity(b, rand(-0.3, 0.3));
@@ -2193,7 +2204,7 @@ cv.addEventListener('pointerdown', e => {
   if (state === 'result'){ resultTap(p); return; }
   if (state !== 'play') return;
   if (tutActive() && tutTap(p)) return;
-  if ((countT >= 0 && countT < 3.3) || held) return;
+  if ((countT >= 0 && countT < 3) || held) return;
   stats.touches++; // 一度も触らなかったら 相棒は博士本人
   const b = pickAt(p);
   if (!b) return;
@@ -2203,9 +2214,10 @@ cv.addEventListener('pointerdown', e => {
   if (stats.firstCat === null) stats.firstCat = b.def.cat;
   if (b.fell && !b.touched) stats.reacts.push(time - b.born);
   b.touched = true;
-  if (countT >= 3.3) favor(b.def.kind, CFG.favorTouch);
+  if (countT >= 3) favor(b.def.kind, CFG.favorTouch);
   if (stats.lastRelease !== null) stats.gaps.push(time - stats.lastRelease);
   try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+  previewPair = null; // 新しくつかんだら 予兆音をリセット
   sfx.pick();
 });
 cv.addEventListener('pointermove', e => {
@@ -2272,7 +2284,7 @@ function tutPickThrow(){ // いちばん上にある荷物を「いらない荷�
 function tutEvent(kind, def){
   if (!tutActive() || tut.okT !== null) return;
   if ((tut.step === 0 && kind === 'merge' && def.kind === TUT_KIND) || (tut.step === 1 && kind === 'throw')){
-    tut.okT = 0; sfx.fanfare();
+    tut.okT = 0; if (FEEL) feelTutOk(); else sfx.fanfare();
     texts.push({ x: W / 2, y: 260, t: 0, text: tut.step === 0 ? 'うまい!' : 'ナイス!', size: 30, col: '255,250,220' });
   }
 }
@@ -2389,6 +2401,12 @@ function drawTutorial(){
 // ===== 更新 =====
 function update(dt){
   time += dt; phaseT += dt;
+  if (FEEL && world){ // 満杯度: バッグ内の荷物の いちばん上の高さから
+    let ft = BAG.floor;
+    for (const b of items()) if (!b.thrown && !b.spilled && b.position.x > BAG.x0 && b.position.x < BAG.x1 && b.position.y > BAG.rim - 60) ft = Math.min(ft, b.position.y - (b.def ? b.def.s : 0));
+    bagFillK += (clamp((BAG.floor - ft) / (BAG.floor - BAG.rim), 0, 1) - bagFillK) * Math.min(1, dt * 2.5); // ゆっくり追随させて 壁が暴れないように
+    feelCreak();
+  }
   if (state === 'title' || !engine) return;
   if (state === 'play' || state === 'closing'){
     // 物理は いつも 1/60 秒きざみ(120Hz の画面でも 余計に回さない)。追いつけない分は捨てる
@@ -2398,9 +2416,10 @@ function update(dt){
   if (parts.length > CFG.maxParts) parts.splice(0, parts.length - CFG.maxParts);
   for (const b of items()){
     if (b.pop) b.pop = Math.max(0, b.pop - dt * 4);
+    if (b.sq) b.sq = Math.max(0, b.sq - dt * 4.5);
     if (b.position.y < -120 || b.position.y > H + 80 || b.position.x < -80 || b.position.x > W + 80){ if (held && held.body === b) release(false); Composite.remove(world, b); }
     else if (!b.thrown && !b.spilled && (b.position.y > BAG.floor + 30 || b.position.x < BAG.x0 - 30 || b.position.x > BAG.x1 + 30) && b.position.y > BAG.rim){
-      b.spilled = true; sfx.spill();
+      b.spilled = true; sfx.spill(); profReact('spill'); if (time - spillSayAt > 1.6){ spillSayAt = time; profSay(['おや', 'こぼれたのう'][Math.floor(Math.random() * 2)]); } // 責めない、冷静に
       if (state === 'play'){ stats.spills++; if ((held && held.body === b) || time - (b.lastHeld || -9) < 1.2) stats.selfSpills++; else stats.pushSpills++; }
       texts.push({ x: clamp(b.position.x, 30, W - 30), y: BAG.floor - 10, t: 0, text: 'こぼれた', size: 12, col: '255,230,210' });
       if (held && held.body === b) release(false);
@@ -2413,23 +2432,33 @@ function update(dt){
   for (let k = 0; k < kindPop.length; k++) kindPop[k] = Math.max(0, kindPop[k] - dt * 3);
 
   if (state === 'play'){
-    if (countT >= 0 && countT < 3.3){
+    if (countT >= 0 && countT < 3){
       countT += dt; const c = Math.ceil(3 - countT); if (c !== lastTickSec && c > 0){ lastTickSec = c; sfx.tick(); }
-      if (countT >= 3.3){ lastTickSec = 99; sfx.pick(); startShownT = time; }
+      if (countT >= 3){ lastTickSec = 99; if (FEEL) feelCountStart(); else sfx.pick(); startShownT = time; }
       return;
     }
     if (countT < 0){ if (tut) tutUpdate(dt); return; }
     playLeft -= dt; stats.playTime += dt; if (held){ stats.holdTime += dt; if (playLeft > CFG.playTime / 2) stats.early += dt; else stats.late += dt; }
-    spawnT += dt; if (spawnT >= CFG.spawnEvery){ spawnT -= CFG.spawnEvery; if (items().length < CFG.maxItems) spawnOne(); }
+    if (FEEL && !feverOn && playLeft <= 5 && playLeft > 0){ // フィーバー突入
+      feverOn = true; feverT0 = time; if (engine) engine.gravity.y = 1.35; // 重力も強めて 落ち方そのものを変える
+      [680, 820, 990, 1240].forEach((fr, i) => feelDroplet(fr, i * 0.08, 0.14, 0.16)); feelBubble(420, 0.26, 0.08);
+      feelRing(W / 2, 330, '255,176,0', 150);
+    }
+    if (FEEL && !feverOn && time >= nextMutterAt && time > profLine.until){ // たまに どうでもいい独り言(ヒントに読めない他愛ない内容だけ)
+      profSay(['ふむふむ…', '今日はいい天気じゃのう', '肩がこるのう', 'メガネが曇るのう', 'ひげが伸びたのう'][Math.floor(Math.random() * 5)], 'mutter');
+      nextMutterAt = time + rand(6, 11);
+    }
+    spawnT += dt; const spEvery = FEEL && feverOn ? 0.30 : CFG.spawnEvery; if (spawnT >= spEvery){ spawnT -= spEvery; if (items().length < CFG.maxItems) spawnOne(); }
     const sec = Math.ceil(playLeft);
     if (sec <= 5 && sec !== lastTickSec && sec > 0){ lastTickSec = sec; sfx.tick(); }
     if (playLeft <= 0){
-      playLeft = 0; release(false); state = 'closing'; phaseT = 0;
+      playLeft = 0; release(false); state = 'closing'; phaseT = 0; drumRolled = false;
       sfx.pop(); // 「そこまで!」は 画面まんなかの帯で出す(draw)
     }
   }
-  if (state === 'closing' && phaseT > 2.2){ result = judge(); state = 'reveal'; phaseT = 0; sfx.pop(); }
-  if (state === 'reveal' && phaseT > 1.0){ state = 'result'; phaseT = 0; resultTab = 0; shareImg = null; sfx.fanfare(); }
+  if (FEEL && state === 'closing' && !drumRolled && phaseT >= 1.05){ drumRolled = true; feelDrumroll(); } // 博士の「フムフム…」と同時に ゆっくり目のドラムロール
+  if (state === 'closing' && phaseT > 2.2){ result = judge(); state = 'reveal'; phaseT = 0; if (FEEL) feelTanOn(); else sfx.pop(); }
+  if (state === 'reveal' && phaseT > 1.0){ state = 'result'; phaseT = 0; resultTab = 0; shareImg = null; if (FEEL) feelJaaan(); else sfx.fanfare(); }
 }
 
 // ===== 診断 =====
@@ -2770,7 +2799,17 @@ function fitText(text, maxW, size, weight){
   while (ctx.measureText(text).width > maxW && s > 10){ s -= 1; ctx.font = `${weight} ${s}px sans-serif`; }
 }
 // ===== 描画 =====
-sfx.merge = lv => { const f = 440 * Math.pow(2, (lv - 2) * 3 / 12); tone('triangle', f, f * 1.5, 0.12, 0.11); tone('sine', f * 2, f * 2.5, 0.08, 0.05, 0.05); if (lv >= CFG.maxLv) sfx.fanfare(); };
+sfx.merge = (lv, combo) => {
+  if (FEEL){ // 音階ラダー: ペンタトニックを Lv とコンボで駆け上がる(マリンバ風の短い減衰)
+    const steps = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
+    const idx = Math.min(steps.length - 1, (lv - 1) + Math.min(((combo || 1) - 1), 2)); // コンボの音程への寄与は+2段まで（終盤に高くなりすぎない）
+    const f = 523.25 * Math.pow(2, steps[idx] / 12);
+    feelDroplet(f, 0, 0.22, 0.17); feelBubble(250 + lv * 25, 0.03, 0.10);
+  } else {
+    const f = 440 * Math.pow(2, (lv - 2) * 3 / 12); tone('triangle', f, f * 1.5, 0.12, 0.11); tone('sine', f * 2, f * 2.5, 0.08, 0.05, 0.05);
+  }
+  if (lv >= CFG.maxLv) sfx.fanfare();
+};
 const TIMER_Y = 46, TIMER_R = 40;
 // ===== Lv の見せ方(試し中: 下のボタンで切り替え) =====
 // A=数がふえる(Lv の数だけ中身が入る) / B=わくが進化(まる→二重わく→波わく→歯車→星) / C=両方
@@ -2926,12 +2965,203 @@ function pieceSprite(def, isHeld){
   }
   return s;
 }
+
+// ===== 気持ちよさ試作（?feel=0 で全部オフにして 元の手触りと比べられる） =====
+const FEEL = !/[?&]feel=0/.test(location.search);
+let mergeCombo = 0, lastMergeAt = -9;   // 合体のコンボ（音階ラダーと浮き文字用）
+let previewPair = null;                  // 合体予告の予兆音を鳴らした相手
+let lastHitSfx = -9;                     // 接触音のクールダウン
+let lastBlipAt = -9;                     // 予兆音のクールダウン
+let drumRolled = false;                  // 結果発表のドラムロール済みか
+let profMood = { kind: 'idle', until: -9 };
+const feelNotes = [];
+function profReact(kind){
+  if (!FEEL) return;
+  profMood = { kind, until: time + (kind === 'merge' ? 0.85 : 1.15) };
+  feelRing(PROF_BADGE.x, PROF_BADGE.y, kind === 'merge' ? '255,176,0' : '90,170,230', 54);
+  if (kind === 'merge') for (let i = 0; i < 2; i++) feelNotes.push({ x: PROF_BADGE.x + rand(-4, 16), y: PROF_BADGE.y - 24, t0: time, life: rand(0.7, 1), vx: rand(5, 15), c: i ? '♪' : '♫' });
+}
+// 衝突の強さで スカッシュ＋小さな接触音
+function onFeelHit(ev){
+  if (!FEEL) return;
+  for (const p of ev.pairs){
+    const A = p.bodyA.parent || p.bodyA, B = p.bodyB.parent || p.bodyB;
+    const rs = Math.hypot(A.velocity.x - B.velocity.x, A.velocity.y - B.velocity.y);
+    if (rs < 2.2) continue;
+    const sq = Math.min(0.34, 0.08 + rs * 0.028);
+    if (A.def && !A.thrown) A.sq = Math.max(A.sq || 0, sq);
+    if (B.def && !B.thrown) B.sq = Math.max(B.sq || 0, sq);
+    if ((A.def || B.def) && !A.thrown && !B.thrown && rs > 3.4 && time - lastHitSfx > 0.09 && !held && state === 'play'){ // ドラッグ中・投げ捨て・結果演出中は接触音を鳴らさない
+      lastHitSfx = time;
+      const v = Math.min(1, rs / 11);
+      feelKnock(v); // 着地は控えめな打楽器音
+    }
+  }
+}
+// 合体予告：つかんだ荷物と くっつく相手が近いと 両方光って 点線で結ばれる
+function drawMergePreview(){
+  if (!held || !held.body || held.body.dead || state !== 'play') return;
+  const b = held.body, def = b.def;
+  if (def.lv >= CFG.maxLv) return;
+  let best = null, bd = Infinity;
+  for (const o of items()){
+    if (o === b || o.dead || o.thrown || o.spilled || !o.def) continue;
+    if (o.def.kind !== def.kind || o.def.lv !== def.lv) continue;
+    const d = Math.hypot(o.position.x - b.position.x, o.position.y - b.position.y);
+    if (d < bd){ bd = d; best = o; }
+  }
+  if (!best) return;
+  const rr = def.s + best.def.s, reach = rr * 2.3;
+  if (bd > reach){ return; }
+  const k = clamp(1 - (bd - rr) / (reach - rr), 0, 1); // 0=遠い 1=接触寸前
+  const pulse = 0.75 + 0.25 * Math.sin(time * (6 + k * 10));
+  for (const o of [b, best]){
+    ctx.strokeStyle = `rgba(255,190,40,${(0.35 + 0.55 * k) * pulse})`;
+    ctx.lineWidth = 2.5 + 2.5 * k;
+    ctx.beginPath(); ctx.arc(o.position.x, o.position.y, o.def.s + 4 + 2 * Math.sin(time * 8), 0, 6.283); ctx.stroke();
+  }
+  ctx.save(); ctx.strokeStyle = `rgba(255,190,40,${0.5 * k})`; ctx.lineWidth = 2; ctx.setLineDash([4, 5]);
+  ctx.beginPath(); ctx.moveTo(b.position.x, b.position.y); ctx.lineTo(best.position.x, best.position.y); ctx.stroke(); ctx.restore();
+  if (k > 0.72 && previewPair !== best.id && time - lastBlipAt > 1.2){ previewPair = best.id; lastBlipAt = time; feelDroplet(1020, 0, 0.055, 0.1); } // 予兆音は つかみ直すまで相手ごとに1回＋1.2秒間隔
+
+}
+// 博士の顔バッジ（左上）。合体でにっこり＋音符、こぼしで虫めがね＋汗、残り5秒で前のめり
+const PROF_BADGE = { x: 46, y: 158, r: 38 };
+function drawProfBadge(){
+  const B = PROF_BADGE;
+  const mood = time < profMood.until ? profMood.kind : (state === 'play' && playLeft <= 5 && playLeft > 0 ? 'hurry' : 'idle');
+  const shake = 0; // こぼしでも慌てない(震わせない)
+  const popK = mood === 'merge' ? 1.12 : mood === 'hurry' ? 1.15 : 1;
+  const bg = mood === 'merge' ? '#ffcf4d' : mood === 'spill' ? '#bfe0ff' : mood === 'hurry' ? '#ffb3a0' : '#fff8e6';
+  ctx.save();
+  ctx.beginPath(); ctx.arc(B.x + shake, B.y, B.r * popK, 0, 6.283); ctx.fillStyle = bg; ctx.fill(); ctx.clip();
+  drawProf(B.x + shake, B.y + 62 * popK, 0.72 * popK, mood === 'hurry' ? time * 1.7 : time, mood === 'spill' ? 'peek' : 'point');
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = mood === 'merge' ? '#e08a00' : mood === 'spill' ? '#2a7fd2' : mood === 'hurry' ? '#d23c28' : 'rgba(59,42,34,.55)';
+  ctx.lineWidth = mood === 'idle' ? 2.5 : 4;
+  ctx.beginPath(); ctx.arc(B.x + shake, B.y, B.r * popK, 0, 6.283); ctx.stroke();
+  ctx.restore();
+}
+function drawFeelNotes(){
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let i = feelNotes.length - 1; i >= 0; i--){
+    const n = feelNotes[i], age = time - n.t0;
+    if (age > n.life){ feelNotes.splice(i, 1); continue; }
+    ctx.font = 'bold 24px sans-serif';
+    const nx = n.x + n.vx * age, ny = n.y - 34 * age, al = 1 - age / n.life;
+    ctx.lineWidth = 5; ctx.strokeStyle = `rgba(255,255,255,${0.9 * al})`; ctx.strokeText(n.c, nx, ny);
+    ctx.fillStyle = `rgba(255,138,0,${al})`; ctx.fillText(n.c, nx, ny);
+  }
+  ctx.restore();
+}
+
+// ===== 気持ちよさ試作・第2弾（フィーバー / きしみ / リング） =====
+let feverOn = false, feverT0 = -9;
+let bagFillK = 0, creakLatch = [false, false, false], creakShakeT = -9;
+const feelRings = [];
+function feelRing(x, y, col, r1){ if (!FEEL) return; feelRings.push({ x, y, t0: time, life: 0.5, col, r1 }); }
+function drawFeelRings(){
+  for (let i = feelRings.length - 1; i >= 0; i--){
+    const r = feelRings[i], age = time - r.t0;
+    if (age > r.life){ feelRings.splice(i, 1); continue; }
+    const k = age / r.life, e = 1 - Math.pow(1 - k, 2);
+    ctx.save();
+    ctx.strokeStyle = `rgba(${r.col},${0.85 * (1 - k)})`; ctx.lineWidth = 4 * (1 - k) + 1;
+    ctx.beginPath(); ctx.arc(r.x, r.y, 6 + r.r1 * e, 0, 6.283); ctx.stroke();
+    ctx.restore();
+  }
+}
+// 満杯度が 72% / 86% / 95% を超えた瞬間に「ギシッ」。下がったら再セット
+function feelKnock(v){ // 着地音: 控えめな打楽器（短いノック）
+  const f = 460 + Math.random() * 110;
+  tone('sine', f, f * 0.72, 0.055, 0.02 + v * 0.05);
+  noise('bandpass', f * 2.6, f * 2, 0.025, 0.008 + v * 0.014);
+}
+function feelDroplet(f0, delay, vol, dur){
+  tone('sine', f0, f0 * 0.55, dur * 0.6, vol, delay);
+  tone('sine', f0 * 2.4, f0 * 1.5, dur * 0.35, vol * 0.18, delay);
+}
+function feelDrumroll(){ // 高めのスネア: 「ダトトト」×4グループ（1打目だけ強く・高く、グループごとに少し速く・強く）
+  let d = 0;
+  for (let g = 0; g < 4; g++){
+    for (let h = 0; h < 4; h++){
+      const strong = h === 0;
+      const j = 1 + (Math.random() * 2 - 1) * 0.03;
+      const f = (strong ? 425 : 340) * j;
+      const v = (strong ? 0.115 : 0.062) + g * 0.008;
+      tone('sine', f, f * 0.84, 0.028, v, d);
+      noise('bandpass', (strong ? 3600 : 3200) * j, 2700 * j, 0.02, v * 0.6, d);
+      d += 0.072 - g * 0.006;
+    }
+  }
+}
+function feelTanOn(){ // 発表直前の単音（この後 静寂が入る）
+  tone('sine', 660, 660, 0.13, 0.09);
+  noise('bandpass', 3000, 2400, 0.03, 0.04);
+}
+function feelStack(f, delay, vol, decay){ // キラキラした倍音つきの音（じゃーん用・高音は控えめ）
+  tone('sine', f, f, decay, vol, delay);
+  tone('sine', f * 3.98, f * 3.98, decay * 0.7, vol * 0.25, delay);
+  tone('sine', f * 9.24, f * 9.24, decay * 0.45, vol * 0.05, delay);
+}
+
+function feelJaaan(){ // 結果画面の「じゃーん」（派手め: 連続音→和音＋高音のきらめき）
+  [523, 659, 784, 1047].forEach((fr, i) => feelStack(fr, i * 0.055, 0.068, 0.8));
+  [523, 659, 784, 1047, 1319].forEach(fr => tone('triangle', fr, fr, 0.85, 0.04, 0.22));
+  tone('sine', 1568, 1568, 0.6, 0.018, 0.22);
+  tone('sine', 2093, 2093, 0.4, 0.009, 0.27); noise('highpass', 6200, 5200, 0.9, 0.013, 0.22); // サンプル末尾のシンバルっぽい残響
+}
+function feelTutOk(){ tone('triangle', 1047, 1319, 0.08, 0.06); } // チュートリアルの成功: 簡易なひと音
+function feelCountStart(){ // カウントダウン開始: 黄銅っぽさのある可愛い高い音
+  tone('sine', 1568, 1568, 0.32, 0.075);
+  tone('sine', 1568 * 3.98, 1568 * 3.98, 0.18, 0.02);
+  tone('triangle', 1319, 1319, 0.2, 0.045);
+}
+function feelBubble(f0, delay, vol){
+  tone('sine', f0, f0 * 2.1, 0.07, vol, delay);
+  tone('sine', f0 * 1.7, f0 * 3.0, 0.05, vol * 0.5, delay + 0.02);
+}
+function feelCreak(){
+  const stages = [0.72, 0.86, 0.95];
+  for (let i = 0; i < stages.length; i++){
+    if (!creakLatch[i] && bagFillK >= stages[i]){
+      creakLatch[i] = true; creakShakeT = time;
+      tone('sine', 175, 118, 0.3, 0.055 + i * 0.02); noise('bandpass', 480, 210, 0.28, 0.028 + i * 0.01); feelBubble(220, 0.16, 0.03);
+    }
+    if (bagFillK < stages[i] - 0.08) creakLatch[i] = false;
+  }
+}
+
+// ===== 気持ちよさ試作・第3弾（博士のセリフ） =====
+let profLine = { text: '', until: -9, t0: 0 };
+let mergeSayAt = -9, throwSayAt = -9, spillSayAt = -9, nextMutterAt = 1e9;
+function profSay(text, kind){ if (!FEEL) return; profLine = { text, kind: kind || '', until: time + (kind === 'big' ? 1.6 : kind === 'mutter' ? 1.5 : 0.95), t0: time }; }
+function drawProfLine(){
+  let text = null, pop = 1, kind = '';
+  if (countT >= 0 && countT < 3) text = '正解はない！自由に積むのじゃ！'; // 始まる前だけ 長めのひとこと
+  else if (time < profLine.until){ text = profLine.text; kind = profLine.kind; const age = time - profLine.t0; pop = age < 0.12 ? 0.5 + (age / 0.12) * 0.5 : 1; }
+  if (!text) return;
+  const B = PROF_BADGE, big = kind === 'big', mut = kind === 'mutter';
+  ctx.save();
+  ctx.font = big ? 'bold 19px sans-serif' : mut ? 'bold 12px sans-serif' : 'bold 15px sans-serif';
+  const w = ctx.measureText(text).width + (big ? 30 : 24), h = big ? 46 : mut ? 26 : 34, x = B.x + B.r + 10, cy = B.y;
+  ctx.translate(x, cy); ctx.scale(pop * (big ? 1.1 : 1), pop * (big ? 1.1 : 1)); ctx.translate(-x, -cy);
+  ctx.fillStyle = mut ? 'rgba(255,253,246,.92)' : '#fffdf6'; roundRect(x, cy - h / 2, w, h, 12); ctx.fill();
+  ctx.strokeStyle = mut ? '#a08b74' : '#3b2a22'; ctx.lineWidth = 2; roundRect(x, cy - h / 2, w, h, 12); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 3, cy - 5); ctx.lineTo(x - 7, cy + 2); ctx.lineTo(x + 3, cy + 9); ctx.closePath();
+  ctx.fillStyle = mut ? 'rgba(255,253,246,.92)' : '#fffdf6'; ctx.fill(); ctx.stroke();
+  ctx.fillStyle = mut ? '#6b5a48' : '#3b2a22'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + w / 2, cy + 1);
+  ctx.restore();
+}
 function drawPiece(b){
-  const def = b.def, lv = def.lv, k = 1 + 0.18 * (b.pop || 0), r = def.s * k, isHeld = held && held.body === b;
+  const def = b.def, lv = def.lv, isHeld = held && held.body === b, k = (1 + 0.18 * (b.pop || 0)) * (FEEL && isHeld ? 1.06 : 1), r = def.s * k;
   ctx.save(); ctx.translate(b.position.x, b.position.y);
   // Lv5 は後ろで光る(わくが進化する見せ方のとき)
   if (lvStyle !== 0 && lv >= 5){ ctx.save(); ctx.rotate(time * 1.5); ctx.fillStyle = 'rgba(255,230,120,.45)'; ctx.beginPath(); for (let i = 0; i < 8; i++){ ctx.moveTo(0, 0); ctx.arc(0, 0, r * 1.35, i / 8 * 6.283, i / 8 * 6.283 + 0.25); ctx.closePath(); } ctx.fill(); ctx.restore(); }
   ctx.rotate(b.angle);
+  if (FEEL && b.sq) ctx.scale(1 + b.sq, 1 - b.sq * 0.75); // ぶつかった瞬間に ぷにっと潰れる
   const s = pieceSprite(def, isHeld);
   let h = s.half * k;
   if (b.thrown){ // 放り出した荷物は もう使わない: 色がぬけて白黒に、うすく、遠くへ飛んでいくように小さく
@@ -2966,18 +3196,22 @@ function drawStyleBtn(){
 }
 function drawBagMix(front){
   const w = BAG.wall;
+  // きしみ: 詰まるほど 壁が外へ膨らみ、あふれ寸前では 小刻みに震えて 赤みを帯びる
+  const bk = clamp((bagFillK - 0.65) / 0.35, 0, 1), shiver = FEEL && time - creakShakeT < 0.3 ? Math.sin(time * 46) * 1.2 * (1 - (time - creakShakeT) / 0.3) : 0;
+  const off = FEEL ? bk * bk * 3 + shiver : 0; // 膨らみは最大3px、震えは きしんだ瞬間の0.3秒だけ
   if (!front){
     ctx.strokeStyle = '#8a5f37'; ctx.lineWidth = 10; ctx.beginPath(); ctx.moveTo(BAG.x0 + 40, BAG.rim); ctx.quadraticCurveTo(W / 2, BAG.rim - 80, BAG.x1 - 40, BAG.rim); ctx.stroke();
-    ctx.fillStyle = '#6b4a2e'; ctx.fillRect(BAG.x0, BAG.rim, BAG.x1 - BAG.x0, BAG.floor - BAG.rim);
-    ctx.fillStyle = 'rgba(0,0,0,.12)'; for (let y = BAG.rim + 22; y < BAG.floor; y += 28) ctx.fillRect(BAG.x0, y, BAG.x1 - BAG.x0, 2);
+    ctx.fillStyle = '#6b4a2e'; ctx.fillRect(BAG.x0 - off, BAG.rim, BAG.x1 - BAG.x0 + off * 2, BAG.floor - BAG.rim);
+    ctx.fillStyle = 'rgba(0,0,0,.12)'; for (let y = BAG.rim + 22; y < BAG.floor; y += 28) ctx.fillRect(BAG.x0 - off, y, BAG.x1 - BAG.x0 + off * 2, 2);
   } else {
     ctx.fillStyle = '#a8743f';
-    ctx.fillRect(BAG.x0 - w, BAG.rim - 4, w, BAG.floor - BAG.rim + w + 4);
-    ctx.fillRect(BAG.x1, BAG.rim - 4, w, BAG.floor - BAG.rim + w + 4);
-    ctx.fillRect(BAG.x0 - w, BAG.floor, BAG.x1 - BAG.x0 + w * 2, w);
-    ctx.fillStyle = '#c48b4f'; ctx.fillRect(BAG.x0 - w, BAG.rim - 8, w + 4, 8); ctx.fillRect(BAG.x1 - 4, BAG.rim - 8, w + 4, 8);
+    ctx.fillRect(BAG.x0 - w - off, BAG.rim - 4, w, BAG.floor - BAG.rim + w + 4);
+    ctx.fillRect(BAG.x1 + off, BAG.rim - 4, w, BAG.floor - BAG.rim + w + 4);
+    ctx.fillRect(BAG.x0 - w - off, BAG.floor, BAG.x1 - BAG.x0 + w * 2 + off * 2, w);
+    if (FEEL && bagFillK > 0.88){ ctx.fillStyle = `rgba(224,69,58,${(bagFillK - 0.88) * 0.9})`; ctx.fillRect(BAG.x0 - w - off, BAG.rim - 4, w, BAG.floor - BAG.rim + w + 4); ctx.fillRect(BAG.x1 + off, BAG.rim - 4, w, BAG.floor - BAG.rim + w + 4); }
+    ctx.fillStyle = '#c48b4f'; ctx.fillRect(BAG.x0 - w - off, BAG.rim - 8, w + 4, 8); ctx.fillRect(BAG.x1 - 4 + off, BAG.rim - 8, w + 4, 8);
     ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(255,240,210,.45)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(BAG.x0, BAG.rim); ctx.lineTo(BAG.x1, BAG.rim); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(BAG.x0 - off, BAG.rim); ctx.lineTo(BAG.x1 + off, BAG.rim); ctx.stroke(); ctx.setLineDash([]);
   }
 }
 // 画面まんなかの帯(カウントダウン・そこまで!)。荷物が透けて見えるように 少し薄め
@@ -3031,28 +3265,44 @@ function draw(){
   ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
   const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#9bd3e8'); g.addColorStop(0.7, '#d9efc4'); g.addColorStop(1, '#b9d98f');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (FEEL && feverOn && (state === 'play' || state === 'closing')){ const fk = clamp((time - feverT0) / 0.5, 0, 1); ctx.fillStyle = `rgba(255,110,30,${0.15 * fk})`; ctx.fillRect(0, 0, W, H); } // フィーバー中は画面全体が暖色に
   if (state === 'title'){ drawTitle(); return; }
   if (state === 'result'){ drawResult(); return; }
   const its = items();
   for (const b of its) if (b.thrown) drawPiece(b); // 放り出した荷物は バッグの奥を通って飛んでいく(降ってくる荷物と見分けやすく)
   drawBagMix(false);
+  if (FEEL && state === 'play' && !tutActive()) drawProfBadge(); // 博士が左上で見守る(荷物より後ろ。練習中は練習用の博士と重なるので出さない)
   for (const b of its) if (!(held && held.body === b) && !b.thrown) drawPiece(b);
   drawBagMix(true);
   if (held && held.body && !held.body.dead) drawPiece(held.body);
   for (const p of parts){ ctx.fillStyle = `rgba(${p.c},${1 - p.t / p.life})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill(); }
+  if (FEEL){ drawFeelRings(); drawFeelNotes(); if (state === 'play' && !tutActive()) drawProfLine(); }
+  if (FEEL) drawMergePreview();
   // つかんでいる指の位置
   if (held){ ctx.strokeStyle = 'rgba(255,140,40,.8)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(held.px, held.py, 16, 0, 6.283); ctx.stroke(); }
   if (!tutActive()) drawTimer();
   if (state === 'play' && countT >= 0) drawFavor();
   // （Lvの見せ方を切りかえる開発用ボタンは 消した）
   if (tutActive()) drawTutorial();
-  if (state === 'play' && countT >= 0 && countT < 3.3){
+  if (state === 'play' && countT >= 0 && countT < 3){
     const c = Math.ceil(3 - countT), k = countT % 1;
     drawCenterBand(c > 0 ? String(c) : 'スタート!', c > 0 ? 84 - k * 18 : 46, countT, 1);
   }
   // 「スタート!」は 遊びはじめてからも少し残して ふっと消す(ほかの数字と同じくらいの長さ見えるように)
-  if (state === 'play' && countT >= 3.3 && time - startShownT < START_HOLD){ const u = time - startShownT; drawCenterBand('スタート!', 46, 1, u < START_HOLD - 0.3 ? 1 : (START_HOLD - u) / 0.3); }
+  if (state === 'play' && countT >= 3 && time - startShownT < START_HOLD){ const u = time - startShownT; drawCenterBand('スタート!', 46, 1, u < START_HOLD - 0.3 ? 1 : (START_HOLD - u) / 0.3); }
   if (state === 'closing' && phaseT < 1.1) drawCenterBand('そこまで!', 46, phaseT, phaseT > 0.85 ? 1 - (phaseT - 0.85) / 0.25 : 1);
+  if (FEEL && feverOn && state === 'play'){
+    const age = time - feverT0;
+    if (age < 1.4){ // 「ラスト5秒!」は 博士の横から 吹き出しピルで(視線の先にある位置)
+      const pop = age < 0.15 ? 0.6 + (age / 0.15) * 0.4 : 1;
+      ctx.save(); ctx.globalAlpha = age > 1.1 ? (1.4 - age) / 0.3 : 1;
+      ctx.translate(PROF_BADGE.x + 46, PROF_BADGE.y); ctx.scale(pop, pop);
+      ctx.fillStyle = '#e0453a'; roundRect(0, -20, 168, 40, 20); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = '900 24px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('ラスト5秒!', 84, 2); ctx.restore();
+    }
+    ctx.save(); ctx.strokeStyle = `rgba(255,176,0,${0.35 + 0.2 * Math.sin(time * 6)})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, W - 8, H - 8); ctx.restore();
+  }
   if (state === 'closing'){
     const k = clamp((phaseT - 0.6) / 0.45, 0, 1), e = 1 - Math.pow(1 - k, 3);
     // 博士は左下から 大きめに のぞきこむ
