@@ -117,7 +117,7 @@ const I18N = {
     shareBtn: "共有・写真に保存",
     shareClose: "とじる",
     shareDone: "共有したぞ!",
-    sharePostFmt: (name, title, tag, url) => `博士が選んだのは「${name}」でした。\n${title}\n#${tag}\n${url}`,
+    sharePostFmt: (name, title, tag, url) => `トーシロ博士が選んだのは「${name}」でした。\n${title}\n#${tag}\n${url}`,
     shareCopied: "ひらけなかったので 投稿文をコピーしたぞ",
     shareXFail: "Xをひらけなかった…",
     shareImgFail: "画像を作れなかった…",
