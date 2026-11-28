@@ -2217,7 +2217,9 @@ function onUp(e){
 cv.addEventListener('pointerup', onUp);
 cv.addEventListener('pointercancel', e => { if (held && e.pointerId === held.id) release(false); });
 addEventListener('keydown', e => {
+  // [GH]
   if (window.SHARE && SHARE.isOpen && SHARE.isOpen()) return;
+  // [/GH]
   initAudio();
   if (e.key !== 'Enter' && e.key !== ' ') return;
   if (state === 'title'){ resetGame(); state = 'play'; }
@@ -2432,7 +2434,7 @@ function update(dt){
   }
   if (FEEL && state === 'closing' && !drumRolled && phaseT >= 1.05){ drumRolled = true; feelDrumroll(); } // 博士の「フムフム…」と同時に ゆっくり目のドラムロール
   if (state === 'closing' && phaseT > 2.2){ result = judge(); state = 'reveal'; phaseT = 0; if (FEEL) feelTanOn(); else sfx.pop(); }
-  if (state === 'reveal' && phaseT > 1.0){ state = 'result'; phaseT = 0; resultTab = 0; shareImg = null; if (FEEL) feelJaaan(); else sfx.fanfare(); }
+  if (state === 'reveal' && phaseT > 1.0){ state = 'result'; phaseT = 0; resultTab = 0; if (FEEL) feelJaaan(); else sfx.fanfare(); }
 }
 
 // ===== 診断 =====
@@ -3857,41 +3859,53 @@ function drawName(parts, cy, shiny, forceSize){
   return lines.length * lh;
 }
 // ===== 結果画面: ロゴ → タイプ → イキモン → 名前 → 博士のひとこと+せいかくメーター → ボタン =====
-let resultTab = 0, shareImg = null, toast = null;
+let resultTab = 0;
+// [GH]
+let toast = null;
+// [/GH]
 // 画面は 360×640 固定で、端末に合わせて全体を拡大縮小する(余白の位置は端末で変わらない)
 const RES_Y = { logo: 34, typeLabel: 75, type: 95, creature: 196, name: 294, talk: 336, meter: 424 };
 const RES_METER = { x: 18, y: 424, w: W - 36, h: 98 };
-// ボタンは window.SHARE(share.js)があるときだけ「画像を保存」「Xに投稿」を並べる。無いときは「もう一度あそぶ」だけを中央に
+// ボタンは「もう一度あそぶ」だけを中央に。GitHub 版は「画像を保存」「Xに投稿」も並べる
+// 「// [GH]」〜「// [/GH]」の行は GitHub 版だけ。ふりーむ・itch 版は dev/make_release.py が取り除く
 function resBtns(){
   const again = { id: 'again', label: i18n('btnAgain'), icon: '', x: 18, y: 536, w: W - 36, h: 48, bg: '#f08a3c', fg: '#fff', edge: '#a0501c', size: 18 };
-  if (!window.SHARE) return [Object.assign(again, { x: 50, y: 558, w: W - 100, h: 54, size: 20 })];
-  return [again,
+  // [GH]
+  if (window.SHARE) return [again,
     { id: 'img', label: i18n('btnImg'), icon: '📷', x: 18, y: 592, w: 158, h: 38, bg: '#fffdf6', fg: '#3a2a18', edge: '#3b2a22', size: 14 },
     { id: 'x', label: i18n('btnPost'), icon: '𝕏', x: 184, y: 592, w: 158, h: 38, bg: '#16181c', fg: '#fff', edge: '#000', size: 14 }];
+  // [/GH]
+  return [Object.assign(again, { x: 50, y: 558, w: W - 100, h: 54, size: 20 })];
 }
 const BTN_PRESS = {}; // ボタンごとの 押した時刻
 const BTN_READY = 0.8; // s 結果が出てから ボタンが押せるまで(うっかり連打の防止)
 
-function showToast(text){ toast = { text, t: time }; }
 function retry(){ resetGame(); state = 'play'; sfx.pick(); }
+// [GH]
+function showToast(text){ toast = { text, t: time }; }
 function shareName(r){ return r.special ? i18n('profName') : r.monName; }
 // share.js(window.SHARE)に渡す もろもろ
 function shareCtx(){
   return { name: shareName(result), tag: i18n('shareTag'), title: i18n('pageTitle'), makeCanvas: makeShareCanvas, toast: showToast, pick: () => sfx.pick() };
 }
+// [/GH]
 function resultTap(p){
   if (phaseT < BTN_READY) return;
   const b = resBtns().find(b => inRect(p, b));
   if (b){
     BTN_PRESS[b.id] = time;
     if (b.id === 'again') retry();
+    // [GH]
     else if (b.id === 'x') SHARE.postX(shareCtx());
     else if (b.id === 'img') SHARE.saveImage(shareCtx());
+    // [/GH]
     return;
   }
 }
+// [GH]
 // シェア用の画像(1080×1440)。結果画面の上半分と せいかくメーターを1枚に
 const CARD = { w: 360, h: 540, k: 3 };
+// [/GH]
 // 博士のひとこと（リザルトと保存画像で共通）：3行に収めて 文字を大きく（長い行があれば 収まるまで少し小さく）。「……たぶんな。」は 3行目の右はしに小さく
 function drawResultTalk(r, ty, py){
   const bw = W - 94; let fs = 14;
@@ -3902,6 +3916,7 @@ function drawResultTalk(r, ty, py){
   ctx.font = 'bold 9.5px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgba(58,42,24,.55)';
   ctx.fillText(i18n('maybe'), 76 + bw - 10, ty + fs * 0.55 + fs * 1.45 * (r.talk.length - 0.5) + 1);
 }
+// [GH]
 function makeShareCanvas(){
   const c = document.createElement('canvas'); c.width = CARD.w * CARD.k; c.height = CARD.h * CARD.k;
   const g = c.getContext('2d'), keep = ctx;
@@ -3924,6 +3939,7 @@ function makeShareCanvas(){
   } finally { ctx = keep; }
   return c;
 }
+// [/GH]
 // ロゴ・タイプ・イキモン・名前(結果画面とシェア画像で共通)
 // u：リザルトが始まってからの時間（共有画像などは 省略して 出きった状態）
 // 相棒の登場はタイトルの舞台と同じ：台紙が広がる → シルエットがポンと出る → ピカッと色がつく → 名前
@@ -4066,6 +4082,7 @@ function drawButtons(){
   }
   ctx.restore();
 }
+// [GH]
 function drawToast(){
   if (!toast) return;
   const a = time - toast.t; if (a > 2.4){ toast = null; return; }
@@ -4076,13 +4093,17 @@ function drawToast(){
   ctx.fillStyle = '#fff8ea'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(toast.text, W / 2, 501);
   ctx.restore();
 }
+// [/GH]
 function drawResult(){
   const r = result;
   if (r.special){
     drawSpecialTop(r, Math.min(1, phaseT / 0.25));
     bubble(60, 458, 240, i18n('specialTalk'), 13, W / 2, 446);
     drawSpecialTag();
-    drawButtons(); drawToast();
+    drawButtons();
+    // [GH]
+    drawToast();
+    // [/GH]
     return;
   }
   drawResultTop(r, phaseT, true);
@@ -4097,7 +4118,10 @@ function drawResult(){
   ctx.fillStyle = 'rgba(58,42,24,.55)'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(i18n('meterTitle'), M.x + 12, M.y + 12);
   const ax0 = lang === 'ja' ? 92 : 100; // 英語は右の言葉(Thoughtful など)が長いので 棒を少し短く
   drawAxes(r, M.y + 31, 19, ax0, W - ax0);
-  drawButtons(); drawToast();
+  drawButtons();
+  // [GH]
+  drawToast();
+  // [/GH]
 }
 
 let last = performance.now();

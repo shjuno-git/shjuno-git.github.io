@@ -4,7 +4,9 @@
 const I18N = {
   ja: {
     pageTitle: "ワシが決めた！～トーシロ博士の相棒イキモン診断～",
+    // [GH]
     shareTag: "ワシが決めた",   // Xの投稿に付けるハッシュタグ
+    // [/GH]
     profName: "トーシロ博士",
     subtitle: "トーシロ博士のイキモン診断",   // 「イキモン」には「生き物」のルビが付く
     // タイトル
@@ -104,11 +106,14 @@ const I18N = {
     altLabel: "次の候補",
     meterTitle: "せいかくメーター",
     btnAgain: "もう一度あそぶ",
+    // [GH]
     btnImg: "画像を保存",
     btnPost: "でポスト",
+    // [/GH]
     maybe: "……たぶんな。",
     specialTalk: ["何もせんとは… たまげた!", "そんな君の相棒は ワシが", "つとめてやろう!"],
     specialTag: "★ 何もしないと会える!? ★",
+    // [GH]
     // 画像保存ダイアログ・X投稿(share.js)
     shareAria: "画像を保存",
     shareImgAlt: "診断結果の画像",
@@ -121,10 +126,13 @@ const I18N = {
     shareCopied: "ひらけなかったので 投稿文をコピーしたぞ",
     shareXFail: "Xをひらけなかった…",
     shareImgFail: "画像を作れなかった…",
+    // [/GH]
   },
   en: {
     pageTitle: "I Choose For You! ~ Prof. Noak's Buddy Critter Quiz ~",
+    // [GH]
     shareTag: "IChooseForYou",
+    // [/GH]
     profName: "Prof. Noak",
     subtitle: "Prof. Noak's Buddy Critter Quiz",
     titleTalk: ["Take a Critter, traveler!", "Show me what's in your bag,", "and I'll find your buddy!"],
@@ -217,11 +225,14 @@ const I18N = {
     altLabel: "Runner-up",
     meterTitle: "Personality Meter",
     btnAgain: "Play Again",
+    // [GH]
     btnImg: "Save Image",
     btnPost: "Post",
+    // [/GH]
     maybe: "...Probably.",
     specialTalk: ["Did absolutely nothing?! Wow!", "Then I shall be your buddy", "myself!"],
     specialTag: "★ Do nothing to meet me!? ★",
+    // [GH]
     shareAria: "Save image",
     shareImgAlt: "Quiz result image",
     shareHint: "Press and hold the image to save it",
@@ -233,6 +244,7 @@ const I18N = {
     shareCopied: "Couldn't open it, so the post text was copied",
     shareXFail: "Couldn't open X...",
     shareImgFail: "Couldn't make the image...",
+    // [/GH]
   },
 };
 const LANG_KEY = "ikimon_lang";
